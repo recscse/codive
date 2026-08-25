@@ -73,8 +73,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist/*.tar.gz dist/*.zip
-          if-no-files-found: ignore
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
 
   publish:
     name: Publish GitHub Release
@@ -85,11 +86,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release_assets
+          pattern: binary-*
           merge-multiple: true
 
       - name: Generate Checksums
         run: |
+          mkdir -p release_assets
           cd release_assets
+          ls -la
           sha256sum * > checksums.txt
           cat checksums.txt
 
