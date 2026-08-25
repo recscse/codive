@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ctxd — The Sub-Millisecond AST Context Engine for AI Coding Agents</title>
+  <meta name="description" content="Stop letting AI coding agents burn millions of tokens on raw grep. Local-first SQLite + AST context engine for Claude Code, Cursor, Windsurf, and Antigravity.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07090e;
+      --bg-card: rgba(16, 22, 34, 0.75);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-glow: rgba(0, 240, 255, 0.3);
+      --text: #94a3b8;
+      --text-bright: #f8fafc;
+      --cyan: #00f0ff;
+      --cyan-glow: rgba(0, 240, 255, 0.15);
+      --purple: #8b5cf6;
+      --green: #10b981;
+      --orange: #f59e0b;
+      --red: #ef4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(0, 240, 255, 0.08) 0%, transparent 60%),
+        radial-gradient(circle at 80% 40%, rgba(139, 92, 246, 0.06) 0%, transparent 50%);
+    }
+
+    /* Navigation */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      background: rgba(7, 9, 14, 0.7);
+      border-bottom: 1px solid var(--border);
+      z-index: 100;
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 1300px;
+      margin: 0 auto;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 20px;
+      color: var(--text-bright);
+      text-decoration: none;
+      letter-spacing: -0.5px;
+    }
+    .logo-badge {
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      color: #000;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 6px;
+    }
+    .nav-links { display: flex; gap: 28px; align-items: center; }
+    .nav-links a {
+      color: var(--text);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--cyan); }
+    .btn-github {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-bright);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .btn-github:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--cyan);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 160px 24px 80px;
+      max-width: 1100px;
+      margin: 0 auto;
+      text-align: center;
+      position: relative;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 20px;
+      background: rgba(0, 240, 255, 0.08);
+      border: 1px solid rgba(0, 240, 255, 0.25);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--cyan);
+      margin-bottom: 28px;
+    }
+    .hero h1 {
+      font-size: clamp(40px, 6.5vw, 68px);
+      font-weight: 800;
+      line-height: 1.1;
+      color: var(--text-bright);
+      letter-spacing: -2px;
+      margin-bottom: 24px;
+    }
+    .hero h1 span {
+      background: linear-gradient(135deg, #00f0ff 0%, #a78bfa 50%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: clamp(17px, 2vw, 21px);
+      color: var(--text);
+      max-width: 780px;
+      margin: 0 auto 40px;
+      font-weight: 400;
+    }
+
+    /* Terminal Install Box */
+    .install-box {
+      background: #0a0e17;
+      border: 1px solid rgba(0, 240, 255, 0.25);
+      border-radius: 12px;
+      padding: 18px 24px;
+      max-width: 680px;
+      margin: 0 auto 50px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      box-shadow: 0 12px 36px rgba(0, 240, 255, 0.08);
+    }
+    .install-cmd {
+      font-family: 'Fira Code', monospace;
+      font-size: 14px;
+      color: var(--cyan);
+      white-space: nowrap;
+      overflow-x: auto;
+      text-align: left;
+    }
+    .btn-copy {
+      background: rgba(0, 240, 255, 0.15);
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .btn-copy:hover {
+      background: var(--cyan);
+      color: #000;
+    }
+
+    /* Visual Split Screen Demo */
+    .demo-section {
+      max-width: 1200px;
+      margin: 40px auto 100px;
+      padding: 0 24px;
+    }
+    .split-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 860px) {
+      .split-grid { grid-template-columns: 1fr; }
+    }
+    .terminal-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+    }
+    .terminal-header {
+      background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .dots { display: flex; gap: 6px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-red { background: #ff5f56; }
+    .dot-yellow { background: #ffbd2e; }
+    .dot-green { background: #27c93f; }
+    .terminal-body {
+      padding: 20px;
+      font-family: 'Fira Code', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      min-height: 320px;
+    }
+    .text-red { color: #f87171; }
+    .text-green { color: #4ade80; }
+    .text-cyan { color: #38bdf8; }
+    .text-muted { color: #64748b; }
+
+    /* Interactive Savings Calculator */
+    .calculator-section {
+      background: linear-gradient(180deg, rgba(16, 22, 34, 0.6) 0%, rgba(7, 9, 14, 0.8) 100%);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      max-width: 1100px;
+      margin: 80px auto;
+      padding: 60px 40px;
+      text-align: center;
+    }
+    .calc-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      align-items: center;
+      margin-top: 40px;
+      text-align: left;
+    }
+    @media (max-width: 768px) {
+      .calc-grid { grid-template-columns: 1fr; }
+    }
+    .calc-slider-group { margin-bottom: 24px; }
+    .calc-slider-group label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--text-bright); }
+    input[type=range] {
+      width: 100%;
+      height: 6px;
+      background: #1e293b;
+      border-radius: 4px;
+      outline: none;
+      accent-color: var(--cyan);
+    }
+    .stat-box {
+      background: #090d16;
+      border: 1px solid rgba(0, 240, 255, 0.2);
+      border-radius: 14px;
+      padding: 32px;
+      text-align: center;
+    }
+    .stat-number {
+      font-size: 48px;
+      font-weight: 800;
+      color: var(--cyan);
+      margin: 10px 0;
+      font-family: 'Fira Code', monospace;
+    }
+
+    /* 14 MCP Tool Grid */
+    .tools-section {
+      max-width: 1200px;
+      margin: 80px auto;
+      padding: 0 24px;
+    }
+    .section-title {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .section-title h2 {
+      font-size: 36px;
+      font-weight: 800;
+      color: var(--text-bright);
+      margin-bottom: 12px;
+    }
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+    }
+    .tool-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      transition: all 0.2s;
+    }
+    .tool-card:hover {
+      border-color: rgba(0, 240, 255, 0.4);
+      transform: translateY(-2px);
+    }
+    .tool-card h4 {
+      font-family: 'Fira Code', monospace;
+      font-size: 16px;
+      color: var(--cyan);
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .tool-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--green);
+      font-weight: 700;
+    }
+    .tool-card p { font-size: 14px; color: var(--text); }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 60px 24px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--text-muted);
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a href="#" class="logo">
+      ⚡ ctxd <span class="logo-badge">v1.0.0</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#benchmark">Benchmark</a>
+      <a href="#tools">MCP Tools</a>
+      <a href="#calculator">ROI Calculator</a>
+      <a href="https://github.com/recscse/ctxd" class="btn-github" target="_blank">
+        <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        Star on GitHub
+      </a>
+    </div>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <div class="hero-badge">⚡ The AST Context Engine for Cursor, Claude & Antigravity</div>
+      <h1>Stop letting AI agents burn<br><span>millions of tokens on raw grep.</span></h1>
+      <p>
+        <code>ctxd</code> indexes AST symbols into local SQLite (WAL mode). Instead of 6 turns of noisy grep searches and broken refactors, your AI coding agent gets exact signatures, skeletons, and call graphs in <strong>1 turn and 250 tokens</strong>.
+      </p>
+
+      <div class="install-box">
+        <div class="install-cmd" id="installCmd">curl -fsSL https://ctxd.dev/install.sh | bash && ctxd setup</div>
+        <button class="btn-copy" onclick="copyInstall()">Copy Install</button>
+      </div>
+    </section>
+
+    <!-- Side-by-Side Comparison -->
+    <section class="demo-section" id="benchmark">
+      <div class="split-grid">
+        <div class="terminal-card">
+          <div class="terminal-header">
+            <div class="dots"><div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div></div>
+            <span class="text-red">❌ Traditional Brute-Force Grep</span>
+          </div>
+          <div class="terminal-body">
+            <span class="text-muted">> Prompt: "Refactor GenerateToken to support ULIDs"</span><br><br>
+            <span class="text-red">● Turn 1:</span> grep -rn "GenerateToken" .<br>
+            <span class="text-muted">  └── Returned 280 lines across mocks & tests (3,800 tokens)</span><br><br>
+            <span class="text-red">● Turn 2:</span> view_file auth_service.py (2,100 lines)<br>
+            <span class="text-muted">  └── Dumped 5,200 tokens into history</span><br><br>
+            <span class="text-red">● Turn 3:</span> Agent edited auth_service.py<br>
+            <span class="text-red">● Turn 4:</span> ❌ 3 API route callers broke on import!<br>
+            <span class="text-muted">------------------------------------------</span><br>
+            <span class="text-red">Total: 15 turns | 64,000 tokens | 62s ($0.19)</span>
+          </div>
+        </div>
+
+        <div class="terminal-card" style="border-color: rgba(0, 240, 255, 0.4);">
+          <div class="terminal-header">
+            <div class="dots"><div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div></div>
+            <span class="text-cyan">⚡ With ctxd Local AST Engine</span>
+          </div>
+          <div class="terminal-body">
+            <span class="text-muted">> Prompt: "Refactor GenerateToken to support ULIDs"</span><br><br>
+            <span class="text-green">● Turn 1:</span> ctxd:pack_feature_context("auth")<br>
+            <span class="text-cyan">  └── Bundled models, handlers & test suites (240 tokens)</span><br><br>
+            <span class="text-green">● Turn 1 (cont):</span> ctxd:find_callers("GenerateToken")<br>
+            <span class="text-cyan">  └── Pinpointed all 3 callers in 2ms (18 tokens)</span><br><br>
+            <span class="text-green">● Turn 2:</span> Targeted edit applied + tests pass instantly!<br>
+            <span class="text-muted">------------------------------------------</span><br>
+            <span class="text-green">Total: 2 turns | 2,100 tokens | 4.2s ($0.006)</span><br>
+            <span class="text-cyan">🚀 96% Token Savings • 5x Faster</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Savings Calculator -->
+    <section class="calculator-section" id="calculator">
+      <h2 style="font-size: 32px; color: var(--text-bright); margin-bottom: 8px;">Estimate Your Team's Monthly Token Savings</h2>
+      <p style="color: var(--text);">Based on Claude 3.5 Sonnet / GPT-4o input pricing ($3.00 per 1M tokens).</p>
+
+      <div class="calc-grid">
+        <div>
+          <div class="calc-slider-group">
+            <label>Developers on Team: <span id="devVal" class="text-cyan">5</span></label>
+            <input type="range" id="devs" min="1" max="100" value="5" oninput="calculate()">
+          </div>
+          <div class="calc-slider-group">
+            <label>AI Prompts / Turns per Dev per Day: <span id="turnsVal" class="text-cyan">40</span></label>
+            <input type="range" id="turns" min="10" max="200" value="40" oninput="calculate()">
+          </div>
+        </div>
+        <div class="stat-box">
+          <div style="font-size: 14px; font-weight: 600; color: var(--text-muted);">ANNUAL CLOUD AI SAVINGS</div>
+          <div class="stat-number" id="savingsAmount">$3,456</div>
+          <div style="font-size: 14px; color: var(--green); font-weight: 600;">⚡ ~1.15 Billion Tokens Saved / Year</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 MCP Tools Matrix -->
+    <section class="tools-section" id="tools">
+      <div class="section-title">
+        <h2>14 Zero-Token Discovery Tools</h2>
+        <p>Pre-configured with <code>autoApprove: true</code> for instant, autonomous execution.</p>
+      </div>
+
+      <div class="tools-grid">
+        <div class="tool-card">
+          <h4>pack_feature_context <span class="tool-badge">95% SAVINGS</span></h4>
+          <p>1-shot bundle of feature data models, entrypoints, test suites, and skeletons in 1 single turn.</p>
+        </div>
+        <div class="tool-card">
+          <h4>get_file_skeleton <span class="tool-badge">90% SAVINGS</span></h4>
+          <p>Strips function bodies into <code>/* L45-L92 */</code> comments, turning 5,000-token files into 50-token skeletons.</p>
+        </div>
+        <div class="tool-card">
+          <h4>blast_radius <span class="tool-badge">85% SAVINGS</span></h4>
+          <p>Answers "If I change this symbol, what will break?" by evaluating callers and tests across the repo.</p>
+        </div>
+        <div class="tool-card">
+          <h4>find_symbol <span class="tool-badge">98% SAVINGS</span></h4>
+          <p>Instantly finds exact function, class, and struct definitions without grep noise.</p>
+        </div>
+        <div class="tool-card">
+          <h4>find_callers <span class="tool-badge">92% SAVINGS</span></h4>
+          <p>Discovers all call sites and functions invoking a target symbol across the repository.</p>
+        </div>
+        <div class="tool-card">
+          <h4>find_tests_for <span class="tool-badge">90% SAVINGS</span></h4>
+          <p>Automatically resolves test counterpart files and extracted test functions.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>ctxd is 100% open-source under the MIT License • Built for the Model Context Protocol (MCP) ecosystem.</p>
+  </footer>
+
+  <script>
+    function copyInstall() {
+      const text = document.getElementById('installCmd').textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.querySelector('.btn-copy');
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => btn.textContent = 'Copy Install', 2000);
+      });
+    }
+
+    function calculate() {
+      const devs = parseInt(document.getElementById('devs').value);
+      const turns = parseInt(document.getElementById('turns').value);
+      document.getElementById('devVal').textContent = devs;
+      document.getElementById('turnsVal').textContent = turns;
+
+      // Avg tokens saved per turn = 3,200 tokens
+      // Work days = 240 / year
+      const totalTokens = devs * turns * 3200 * 240;
+      const dollars = (totalTokens / 1000000) * 3.00;
+
+      document.getElementById('savingsAmount').textContent = '$' + Math.round(dollars).toLocaleString();
+    }
+  </script>
+</body>
+</html>

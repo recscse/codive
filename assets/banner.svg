@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradients -->
+    <radialGradient id="bg-glow-1" cx="20%" cy="30%" r="60%">
+      <stop offset="0%" stop-color="#00F0FF" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#07090E" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="bg-glow-2" cx="80%" cy="70%" r="50%">
+      <stop offset="0%" stop-color="#7000FF" stop-opacity="0.1" />
+      <stop offset="100%" stop-color="#07090E" stop-opacity="0" />
+    </radialGradient>
+    
+    <!-- Gradient for Text & Bolt -->
+    <linearGradient id="text-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00F0FF" />
+      <stop offset="50%" stop-color="#A78BFA" />
+      <stop offset="100%" stop-color="#38BDF8" />
+    </linearGradient>
+    <linearGradient id="bolt-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F0FF" />
+      <stop offset="50%" stop-color="#7000FF" />
+      <stop offset="100%" stop-color="#FF007A" />
+    </linearGradient>
+    <linearGradient id="border-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F0FF" stop-opacity="0.6" />
+      <stop offset="50%" stop-color="#7000FF" stop-opacity="0.2" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.05" />
+    </linearGradient>
+
+    <!-- Filters -->
+    <filter id="glow-heavy" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="10" result="blur1" />
+      <feGaussianBlur stdDeviation="4" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur1" />
+        <feMergeNode in="blur2" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Base Dark Canvas -->
+  <rect width="1200" height="380" rx="16" fill="#07090E" />
+  <rect width="1200" height="380" rx="16" fill="url(#bg-glow-1)" />
+  <rect width="1200" height="380" rx="16" fill="url(#bg-glow-2)" />
+  <rect width="1198" height="378" x="1" y="1" rx="15" fill="none" stroke="url(#border-grad)" stroke-width="1.5" />
+
+  <!-- Abstract AST Connection Grid (Right Side) -->
+  <g opacity="0.25" stroke="#00F0FF" stroke-width="1.5">
+    <line x1="820" y1="80" x2="940" y2="140" />
+    <line x1="940" y1="140" x2="1080" y2="100" />
+    <line x1="940" y1="140" x2="900" y2="260" />
+    <line x1="900" y1="260" x2="1040" y2="300" />
+    <line x1="1080" y1="100" x2="1140" y2="220" />
+    <line x1="1040" y1="300" x2="1140" y2="220" />
+    <circle cx="820" cy="80" r="5" fill="#00F0FF" />
+    <circle cx="940" cy="140" r="7" fill="#7000FF" />
+    <circle cx="1080" cy="100" r="5" fill="#38BDF8" />
+    <circle cx="900" cy="260" r="6" fill="#00F0FF" />
+    <circle cx="1040" cy="300" r="5" fill="#FF007A" />
+    <circle cx="1140" cy="220" r="6" fill="#A78BFA" />
+  </g>
+
+  <!-- Left Logo Icon -->
+  <g transform="translate(100, 100)">
+    <rect width="160" height="160" rx="36" fill="#0A0E17" stroke="url(#border-grad)" stroke-width="2" />
+    <g opacity="0.4" stroke="#00F0FF" stroke-width="1.5">
+      <line x1="38" y1="44" x2="72" y2="78" />
+      <line x1="122" y1="44" x2="88" y2="78" />
+      <line x1="72" y1="78" x2="80" y2="128" />
+      <circle cx="38" cy="44" r="4" fill="#00F0FF" />
+      <circle cx="122" cy="44" r="4" fill="#7000FF" />
+      <circle cx="80" cy="128" r="4" fill="#FF007A" />
+    </g>
+    <!-- Lightning bolt inside logo box -->
+    <polygon points="90,26 44,84 80,84 70,138 120,72 86,72" fill="url(#bolt-grad)" filter="url(#glow-heavy)" />
+  </g>
+
+  <!-- Main Branding Typography -->
+  <g transform="translate(300, 130)">
+    <!-- Brand Name -->
+    <text x="0" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif" font-size="64" font-weight="900" fill="url(#text-grad)" letter-spacing="-2px">
+      ctxd
+    </text>
+    <text x="148" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif" font-size="20" font-weight="700" fill="#00F0FF" opacity="0.9">
+      v1.0.0
+    </text>
+
+    <!-- Tagline -->
+    <text x="0" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif" font-size="22" font-weight="600" fill="#F8FAFC">
+      Sub-Millisecond AST Context Engine for AI Coding Agents
+    </text>
+
+    <!-- Subtext -->
+    <text x="0" y="126" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif" font-size="15" font-weight="400" fill="#94A3B8">
+      Cuts token costs by 80% • 14 MCP Tools • SQLite WAL Engine • Zero Cloud Telemetry
+    </text>
+
+    <!-- Pill Badges inside Banner -->
+    <g transform="translate(0, 150)">
+      <!-- Pill 1: Claude Code -->
+      <rect width="114" height="26" rx="6" fill="#1E293B" />
+      <text x="57" y="17" text-anchor="middle" font-family="-apple-system, sans-serif" font-size="11" font-weight="700" fill="#CBD5E1">Claude Code</text>
+
+      <!-- Pill 2: Cursor -->
+      <rect x="122" width="76" height="26" rx="6" fill="#1E293B" />
+      <text x="160" y="17" text-anchor="middle" font-family="-apple-system, sans-serif" font-size="11" font-weight="700" fill="#CBD5E1">Cursor</text>
+
+      <!-- Pill 3: Windsurf -->
+      <rect x="206" width="90" height="26" rx="6" fill="#1E293B" />
+      <text x="251" y="17" text-anchor="middle" font-family="-apple-system, sans-serif" font-size="11" font-weight="700" fill="#CBD5E1">Windsurf</text>
+
+      <!-- Pill 4: Antigravity -->
+      <rect x="304" width="102" height="26" rx="6" fill="#1E293B" />
+      <text x="355" y="17" text-anchor="middle" font-family="-apple-system, sans-serif" font-size="11" font-weight="700" fill="#CBD5E1">Antigravity</text>
+
+      <!-- Pill 5: MCP -->
+      <rect x="414" width="124" height="26" rx="6" fill="rgba(0,240,255,0.15)" stroke="#00F0FF" stroke-width="1" />
+      <text x="476" y="17" text-anchor="middle" font-family="-apple-system, sans-serif" font-size="11" font-weight="800" fill="#00F0FF">14 MCP Tools</text>
+    </g>
+  </g>
+</svg>

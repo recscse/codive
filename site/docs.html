@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation — ctxd Context Engine</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07090e;
+      --sidebar-bg: #0c1017;
+      --card-bg: #101622;
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #94a3b8;
+      --text-bright: #f8fafc;
+      --cyan: #00f0ff;
+      --purple: #8b5cf6;
+      --green: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, sans-serif;
+      line-height: 1.6;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Sidebar Navigation */
+    aside {
+      width: 280px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 20px;
+      overflow-y: auto;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 18px;
+      color: #fff;
+      text-decoration: none;
+      margin-bottom: 32px;
+    }
+    .brand span { color: var(--cyan); }
+    .nav-section { margin-bottom: 24px; }
+    .nav-title { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px; margin-bottom: 10px; }
+    .nav-list { list-style: none; }
+    .nav-list li { margin-bottom: 6px; }
+    .nav-list a {
+      color: var(--text);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      display: block;
+      padding: 6px 12px;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+    .nav-list a:hover, .nav-list a.active {
+      color: var(--cyan);
+      background: rgba(0, 240, 255, 0.08);
+    }
+
+    /* Main Content Area */
+    main {
+      flex: 1;
+      padding: 48px 64px;
+      overflow-y: auto;
+      max-width: 960px;
+    }
+    h1 { font-size: 32px; color: var(--text-bright); margin-bottom: 12px; font-weight: 800; }
+    h2 { font-size: 22px; color: var(--text-bright); margin: 36px 0 16px; font-weight: 700; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    h3 { font-size: 17px; color: var(--cyan); margin: 24px 0 10px; font-weight: 600; font-family: 'Fira Code', monospace; }
+    p { margin-bottom: 16px; font-size: 15px; }
+    pre {
+      background: #090d16;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      font-family: 'Fira Code', monospace;
+      font-size: 13px;
+      color: #38bdf8;
+      overflow-x: auto;
+      margin: 16px 0 24px;
+    }
+    code { font-family: 'Fira Code', monospace; font-size: 13px; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; color: #f8fafc; }
+    table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 14px; }
+    th, td { border: 1px solid var(--border); padding: 10px 14px; text-align: left; }
+    th { background: rgba(255,255,255,0.03); color: var(--text-bright); font-weight: 600; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; background: rgba(16, 185, 129, 0.15); color: var(--green); }
+  </style>
+</head>
+<body>
+
+  <aside>
+    <a href="index.html" class="brand">⚡ ctxd <span>Docs</span></a>
+    
+    <div class="nav-section">
+      <div class="nav-title">Getting Started</div>
+      <ul class="nav-list">
+        <li><a href="#quickstart" class="active">1-Minute Quickstart</a></li>
+        <li><a href="#editors">Editor Configuration</a></li>
+        <li><a href="#cli">CLI Commands</a></li>
+      </ul>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-title">MCP Tools (14 Tools)</div>
+      <ul class="nav-list">
+        <li><a href="#pack">pack_feature_context</a></li>
+        <li><a href="#skeleton">get_file_skeleton</a></li>
+        <li><a href="#blast">blast_radius</a></li>
+        <li><a href="#callers">find_callers & callees</a></li>
+        <li><a href="#tests">find_tests_for</a></li>
+        <li><a href="#map">get_repo_map</a></li>
+      </ul>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-title">Architecture</div>
+      <ul class="nav-list">
+        <li><a href="#ast-engine">AST Engine & SQLite WAL</a></li>
+        <li><a href="#drift">Line-Number Drift Protection</a></li>
+      </ul>
+    </div>
+  </aside>
+
+  <main>
+    <h1 id="quickstart">⚡ Quickstart & Installation</h1>
+    <p><code>ctxd</code> is a local-first Model Context Protocol (MCP) server that indexes AST symbols into SQLite to give AI coding agents instant repository context with 80% fewer tokens.</p>
+
+    <h2>Universal One-Liner Install</h2>
+    <p>Run the universal installer in your terminal:</p>
+
+    <pre><code># macOS & Linux
+curl -fsSL https://ctxd.dev/install.sh | bash && ctxd setup
+
+# Windows PowerShell
+irm https://ctxd.dev/install.ps1 | iex; ctxd setup</code></pre>
+
+    <h2 id="editors">Supported AI Clients</h2>
+    <p><code>ctxd setup</code> automatically writes the MCP configuration with <code>autoApprove: true</code> to:</p>
+    <ul>
+      <li><strong>Claude Desktop</strong>: <code>claude_desktop_config.json</code></li>
+      <li><strong>Cursor IDE</strong>: <code>~/.cursor/mcp.json</code></li>
+      <li><strong>Google Antigravity</strong>: Global & workspace rules</li>
+      <li><strong>VS Code (Continue / Cline)</strong>: <code>~/.continue/config.json</code></li>
+      <li><strong>Windsurf</strong>: <code>.windsurfrules</code></li>
+    </ul>
+
+    <h2 id="cli">Essential CLI Commands</h2>
+    <table>
+      <thead>
+        <tr><th>Command</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>ctxd setup</code></td><td>Auto-configures MCP in installed AI tools</td></tr>
+        <tr><td><code>ctxd init</code></td><td>Scans & indexes repository from scratch</td></tr>
+        <tr><td><code>ctxd stats</code></td><td>Displays real-time tokens & money saved counter</td></tr>
+        <tr><td><code>ctxd blast &lt;symbol&gt;</code></td><td>Analyzes PR blast radius & affected test suites</td></tr>
+        <tr><td><code>ctxd map --web</code></td><td>Launches interactive visual network graph on localhost:7890</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="pack">Core MCP Tools</h2>
+
+    <h3>1. pack_feature_context</h3>
+    <p>Given a feature keyword (e.g. <code>auth</code>, <code>database</code>), bundles related routes, data models, schemas, and test suites into a single 250-token context summary.</p>
+
+    <h3>2. get_file_skeleton</h3>
+    <p>Strips function bodies into <code>/* L45-L92 */</code> comments, compressing 2,000-line files (5,000 tokens) into 50-token skeletons.</p>
+
+    <h3>3. blast_radius</h3>
+    <p>Evaluates caller sites and affected files across the repository to tell the AI agent what will break before refactoring.</p>
+  </main>
+
+</body>
+</html>
