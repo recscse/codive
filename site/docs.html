@@ -5,28 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Documentation — ctxd Context Engine</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #07090e;
-      --sidebar-bg: #0c1017;
-      --card-bg: #101622;
-      --border: rgba(255, 255, 255, 0.08);
+      --bg: #06070a;
+      --sidebar-bg: #090b10;
+      --card-bg: rgba(14, 17, 26, 0.7);
+      --border: rgba(255, 255, 255, 0.07);
+      --text-muted: #64748b;
       --text: #94a3b8;
       --text-bright: #f8fafc;
       --cyan: #00f0ff;
+      --cyan-dim: rgba(0, 240, 255, 0.12);
       --purple: #8b5cf6;
-      --green: #10b981;
+      --emerald: #10b981;
+      --emerald-dim: rgba(16, 185, 129, 0.12);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       background: var(--bg);
       color: var(--text);
       font-family: 'Inter', -apple-system, sans-serif;
-      line-height: 1.6;
+      line-height: 1.65;
       display: flex;
       height: 100vh;
       overflow: hidden;
+      -webkit-font-smoothing: antialiased;
     }
 
     /* Sidebar Navigation */
@@ -51,9 +55,9 @@
     }
     .brand span { color: var(--cyan); }
     .nav-section { margin-bottom: 24px; }
-    .nav-title { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px; margin-bottom: 10px; }
+    .nav-title { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 10px; }
     .nav-list { list-style: none; }
-    .nav-list li { margin-bottom: 6px; }
+    .nav-list li { margin-bottom: 4px; }
     .nav-list a {
       color: var(--text);
       text-decoration: none;
@@ -62,42 +66,42 @@
       display: block;
       padding: 6px 12px;
       border-radius: 6px;
-      transition: all 0.2s;
+      transition: all 0.15s;
     }
     .nav-list a:hover, .nav-list a.active {
       color: var(--cyan);
-      background: rgba(0, 240, 255, 0.08);
+      background: var(--cyan-dim);
     }
 
     /* Main Content Area */
     main {
       flex: 1;
-      padding: 48px 64px;
+      padding: 56px 64px;
       overflow-y: auto;
-      max-width: 980px;
+      max-width: 960px;
     }
-    h1 { font-size: 32px; color: var(--text-bright); margin-bottom: 12px; font-weight: 800; }
-    h2 { font-size: 22px; color: var(--text-bright); margin: 36px 0 16px; font-weight: 700; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    h1 { font-size: 34px; color: var(--text-bright); margin-bottom: 12px; font-weight: 900; letter-spacing: -0.03em; }
+    h2 { font-size: 22px; color: var(--text-bright); margin: 40px 0 16px; font-weight: 800; border-bottom: 1px solid var(--border); padding-bottom: 8px; letter-spacing: -0.02em; }
     h3 { font-size: 16px; color: var(--cyan); margin: 24px 0 10px; font-weight: 600; font-family: 'Fira Code', monospace; }
     p { margin-bottom: 16px; font-size: 15px; }
     pre {
-      background: #090d16;
+      background: #090c14;
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 16px 20px;
       font-family: 'Fira Code', monospace;
       font-size: 13px;
-      color: #38bdf8;
+      color: #7dd3fc;
       overflow-x: auto;
       margin: 16px 0 24px;
     }
     code { font-family: 'Fira Code', monospace; font-size: 13px; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; color: #f8fafc; }
     table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 14px; }
-    th, td { border: 1px solid var(--border); padding: 10px 14px; text-align: left; }
-    th { background: rgba(255,255,255,0.03); color: var(--text-bright); font-weight: 600; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; background: rgba(16, 185, 129, 0.15); color: var(--green); }
+    th, td { border: 1px solid var(--border); padding: 12px 16px; text-align: left; }
+    th { background: rgba(255,255,255,0.02); color: var(--text-bright); font-weight: 700; font-size: 12.5px; text-transform: uppercase; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; background: var(--emerald-dim); color: var(--emerald); }
     .back-home { margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; }
-    .back-home a { color: var(--cyan); text-decoration: none; }
+    .back-home a { color: var(--cyan); text-decoration: none; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -130,7 +134,7 @@
       <div class="nav-title">Architecture</div>
       <ul class="nav-list">
         <li><a href="#ast-engine">AST Engine & SQLite WAL</a></li>
-        <li><a href="#drift">Line-Number Drift Protection</a></li>
+        <li><a href="#drift">Line Drift Protection</a></li>
       </ul>
     </div>
 
