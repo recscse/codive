@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ctxd — The Sub-Millisecond AST Context Engine for AI Coding Agents</title>
+  <title>ctxd — Sub-Millisecond AST Context Engine for AI Coding Agents</title>
   <meta name="description" content="Stop letting AI coding agents burn millions of tokens on raw grep. Local-first SQLite + AST context engine for Claude Code, Cursor, Windsurf, and Antigravity.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -101,7 +102,7 @@
 
     /* Hero Section */
     .hero {
-      padding: 160px 24px 80px;
+      padding: 160px 24px 60px;
       max-width: 1100px;
       margin: 0 auto;
       text-align: center;
@@ -118,12 +119,12 @@
       font-size: 13px;
       font-weight: 600;
       color: var(--cyan);
-      margin-bottom: 28px;
+      margin-bottom: 24px;
     }
     .hero h1 {
-      font-size: clamp(40px, 6.5vw, 68px);
+      font-size: clamp(38px, 6vw, 64px);
       font-weight: 800;
-      line-height: 1.1;
+      line-height: 1.15;
       color: var(--text-bright);
       letter-spacing: -2px;
       margin-bottom: 24px;
@@ -134,26 +135,50 @@
       -webkit-text-fill-color: transparent;
     }
     .hero p {
-      font-size: clamp(17px, 2vw, 21px);
+      font-size: clamp(16px, 2vw, 20px);
       color: var(--text);
-      max-width: 780px;
-      margin: 0 auto 40px;
+      max-width: 820px;
+      margin: 0 auto 36px;
       font-weight: 400;
     }
 
-    /* Terminal Install Box */
-    .install-box {
-      background: #0a0e17;
+    /* Install Tabs */
+    .install-container {
+      max-width: 740px;
+      margin: 0 auto 60px;
+      background: #090d16;
       border: 1px solid rgba(0, 240, 255, 0.25);
-      border-radius: 12px;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 12px 36px rgba(0, 240, 255, 0.08);
+    }
+    .install-tabs {
+      display: flex;
+      background: rgba(255, 255, 255, 0.03);
+      border-bottom: 1px solid var(--border);
+    }
+    .install-tab {
+      padding: 12px 24px;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    .install-tab.active {
+      color: var(--cyan);
+      border-bottom-color: var(--cyan);
+      background: rgba(0, 240, 255, 0.04);
+    }
+    .install-box {
       padding: 18px 24px;
-      max-width: 680px;
-      margin: 0 auto 50px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      box-shadow: 0 12px 36px rgba(0, 240, 255, 0.08);
     }
     .install-cmd {
       font-family: 'Fira Code', monospace;
@@ -180,20 +205,19 @@
       color: #000;
     }
 
-    /* Visual Split Screen Demo */
-    .demo-section {
-      max-width: 1200px;
-      margin: 40px auto 100px;
-      padding: 0 24px;
-    }
+    /* Section Styles */
+    section { padding: 80px 24px; max-width: 1200px; margin: 0 auto; }
+    .section-header { text-align: center; margin-bottom: 48px; }
+    .section-header h2 { font-size: 36px; font-weight: 800; color: var(--text-bright); margin-bottom: 12px; }
+    .section-header p { color: var(--text); max-width: 700px; margin: 0 auto; }
+
+    /* Comparison Grid */
     .split-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 24px;
     }
-    @media (max-width: 860px) {
-      .split-grid { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 860px) { .split-grid { grid-template-columns: 1fr; } }
     .terminal-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
@@ -228,13 +252,38 @@
     .text-cyan { color: #38bdf8; }
     .text-muted { color: #64748b; }
 
-    /* Interactive Savings Calculator */
+    /* Setup Guide Grid */
+    .setup-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 24px;
+    }
+    .setup-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+      transition: all 0.2s;
+    }
+    .setup-card:hover { border-color: rgba(0, 240, 255, 0.4); transform: translateY(-2px); }
+    .setup-card h3 { font-size: 18px; color: var(--text-bright); margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+    .setup-card pre {
+      background: #090d16;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-family: 'Fira Code', monospace;
+      font-size: 12px;
+      color: #38bdf8;
+      overflow-x: auto;
+      margin-top: 12px;
+    }
+
+    /* Calculator Box */
     .calculator-section {
       background: linear-gradient(180deg, rgba(16, 22, 34, 0.6) 0%, rgba(7, 9, 14, 0.8) 100%);
       border: 1px solid var(--border);
       border-radius: 20px;
-      max-width: 1100px;
-      margin: 80px auto;
       padding: 60px 40px;
       text-align: center;
     }
@@ -246,9 +295,7 @@
       margin-top: 40px;
       text-align: left;
     }
-    @media (max-width: 768px) {
-      .calc-grid { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 768px) { .calc-grid { grid-template-columns: 1fr; } }
     .calc-slider-group { margin-bottom: 24px; }
     .calc-slider-group label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--text-bright); }
     input[type=range] {
@@ -275,21 +322,6 @@
     }
 
     /* 14 MCP Tool Grid */
-    .tools-section {
-      max-width: 1200px;
-      margin: 80px auto;
-      padding: 0 24px;
-    }
-    .section-title {
-      text-align: center;
-      margin-bottom: 48px;
-    }
-    .section-title h2 {
-      font-size: 36px;
-      font-weight: 800;
-      color: var(--text-bright);
-      margin-bottom: 12px;
-    }
     .tools-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -308,7 +340,7 @@
     }
     .tool-card h4 {
       font-family: 'Fira Code', monospace;
-      font-size: 16px;
+      font-size: 15px;
       color: var(--cyan);
       margin-bottom: 8px;
       display: flex;
@@ -323,7 +355,7 @@
       color: var(--green);
       font-weight: 700;
     }
-    .tool-card p { font-size: 14px; color: var(--text); }
+    .tool-card p { font-size: 13.5px; color: var(--text); }
 
     /* Footer */
     footer {
@@ -331,10 +363,11 @@
       padding: 60px 24px;
       text-align: center;
       font-size: 14px;
-      color: var(--text-muted);
+      color: var(--text);
       max-width: 1200px;
       margin: 0 auto;
     }
+    footer a { color: var(--cyan); text-decoration: none; }
   </style>
 </head>
 <body>
@@ -344,10 +377,11 @@
       ⚡ ctxd <span class="logo-badge">v1.0.0</span>
     </a>
     <div class="nav-links">
-      <a href="#features">Features</a>
-      <a href="#benchmark">Benchmark</a>
-      <a href="#tools">MCP Tools</a>
+      <a href="#benchmark">Benchmarks</a>
+      <a href="#setup">Setup Guide</a>
+      <a href="#tools">14 MCP Tools</a>
       <a href="#calculator">ROI Calculator</a>
+      <a href="docs.html">Documentation</a>
       <a href="https://github.com/recscse/ctxd" class="btn-github" target="_blank">
         <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
         Star on GitHub
@@ -356,21 +390,34 @@
   </nav>
 
   <main>
+    <!-- Hero Section -->
     <section class="hero">
-      <div class="hero-badge">⚡ The AST Context Engine for Cursor, Claude & Antigravity</div>
-      <h1>Stop letting AI agents burn<br><span>millions of tokens on raw grep.</span></h1>
+      <div class="hero-badge">⚡ The Local AST Context Engine for Claude Code, Cursor & Antigravity</div>
+      <h1>Stop letting AI coding agents burn<br><span>millions of tokens on raw grep.</span></h1>
       <p>
-        <code>ctxd</code> indexes AST symbols into local SQLite (WAL mode). Instead of 6 turns of noisy grep searches and broken refactors, your AI coding agent gets exact signatures, skeletons, and call graphs in <strong>1 turn and 250 tokens</strong>.
+        <code>ctxd</code> indexes AST symbols into local SQLite (WAL mode). Instead of 6 turns of noisy grep searches, your AI agent gets exact signatures, skeletons, and call graphs in <strong>1 turn and 250 tokens (saving 80% to 95% of token costs)</strong>.
       </p>
 
-      <div class="install-box">
-        <div class="install-cmd" id="installCmd">curl -fsSL https://ctxd.dev/install.sh | bash && ctxd setup</div>
-        <button class="btn-copy" onclick="copyInstall()">Copy Install</button>
+      <div class="install-container">
+        <div class="install-tabs">
+          <button class="install-tab active" onclick="setTab('unix')">macOS / Linux (curl)</button>
+          <button class="install-tab" onclick="setTab('win')">Windows (PowerShell)</button>
+          <button class="install-tab" onclick="setTab('go')">Go Install</button>
+        </div>
+        <div class="install-box">
+          <div class="install-cmd" id="installCmd">curl -fsSL https://recscse.github.io/ctxd/install.sh | bash && ctxd setup</div>
+          <button class="btn-copy" onclick="copyInstall()">Copy Command</button>
+        </div>
       </div>
     </section>
 
     <!-- Side-by-Side Comparison -->
     <section class="demo-section" id="benchmark">
+      <div class="section-header">
+        <h2>Traditional Grep vs. ctxd Context Engine</h2>
+        <p>Why brute-force text search incinerates tokens and introduces regressions during multi-file refactoring.</p>
+      </div>
+
       <div class="split-grid">
         <div class="terminal-card">
           <div class="terminal-header">
@@ -382,7 +429,7 @@
             <span class="text-red">● Turn 1:</span> grep -rn "GenerateToken" .<br>
             <span class="text-muted">  └── Returned 280 lines across mocks & tests (3,800 tokens)</span><br><br>
             <span class="text-red">● Turn 2:</span> view_file auth_service.py (2,100 lines)<br>
-            <span class="text-muted">  └── Dumped 5,200 tokens into history</span><br><br>
+            <span class="text-muted">  └── Dumped 5,200 tokens into conversation history</span><br><br>
             <span class="text-red">● Turn 3:</span> Agent edited auth_service.py<br>
             <span class="text-red">● Turn 4:</span> ❌ 3 API route callers broke on import!<br>
             <span class="text-muted">------------------------------------------</span><br>
@@ -404,8 +451,49 @@
             <span class="text-green">● Turn 2:</span> Targeted edit applied + tests pass instantly!<br>
             <span class="text-muted">------------------------------------------</span><br>
             <span class="text-green">Total: 2 turns | 2,100 tokens | 4.2s ($0.006)</span><br>
-            <span class="text-cyan">🚀 96% Token Savings • 5x Faster</span>
+            <span class="text-cyan">🚀 96% Token Savings • 5x Faster Turnaround</span>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Setup Guide for All Editors -->
+    <section id="setup">
+      <div class="section-header">
+        <h2>Zero-Config Setup for All AI Assistants</h2>
+        <p>Run <code>ctxd setup</code> once in your repository root, or configure manually:</p>
+      </div>
+
+      <div class="setup-grid">
+        <div class="setup-card">
+          <h3>⚡ Cursor IDE</h3>
+          <p>Automatically configured in <code>~/.cursor/mcp.json</code>:</p>
+          <pre><code>{
+  "mcpServers": {
+    "ctxd": {
+      "command": "ctxd",
+      "args": ["serve"]
+    }
+  }
+}</code></pre>
+        </div>
+
+        <div class="setup-card">
+          <h3>🤖 Claude Desktop & Claude Code</h3>
+          <p>Configured in <code>claude_desktop_config.json</code>:</p>
+          <pre><code>{
+  "mcpServers": {
+    "ctxd": {
+      "command": "ctxd",
+      "args": ["serve"]
+    }
+  }
+}</code></pre>
+        </div>
+
+        <div class="setup-card">
+          <h3>🚀 Google Antigravity & Windsurf</h3>
+          <p>Auto-registers global MCP tools and exploration rules in <code>.cursorrules</code>, <code>CLAUDE.md</code>, and <code>GEMINI.md</code>.</p>
         </div>
       </div>
     </section>
@@ -434,11 +522,11 @@
       </div>
     </section>
 
-    <!-- 14 MCP Tools Matrix -->
+    <!-- 14 MCP Tool Grid -->
     <section class="tools-section" id="tools">
-      <div class="section-title">
-        <h2>14 Zero-Token Discovery Tools</h2>
-        <p>Pre-configured with <code>autoApprove: true</code> for instant, autonomous execution.</p>
+      <div class="section-header">
+        <h2>14 Zero-Token Discovery MCP Tools</h2>
+        <p>Pre-configured with <code>autoApprove: true</code> for instant, autonomous execution without confirmation popups.</p>
       </div>
 
       <div class="tools-grid">
@@ -471,16 +559,28 @@
   </main>
 
   <footer>
-    <p>ctxd is 100% open-source under the MIT License • Built for the Model Context Protocol (MCP) ecosystem.</p>
+    <p>ctxd is 100% open-source under the MIT License • Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a>.</p>
   </footer>
 
   <script>
+    const tabs = {
+      unix: "curl -fsSL https://recscse.github.io/ctxd/install.sh | bash && ctxd setup",
+      win: "irm https://recscse.github.io/ctxd/install.ps1 | iex; ctxd setup",
+      go: "go install github.com/recscse/ctxd@latest && ctxd setup"
+    };
+
+    function setTab(tabKey) {
+      document.querySelectorAll('.install-tab').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('installCmd').textContent = tabs[tabKey];
+    }
+
     function copyInstall() {
       const text = document.getElementById('installCmd').textContent;
       navigator.clipboard.writeText(text).then(() => {
         const btn = document.querySelector('.btn-copy');
         btn.textContent = '✓ Copied!';
-        setTimeout(() => btn.textContent = 'Copy Install', 2000);
+        setTimeout(() => btn.textContent = 'Copy Command', 2000);
       });
     }
 
@@ -490,11 +590,8 @@
       document.getElementById('devVal').textContent = devs;
       document.getElementById('turnsVal').textContent = turns;
 
-      // Avg tokens saved per turn = 3,200 tokens
-      // Work days = 240 / year
       const totalTokens = devs * turns * 3200 * 240;
       const dollars = (totalTokens / 1000000) * 3.00;
-
       document.getElementById('savingsAmount').textContent = '$' + Math.round(dollars).toLocaleString();
     }
   </script>

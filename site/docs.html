@@ -31,7 +31,7 @@
 
     /* Sidebar Navigation */
     aside {
-      width: 280px;
+      width: 290px;
       background: var(--sidebar-bg);
       border-right: 1px solid var(--border);
       display: flex;
@@ -74,11 +74,11 @@
       flex: 1;
       padding: 48px 64px;
       overflow-y: auto;
-      max-width: 960px;
+      max-width: 980px;
     }
     h1 { font-size: 32px; color: var(--text-bright); margin-bottom: 12px; font-weight: 800; }
     h2 { font-size: 22px; color: var(--text-bright); margin: 36px 0 16px; font-weight: 700; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
-    h3 { font-size: 17px; color: var(--cyan); margin: 24px 0 10px; font-weight: 600; font-family: 'Fira Code', monospace; }
+    h3 { font-size: 16px; color: var(--cyan); margin: 24px 0 10px; font-weight: 600; font-family: 'Fira Code', monospace; }
     p { margin-bottom: 16px; font-size: 15px; }
     pre {
       background: #090d16;
@@ -96,6 +96,8 @@
     th, td { border: 1px solid var(--border); padding: 10px 14px; text-align: left; }
     th { background: rgba(255,255,255,0.03); color: var(--text-bright); font-weight: 600; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; background: rgba(16, 185, 129, 0.15); color: var(--green); }
+    .back-home { margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; }
+    .back-home a { color: var(--cyan); text-decoration: none; }
   </style>
 </head>
 <body>
@@ -113,14 +115,14 @@
     </div>
 
     <div class="nav-section">
-      <div class="nav-title">MCP Tools (14 Tools)</div>
+      <div class="nav-title">14 MCP Tools</div>
       <ul class="nav-list">
-        <li><a href="#pack">pack_feature_context</a></li>
-        <li><a href="#skeleton">get_file_skeleton</a></li>
-        <li><a href="#blast">blast_radius</a></li>
-        <li><a href="#callers">find_callers & callees</a></li>
+        <li><a href="#pack">pack_feature_context (95%)</a></li>
+        <li><a href="#skeleton">get_file_skeleton (90%)</a></li>
+        <li><a href="#blast">blast_radius (85%)</a></li>
+        <li><a href="#symbols">find_symbol & callers</a></li>
         <li><a href="#tests">find_tests_for</a></li>
-        <li><a href="#map">get_repo_map</a></li>
+        <li><a href="#decisions">save & get_decisions</a></li>
       </ul>
     </div>
 
@@ -131,27 +133,34 @@
         <li><a href="#drift">Line-Number Drift Protection</a></li>
       </ul>
     </div>
+
+    <div class="back-home">
+      <a href="index.html">← Back to Main Website</a>
+    </div>
   </aside>
 
   <main>
     <h1 id="quickstart">⚡ Quickstart & Installation</h1>
-    <p><code>ctxd</code> is a local-first Model Context Protocol (MCP) server that indexes AST symbols into SQLite to give AI coding agents instant repository context with 80% fewer tokens.</p>
+    <p><code>ctxd</code> is a local-first Model Context Protocol (MCP) server that indexes AST symbols into SQLite to give AI coding agents instant repository context with <strong>80% to 95% fewer tokens</strong>.</p>
 
-    <h2>Universal One-Liner Install</h2>
+    <h2>Universal Installation</h2>
     <p>Run the universal installer in your terminal:</p>
 
-    <pre><code># macOS & Linux
-curl -fsSL https://ctxd.dev/install.sh | bash && ctxd setup
+    <pre><code># macOS & Linux (curl)
+curl -fsSL https://recscse.github.io/ctxd/install.sh | bash && ctxd setup
 
 # Windows PowerShell
-irm https://ctxd.dev/install.ps1 | iex; ctxd setup</code></pre>
+irm https://recscse.github.io/ctxd/install.ps1 | iex; ctxd setup
 
-    <h2 id="editors">Supported AI Clients</h2>
-    <p><code>ctxd setup</code> automatically writes the MCP configuration with <code>autoApprove: true</code> to:</p>
+# Go Developer
+go install github.com/recscse/ctxd@latest && ctxd setup</code></pre>
+
+    <h2 id="editors">Editor Auto-Configuration</h2>
+    <p>Running <code>ctxd setup</code> automatically registers all 14 MCP tools with <code>autoApprove: true</code> into:</p>
     <ul>
-      <li><strong>Claude Desktop</strong>: <code>claude_desktop_config.json</code></li>
       <li><strong>Cursor IDE</strong>: <code>~/.cursor/mcp.json</code></li>
-      <li><strong>Google Antigravity</strong>: Global & workspace rules</li>
+      <li><strong>Claude Desktop & Claude Code</strong>: <code>claude_desktop_config.json</code></li>
+      <li><strong>Google Antigravity</strong>: Global rules and MCP registry</li>
       <li><strong>VS Code (Continue / Cline)</strong>: <code>~/.continue/config.json</code></li>
       <li><strong>Windsurf</strong>: <code>.windsurfrules</code></li>
     </ul>
@@ -164,7 +173,8 @@ irm https://ctxd.dev/install.ps1 | iex; ctxd setup</code></pre>
       <tbody>
         <tr><td><code>ctxd setup</code></td><td>Auto-configures MCP in installed AI tools</td></tr>
         <tr><td><code>ctxd init</code></td><td>Scans & indexes repository from scratch</td></tr>
-        <tr><td><code>ctxd stats</code></td><td>Displays real-time tokens & money saved counter</td></tr>
+        <tr><td><code>ctxd update</code></td><td>Incrementally syncs modified files (&lt;5ms)</td></tr>
+        <tr><td><code>ctxd stats</code></td><td>Displays real-time tokens & cloud money saved counter</td></tr>
         <tr><td><code>ctxd blast &lt;symbol&gt;</code></td><td>Analyzes PR blast radius & affected test suites</td></tr>
         <tr><td><code>ctxd map --web</code></td><td>Launches interactive visual network graph on localhost:7890</td></tr>
       </tbody>
@@ -172,14 +182,20 @@ irm https://ctxd.dev/install.ps1 | iex; ctxd setup</code></pre>
 
     <h2 id="pack">Core MCP Tools</h2>
 
-    <h3>1. pack_feature_context</h3>
-    <p>Given a feature keyword (e.g. <code>auth</code>, <code>database</code>), bundles related routes, data models, schemas, and test suites into a single 250-token context summary.</p>
+    <h3>1. pack_feature_context (95% Token Savings)</h3>
+    <p>Given a feature keyword (e.g. <code>auth</code>, <code>database</code>), bundles related routes, data models, schemas, and test suites into a single 250-token context summary instead of 5 round-trips.</p>
 
-    <h3>2. get_file_skeleton</h3>
+    <h3 id="skeleton">2. get_file_skeleton (90% Token Savings)</h3>
     <p>Strips function bodies into <code>/* L45-L92 */</code> comments, compressing 2,000-line files (5,000 tokens) into 50-token skeletons.</p>
 
-    <h3>3. blast_radius</h3>
+    <h3 id="blast">3. blast_radius (85% Token Savings)</h3>
     <p>Evaluates caller sites and affected files across the repository to tell the AI agent what will break before refactoring.</p>
+
+    <h3 id="symbols">4. find_symbol & find_callers</h3>
+    <p>Instantly finds exact symbol definitions and discovers all places across the repository where a function or class is invoked.</p>
+
+    <h3 id="decisions">5. save_decision & get_decisions</h3>
+    <p>Allows AI agents to save and retrieve durable architectural invariants in SQLite so future sessions never repeat bugs.</p>
   </main>
 
 </body>
