@@ -4,21 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>astd | Your code, any AI agent</title>
-  <meta name="description" content="Stop letting AI coding agents burn millions of tokens on raw grep. astd indexes AST symbols into local SQLite (WAL mode) and provides sub-millisecond context via MCP, CLI, or API.">
+  <meta name="description" content="Your AI agents can't navigate code with grep without burning millions of tokens. astd connects and indexes your AST symbols into local SQLite and makes it searchable in <2ms via MCP, CLI, or API.">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   
   <style>
     :root {
       --bg: #07090e;
       --surface: #0e111a;
-      --surface-border: rgba(255, 255, 255, 0.08);
-      --accent: #00f0ff;
-      --accent-dim: rgba(0, 240, 255, 0.12);
-      --accent-glow: rgba(0, 240, 255, 0.25);
-      --accent-green: #20c20e;
+      --surface-hover: #141824;
+      --surface-border: rgba(255, 255, 255, 0.07);
+      --accent: #20c20e;
+      --accent-cyan: #00f0ff;
+      --accent-glow: rgba(32, 194, 14, 0.25);
+      --accent-dim: rgba(32, 194, 14, 0.08);
       --purple: #8b5cf6;
       --text: #94a3b8;
       --text-muted: #64748b;
@@ -38,17 +39,17 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* Ambient Glow Aura (Exact ctxd.dev style) */
+    /* Ambient Green/Cyan Cloud Glows (Exact ctxd.dev style) */
     .glow-aura-1 {
       position: absolute;
       top: -200px;
       left: 50%;
       transform: translateX(-50%);
-      width: 900px;
-      height: 700px;
-      background: radial-gradient(circle, rgba(0, 240, 255, 0.12) 0%, transparent 70%);
+      width: 950px;
+      height: 750px;
+      background: radial-gradient(circle, rgba(32, 194, 14, 0.12) 0%, transparent 70%);
       border-radius: 9999px;
-      filter: blur(140px);
+      filter: blur(160px);
       pointer-events: none;
       z-index: 0;
     }
@@ -57,11 +58,11 @@
       top: -80px;
       left: 50%;
       transform: translateX(-50%);
-      width: 500px;
-      height: 400px;
-      background: radial-gradient(circle, rgba(139, 92, 246, 0.08) 0%, transparent 70%);
+      width: 550px;
+      height: 450px;
+      background: radial-gradient(circle, rgba(0, 240, 255, 0.08) 0%, transparent 70%);
       border-radius: 9999px;
-      filter: blur(100px);
+      filter: blur(110px);
       pointer-events: none;
       z-index: 0;
     }
@@ -72,12 +73,12 @@
       top: 0; left: 0; right: 0;
       z-index: 50;
       border-bottom: 1px solid var(--surface-border);
-      background: rgba(7, 9, 14, 0.8);
+      background: rgba(7, 9, 14, 0.82);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
     }
     .nav-container {
-      max-width: 1150px;
+      max-width: 1180px;
       margin: 0 auto;
       padding: 0 24px;
       height: 64px;
@@ -104,7 +105,7 @@
       align-items: center;
       gap: 32px;
     }
-    @media (max-width: 768px) { .nav-center-links { display: none; } }
+    @media (max-width: 820px) { .nav-center-links { display: none; } }
     .nav-link {
       font-size: 14px;
       font-weight: 500;
@@ -112,9 +113,7 @@
       text-decoration: none;
       transition: color 0.2s;
     }
-    .nav-link:hover, .nav-link.active {
-      color: var(--text-bright);
-    }
+    .nav-link:hover, .nav-link.active { color: var(--text-bright); }
     .nav-link.active {
       border-bottom: 2px solid var(--accent);
       padding-bottom: 4px;
@@ -136,7 +135,7 @@
       transition: all 0.2s;
     }
     .btn-gh-badge:hover {
-      border-color: rgba(0, 240, 255, 0.3);
+      border-color: rgba(32, 194, 14, 0.3);
       background: var(--accent-dim);
       color: var(--text-bright);
     }
@@ -151,41 +150,42 @@
       transition: all 0.2s;
     }
     .btn-nav-cta:hover {
-      background: #38bdf8;
-      box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+      background: #2ee615;
+      box-shadow: 0 0 20px var(--accent-glow);
     }
 
     /* Hero Section */
     .hero-section {
       position: relative;
-      padding-top: 140px;
-      padding-bottom: 60px;
+      padding-top: 145px;
+      padding-bottom: 50px;
       text-align: center;
-      max-width: 900px;
+      max-width: 920px;
       margin: 0 auto;
       padding-left: 24px;
       padding-right: 24px;
+      z-index: 1;
     }
     .hero-tag {
       font-family: 'Fira Code', monospace;
       font-size: 13.5px;
       color: var(--accent);
-      letter-spacing: 0.1em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
       margin-bottom: 20px;
     }
     .hero-title {
-      font-size: clamp(44px, 7vw, 76px);
+      font-size: clamp(46px, 7.5vw, 80px);
       font-weight: 800;
       letter-spacing: -0.04em;
-      line-height: 1.08;
+      line-height: 1.05;
       color: var(--text-bright);
       margin-bottom: 24px;
     }
     .hero-subtitle {
-      font-size: clamp(16px, 2vw, 19px);
+      font-size: clamp(16px, 2vw, 19.5px);
       color: #94a3b8;
-      max-width: 680px;
+      max-width: 700px;
       margin: 0 auto 36px;
       line-height: 1.6;
     }
@@ -208,9 +208,9 @@
       box-shadow: 0 0 24px var(--accent-glow);
     }
     .btn-primary-glow:hover {
-      background: #38bdf8;
+      background: #2ee615;
       transform: translateY(-1px);
-      box-shadow: 0 0 32px rgba(0, 240, 255, 0.6);
+      box-shadow: 0 0 36px rgba(32, 194, 14, 0.5);
     }
     .btn-secondary-link {
       padding: 12px 24px;
@@ -222,15 +222,15 @@
     }
     .btn-secondary-link:hover { color: var(--text-bright); }
 
-    /* Code Tabs Component (ctxd.dev architecture) */
+    /* Code Tabs Component (Exact ctxd.dev style) */
     .code-tabs-wrapper {
-      max-width: 740px;
+      max-width: 760px;
       margin: 0 auto 100px;
       border: 1px solid var(--surface-border);
       border-radius: 12px;
       background: #0d1117;
       overflow: hidden;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 240, 255, 0.1);
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(32, 194, 14, 0.12);
     }
     .code-tabs-header {
       display: flex;
@@ -240,7 +240,7 @@
       padding: 0 8px;
     }
     .tab-btn {
-      padding: 12px 20px;
+      padding: 13px 20px;
       font-family: 'Fira Code', monospace;
       font-size: 13px;
       background: transparent;
@@ -293,18 +293,18 @@
     .tab-panel.hidden { display: none; }
     .code-tabs-footer {
       text-align: center;
-      padding: 12px 0 16px;
+      padding: 14px 0;
       font-family: 'Fira Code', monospace;
       font-size: 13px;
       color: var(--text-muted);
       border-top: 1px solid rgba(255, 255, 255, 0.04);
     }
 
-    /* Partner Logos */
+    /* Logo Strip */
     .logos-strip {
       border-top: 1px solid var(--surface-border);
       border-bottom: 1px solid var(--surface-border);
-      padding: 40px 24px;
+      padding: 44px 24px;
       text-align: center;
       margin-bottom: 100px;
     }
@@ -323,12 +323,12 @@
       gap: 48px;
       flex-wrap: wrap;
       font-family: 'Fira Code', monospace;
-      font-size: 15px;
+      font-size: 14.5px;
       font-weight: 600;
       color: #94a3b8;
     }
 
-    /* How it Works Diagram */
+    /* Section Container */
     .section-container {
       max-width: 1100px;
       margin: 0 auto 120px;
@@ -343,9 +343,11 @@
       text-align: center;
       margin-bottom: 48px;
     }
+
+    /* Flow Diagram (Exact ctxd.dev 3-step grid) */
     .flow-diagram {
       display: grid;
-      grid-template-columns: 1fr auto 1.2fr auto 1fr;
+      grid-template-columns: 1fr auto 1.3fr auto 1fr;
       align-items: center;
       gap: 16px;
     }
@@ -354,15 +356,15 @@
       background: var(--surface);
       border: 1px solid var(--surface-border);
       border-radius: 12px;
-      padding: 24px;
+      padding: 28px 24px;
       text-align: center;
     }
     .flow-card.accent-card {
-      border-color: rgba(0, 240, 255, 0.3);
-      background: rgba(0, 240, 255, 0.03);
+      border-color: rgba(32, 194, 14, 0.3);
+      background: var(--accent-dim);
     }
-    .flow-card h4 { font-size: 16px; color: var(--text-bright); margin-bottom: 6px; }
-    .flow-card p { font-size: 13px; color: var(--text-muted); }
+    .flow-card h4 { font-size: 17px; color: var(--text-bright); margin-bottom: 6px; }
+    .flow-card p { font-size: 13.5px; color: var(--text-muted); }
     .flow-arrow {
       color: var(--accent);
       display: flex;
@@ -370,12 +372,11 @@
       justify-content: center;
     }
 
-    /* Bento Grid Features */
+    /* Bento Grid */
     .bento-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
       gap: 24px;
-      margin-top: 40px;
     }
     @media (max-width: 768px) { .bento-grid { grid-template-columns: 1fr; } }
     .bento-card {
@@ -386,9 +387,9 @@
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      transition: border-color 0.2s;
+      transition: all 0.25s;
     }
-    .bento-card:hover { border-color: rgba(0, 240, 255, 0.4); }
+    .bento-card:hover { border-color: rgba(32, 194, 14, 0.4); transform: translateY(-2px); }
     .bento-title {
       font-size: 20px;
       font-weight: 700;
@@ -412,10 +413,41 @@
       overflow-x: auto;
     }
 
+    /* ROI Calculator Section */
+    .calc-card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 16px;
+      padding: 48px 36px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      align-items: center;
+    }
+    @media (max-width: 768px) { .calc-card { grid-template-columns: 1fr; } }
+    .slider-row { margin-bottom: 24px; }
+    .slider-label { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; font-weight: 600; color: var(--text-bright); }
+    input[type=range] {
+      width: 100%;
+      height: 6px;
+      background: #1e293b;
+      border-radius: 4px;
+      outline: none;
+      accent-color: var(--accent);
+    }
+    .stat-box {
+      background: #090c14;
+      border: 1px solid rgba(32, 194, 14, 0.25);
+      border-radius: 12px;
+      padding: 32px;
+      text-align: center;
+    }
+    .stat-val { font-size: 48px; font-weight: 900; color: var(--accent); font-family: 'Fira Code', monospace; margin: 10px 0; }
+
     /* Footer */
     footer {
       border-top: 1px solid var(--surface-border);
-      padding: 48px 24px;
+      padding: 56px 24px;
       text-align: center;
       font-size: 14px;
       color: var(--text-muted);
@@ -427,11 +459,11 @@
 </head>
 <body>
 
-  <!-- Background Aura -->
+  <!-- Ambient Glow Backgrounds -->
   <div class="glow-aura-1"></div>
   <div class="glow-aura-2"></div>
 
-  <!-- Navigation -->
+  <!-- Top Navigation -->
   <nav>
     <div class="nav-container">
       <a href="/" class="logo-brand">
@@ -443,6 +475,7 @@
         <a href="docs.html" class="nav-link">Docs</a>
         <a href="#how-it-works" class="nav-link">How it Works</a>
         <a href="#features" class="nav-link">Features</a>
+        <a href="#calculator" class="nav-link">Calculator</a>
       </div>
 
       <div class="nav-actions">
@@ -455,14 +488,14 @@
     </div>
   </nav>
 
-  <!-- Hero Section -->
+  <!-- Hero Header -->
   <header class="hero-section">
     <p class="hero-tag">local ast context engine</p>
     <h1 class="hero-title">
       Your code,<br>any AI agent
     </h1>
     <p class="hero-subtitle">
-      Your AI agents can't navigate code with grep without burning millions of tokens. <code>astd</code> indexes AST symbols into local SQLite and makes it searchable in &lt;2ms via MCP, CLI, or API.
+      Your AI agents can't see your code graph without burning millions of tokens on raw grep. <code>astd</code> indexes AST symbols into local SQLite and makes it searchable in &lt;2ms via MCP, CLI, or API.
     </p>
 
     <div class="hero-buttons">
@@ -470,7 +503,7 @@
       <a href="docs.html" class="btn-secondary-link">Read the docs →</a>
     </div>
 
-    <!-- Code Tabs (ctxd.dev layout) -->
+    <!-- Code Tabs (Exact ctxd.dev style) -->
     <div class="code-tabs-wrapper" id="install">
       <div class="code-tabs-header">
         <button class="tab-btn tab-active" onclick="showTab(0, this)">1-Liner (curl / irm)</button>
@@ -484,13 +517,13 @@
         </button>
       </div>
 
-      <!-- Tab 0: Universal Install -->
+      <!-- Tab 0: 1-Liner -->
       <div class="tab-panel" id="panel-0">
 <span style="color: #64748b;"># macOS & Linux</span>
-<span style="color: #00f0ff;">curl</span> -fsSL https://recscse.github.io/astd/install.sh | bash && astd setup
+<span style="color: #20c20e;">curl</span> -fsSL https://recscse.github.io/astd/install.sh | bash && astd setup
 
 <span style="color: #64748b;"># Windows PowerShell</span>
-<span style="color: #00f0ff;">irm</span> https://recscse.github.io/astd/install.ps1 | iex; astd setup
+<span style="color: #20c20e;">irm</span> https://recscse.github.io/astd/install.ps1 | iex; astd setup
       </div>
 
       <!-- Tab 1: CLI -->
@@ -517,7 +550,7 @@
       <!-- Tab 3: Feature Packing -->
       <div class="tab-panel hidden" id="panel-3">
 <span style="color: #64748b;"># Pack complete feature context in 1 single turn (240 tokens vs 8,000)</span>
-<span style="color: #00f0ff;">astd</span> pack auth --json
+<span style="color: #20c20e;">astd</span> pack auth --json
       </div>
 
       <div class="code-tabs-footer">
@@ -526,9 +559,9 @@
     </div>
   </header>
 
-  <!-- Partner Logos Strip -->
+  <!-- AI Partner Logos Strip -->
   <section class="logos-strip">
-    <p class="logos-label">Seamless Integration With Modern AI Assistants</p>
+    <p class="logos-label">Seamless Integration With Leading AI Assistants</p>
     <div class="logos-flex">
       <span>Claude Code</span>
       <span>Cursor IDE</span>
@@ -538,7 +571,7 @@
     </div>
   </section>
 
-  <!-- How It Works Section -->
+  <!-- How it Works Section -->
   <section class="section-container" id="how-it-works">
     <div class="section-tag">how it works</div>
 
@@ -546,7 +579,7 @@
       <div class="flow-card">
         <h4>Your Codebase</h4>
         <p>Go, TypeScript, Python, Rust</p>
-        <div style="margin-top: 12px; font-size: 11.5px; color: #64748b;">Raw source files & AST</div>
+        <div style="margin-top: 10px; font-size: 12px; color: #64748b;">Files & AST definitions</div>
       </div>
 
       <div class="flow-arrow">
@@ -556,7 +589,7 @@
       <div class="flow-card accent-card">
         <h4 style="color: var(--accent); font-family: 'Fira Code', monospace; font-size: 20px;">astd_</h4>
         <p>Parse. Skeletonize. Graph. Index.</p>
-        <div style="margin-top: 10px; font-size: 12px; color: #38bdf8;">Local SQLite WAL • &lt;2ms search</div>
+        <div style="margin-top: 8px; font-size: 12px; color: #20c20e;">Local SQLite WAL • &lt;2ms</div>
       </div>
 
       <div class="flow-arrow">
@@ -566,12 +599,12 @@
       <div class="flow-card">
         <h4>Any AI Agent</h4>
         <p>MCP, CLI, or Web UI</p>
-        <div style="margin-top: 12px; font-size: 11.5px; color: #20c20e; font-weight: 600;">95% Token Savings</div>
+        <div style="margin-top: 10px; font-size: 12px; color: #20c20e; font-weight: 600;">95% Token Savings</div>
       </div>
     </div>
   </section>
 
-  <!-- Four Ways / Bento Features -->
+  <!-- Four Core Capabilities Bento Grid -->
   <section class="section-container" id="features">
     <div class="section-tag">four core capabilities</div>
 
@@ -623,6 +656,40 @@
     </div>
   </section>
 
+  <!-- ROI Calculator -->
+  <section class="section-container" id="calculator">
+    <div class="section-tag">token & cost savings calculator</div>
+
+    <div class="calc-card">
+      <div>
+        <h3 style="font-size: 22px; color: var(--text-bright); margin-bottom: 8px;">Estimate Your Team's Monthly Savings</h3>
+        <p style="font-size: 14.5px; color: var(--text-muted); margin-bottom: 24px;">Based on Claude 3.5 Sonnet / GPT-4o input pricing ($3.00 per 1M tokens).</p>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Developers on Team:</span>
+            <span id="devVal" style="color: var(--accent); font-family: 'Fira Code', monospace;">5 devs</span>
+          </div>
+          <input type="range" id="devs" min="1" max="100" value="5" oninput="calculateSavings()">
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Daily AI Turns per Developer:</span>
+            <span id="turnsVal" style="color: var(--accent); font-family: 'Fira Code', monospace;">40 turns</span>
+          </div>
+          <input type="range" id="turns" min="10" max="200" value="40" oninput="calculateSavings()">
+        </div>
+      </div>
+
+      <div class="stat-box">
+        <div style="font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">ANNUAL CLOUD AI SAVINGS</div>
+        <div class="stat-val" id="savingsDollars">$3,456</div>
+        <div style="font-size: 14px; font-weight: 600; color: var(--accent);">⚡ ~1.15 Billion Tokens Saved / Year</div>
+      </div>
+    </div>
+  </section>
+
   <!-- Footer -->
   <footer>
     <p>astd is open-source under the MIT License • Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a></p>
@@ -644,6 +711,17 @@
         label.textContent = 'copied!';
         setTimeout(() => label.textContent = 'copy', 2000);
       });
+    }
+
+    function calculateSavings() {
+      const devs = parseInt(document.getElementById('devs').value);
+      const turns = parseInt(document.getElementById('turns').value);
+      document.getElementById('devVal').textContent = devs + (devs === 1 ? ' dev' : ' devs');
+      document.getElementById('turnsVal').textContent = turns + ' turns';
+
+      const totalTokens = devs * turns * 3200 * 240;
+      const dollars = (totalTokens / 1000000) * 3.00;
+      document.getElementById('savingsDollars').textContent = '$' + Math.round(dollars).toLocaleString();
     }
   </script>
 </body>
