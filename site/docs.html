@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" dir="ltr" data-theme="dark">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>astd Documentation — Local AST Context Engine</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>GitHub Integration & Setup | astd docs</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -12,64 +12,148 @@
   <style>
     :root {
       --bg: #07090e;
-      --sidebar-bg: #090c14;
       --surface: #0e111a;
+      --sidebar-bg: #090c14;
       --surface-border: rgba(255, 255, 255, 0.07);
       --accent: #20c20e;
-      --accent-glow: rgba(32, 194, 14, 0.25);
       --accent-dim: rgba(32, 194, 14, 0.1);
+      --accent-cyan: #00f0ff;
       --text: #94a3b8;
       --text-muted: #64748b;
       --text-bright: #ffffff;
+      --code-bg: #0d1117;
+      --code-header: #161b22;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
     body {
       background-color: var(--bg);
       color: var(--text);
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      line-height: 1.65;
+      min-height: 100vh;
       display: flex;
-      height: 100vh;
-      overflow: hidden;
+      flex-direction: column;
       -webkit-font-smoothing: antialiased;
     }
 
-    /* Sidebar Navigation */
-    aside {
-      width: 280px;
-      background: var(--sidebar-bg);
-      border-right: 1px solid var(--surface-border);
-      display: flex;
-      flex-direction: column;
-      padding: 24px 20px;
-      overflow-y: auto;
+    /* Fixed Top Navbar (Exact Starlight/ctxd.dev layout) */
+    header.header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 50;
+      border-bottom: 1px solid var(--surface-border);
+      background: rgba(7, 9, 14, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      height: 64px;
     }
-    .brand-link {
+    .header-inner {
+      max-width: 1350px;
+      margin: 0 auto;
+      padding: 0 24px;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+    }
+    .logo-brand {
       font-family: 'Fira Code', monospace;
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 700;
       color: var(--text-bright);
       text-decoration: none;
       display: flex;
       align-items: center;
-      margin-bottom: 32px;
     }
-    .brand-link span { color: var(--accent); }
-    .brand-badge {
-      font-size: 11px;
-      font-weight: 600;
-      padding: 2px 6px;
-      background: var(--accent-dim);
-      color: var(--accent);
+    .logo-brand span { color: var(--accent); }
+    .nav-center-links {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 32px;
+    }
+    @media (max-width: 860px) { .nav-center-links { display: none; } }
+    .nav-link {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .nav-link:hover, .nav-link.active { color: var(--text-bright); }
+    .nav-link.active {
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 4px;
+      margin-bottom: -6px;
+    }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+    .search-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--surface-border);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-muted);
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .kbd-shortcut {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 1px 6px;
       border-radius: 4px;
-      margin-left: 8px;
+      font-size: 11px;
+      font-family: 'Fira Code', monospace;
     }
-    .nav-group { margin-bottom: 24px; }
-    .nav-header { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.1em; margin-bottom: 10px; font-family: 'Fira Code', monospace; }
-    .nav-list { list-style: none; }
-    .nav-list li { margin-bottom: 4px; }
-    .nav-list a {
+    .btn-nav-cta {
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+      font-size: 13px;
+      padding: 7px 16px;
+      border-radius: 6px;
+      text-decoration: none;
+    }
+
+    /* 3-Column Documentation Container */
+    .docs-layout {
+      display: flex;
+      max-width: 1400px;
+      margin: 64px auto 0;
+      width: 100%;
+      min-height: calc(100vh - 64px);
+    }
+
+    /* Left Sidebar */
+    aside.sidebar-left {
+      width: 270px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--surface-border);
+      padding: 32px 20px;
+      background: var(--sidebar-bg);
+      position: sticky;
+      top: 64px;
+      height: calc(100vh - 64px);
+      overflow-y: auto;
+    }
+    @media (max-width: 768px) { aside.sidebar-left { display: none; } }
+    .group-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      font-family: 'Fira Code', monospace;
+    }
+    .sidebar-menu { list-style: none; margin-bottom: 28px; }
+    .sidebar-menu li { margin-bottom: 4px; }
+    .sidebar-menu a {
       color: var(--text);
       text-decoration: none;
       font-size: 13.5px;
@@ -79,144 +163,347 @@
       border-radius: 6px;
       transition: all 0.15s;
     }
-    .nav-list a:hover, .nav-list a.active {
+    .sidebar-menu a:hover, .sidebar-menu a.active {
       color: var(--accent);
       background: var(--accent-dim);
     }
-    .back-home-link {
-      margin-top: auto;
-      padding-top: 20px;
-      border-top: 1px solid var(--surface-border);
-      font-size: 13px;
-    }
-    .back-home-link a { color: var(--accent); text-decoration: none; font-weight: 600; }
 
-    /* Main Content */
-    main {
+    /* Center Content Panel */
+    main.content-pane {
       flex: 1;
-      padding: 56px 64px;
-      overflow-y: auto;
-      max-width: 960px;
+      padding: 48px 56px 80px;
+      max-width: 820px;
+      overflow-x: hidden;
     }
-    h1 { font-size: 36px; color: var(--text-bright); margin-bottom: 14px; font-weight: 800; letter-spacing: -0.03em; }
-    h2 { font-size: 22px; color: var(--text-bright); margin: 44px 0 16px; font-weight: 700; border-bottom: 1px solid var(--surface-border); padding-bottom: 8px; }
-    h3 { font-size: 16px; color: var(--accent); margin: 24px 0 10px; font-weight: 600; font-family: 'Fira Code', monospace; }
-    p { margin-bottom: 16px; font-size: 15px; }
+    .breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      font-family: 'Fira Code', monospace;
+    }
+    h1 {
+      font-size: 38px;
+      font-weight: 800;
+      color: var(--text-bright);
+      letter-spacing: -0.03em;
+      margin-bottom: 24px;
+    }
+    h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-bright);
+      margin: 40px 0 16px;
+      border-bottom: 1px solid var(--surface-border);
+      padding-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent);
+      margin: 24px 0 10px;
+      font-family: 'Fira Code', monospace;
+    }
+    p { margin-bottom: 16px; font-size: 15px; line-height: 1.7; }
+    ul, ol { margin-left: 20px; margin-bottom: 20px; font-size: 14.5px; line-height: 1.7; }
+    li { margin-bottom: 6px; }
+
+    /* Expressive Code Blocks (ctxd.dev Starlight pattern) */
+    .expressive-code {
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      background: var(--code-bg);
+      margin: 20px 0 28px;
+      overflow: hidden;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+    }
+    .code-header {
+      background: var(--code-header);
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--surface-border);
+      font-family: 'Fira Code', monospace;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
     pre {
-      background: #090c14;
+      padding: 18px 20px;
+      font-family: 'Fira Code', monospace;
+      font-size: 13px;
+      color: #e2e8f0;
+      overflow-x: auto;
+      line-height: 1.65;
+    }
+    code {
+      font-family: 'Fira Code', monospace;
+      font-size: 13px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #f8fafc;
+    }
+    .copy-btn-code {
+      background: transparent;
+      border: 1px solid var(--surface-border);
+      color: var(--text-muted);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .copy-btn-code:hover { color: var(--text-bright); border-color: rgba(255,255,255,0.2); }
+
+    /* Right Sidebar (On This Page TOC) */
+    aside.sidebar-right {
+      width: 240px;
+      flex-shrink: 0;
+      padding: 40px 16px 40px 24px;
+      position: sticky;
+      top: 64px;
+      height: calc(100vh - 64px);
+      overflow-y: auto;
+    }
+    @media (max-width: 1100px) { aside.sidebar-right { display: none; } }
+    .toc-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-bright);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 14px;
+      font-family: 'Fira Code', monospace;
+    }
+    .toc-list { list-style: none; }
+    .toc-list li { margin-bottom: 8px; }
+    .toc-list a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      display: block;
+      transition: color 0.15s;
+    }
+    .toc-list a:hover { color: var(--accent); }
+
+    /* Pagination Footer (Next / Previous) */
+    .pagination-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 56px;
+      padding-top: 24px;
+      border-top: 1px solid var(--surface-border);
+    }
+    .pagination-card {
       border: 1px solid var(--surface-border);
       border-radius: 8px;
       padding: 16px 20px;
-      font-family: 'Fira Code', monospace;
-      font-size: 13px;
-      color: #7dd3fc;
-      overflow-x: auto;
-      margin: 16px 0 24px;
+      text-decoration: none;
+      color: var(--text);
+      flex: 1;
+      transition: all 0.2s;
+      background: var(--surface);
     }
-    code { font-family: 'Fira Code', monospace; font-size: 13px; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; color: #f8fafc; }
-    table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 14px; }
-    th, td { border: 1px solid var(--surface-border); padding: 12px 16px; text-align: left; }
-    th { background: rgba(255,255,255,0.02); color: var(--text-bright); font-weight: 700; font-size: 12.5px; text-transform: uppercase; }
+    .pagination-card:hover { border-color: rgba(32, 194, 14, 0.4); }
+    .pagination-direction { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-family: 'Fira Code', monospace; }
+    .pagination-title { font-size: 14px; font-weight: 600; color: var(--text-bright); margin-top: 4px; }
   </style>
 </head>
 <body>
 
-  <!-- Sidebar -->
-  <aside>
-    <a href="index.html" class="brand-link">
-      astd<span>_</span> <span class="brand-badge">Docs</span>
-    </a>
+  <!-- Fixed Header -->
+  <header class="header">
+    <div class="header-inner">
+      <a href="index.html" class="logo-brand">astd<span>_</span></a>
 
-    <div class="nav-group">
-      <div class="nav-header">Getting Started</div>
-      <ul class="nav-list">
-        <li><a href="#quickstart" class="active">1-Minute Quickstart</a></li>
-        <li><a href="#editors">Editor Auto-Config</a></li>
-        <li><a href="#cli">CLI Commands</a></li>
-      </ul>
+      <div class="nav-center-links">
+        <a href="index.html" class="nav-link">Home</a>
+        <a href="docs.html" class="nav-link active">Docs</a>
+        <a href="index.html#how-it-works" class="nav-link">How it Works</a>
+        <a href="index.html#features" class="nav-link">Features</a>
+      </div>
+
+      <div class="nav-actions">
+        <button class="search-btn">
+          <span>Search</span>
+          <span class="kbd-shortcut">Ctrl K</span>
+        </button>
+        <a href="index.html#install" class="btn-nav-cta">Get started</a>
+      </div>
     </div>
+  </header>
 
-    <div class="nav-group">
-      <div class="nav-header">14 MCP Tools</div>
-      <ul class="nav-list">
-        <li><a href="#pack">pack_feature_context (95%)</a></li>
-        <li><a href="#skeleton">get_file_skeleton (90%)</a></li>
-        <li><a href="#blast">blast_radius (85%)</a></li>
+  <!-- 3-Column Docs Layout -->
+  <div class="docs-layout">
+    <!-- Left Navigation Sidebar -->
+    <aside class="sidebar-left">
+      <div class="group-title">Getting Started</div>
+      <ul class="sidebar-menu">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#quickstart">Quickstart (1-Liner)</a></li>
+        <li><a href="#what-gets-indexed">What gets indexed</a></li>
+      </ul>
+
+      <div class="group-title">Guides & Editor Setup</div>
+      <ul class="sidebar-menu">
+        <li><a href="#cursor">Cursor IDE</a></li>
+        <li><a href="#claude">Claude Desktop / Code</a></li>
+        <li><a href="#antigravity">Google Antigravity</a></li>
+        <li><a href="#windsurf">Windsurf</a></li>
+        <li><a href="#vscode">VS Code (Continue / Cline)</a></li>
+      </ul>
+
+      <div class="group-title">14 MCP Tools</div>
+      <ul class="sidebar-menu">
+        <li><a href="#pack">pack_feature_context</a></li>
+        <li><a href="#skeleton">get_file_skeleton</a></li>
+        <li><a href="#blast">blast_radius</a></li>
         <li><a href="#symbols">find_symbol & callers</a></li>
-        <li><a href="#decisions">save & get_decisions</a></li>
+        <li><a href="#decisions">save_decision</a></li>
       </ul>
-    </div>
 
-    <div class="nav-group">
-      <div class="nav-header">Architecture</div>
-      <ul class="nav-list">
-        <li><a href="#wal">SQLite WAL Engine</a></li>
-        <li><a href="#drift">Line Drift Protection</a></li>
+      <div class="group-title">CLI Manual</div>
+      <ul class="sidebar-menu">
+        <li><a href="#cli-search">astd search</a></li>
+        <li><a href="#cli-blast">astd blast</a></li>
+        <li><a href="#cli-map">astd map --web</a></li>
       </ul>
-    </div>
+    </aside>
 
-    <div class="back-home-link">
-      <a href="index.html">← Back to Main Website</a>
-    </div>
-  </aside>
+    <!-- Main Content Pane -->
+    <main class="content-pane">
+      <div class="breadcrumbs">
+        <span>Docs</span> / <span>Integrations</span> / <span style="color: var(--accent);">GitHub & Editors</span>
+      </div>
 
-  <!-- Main Content Area -->
-  <main>
-    <h1 id="quickstart">⚡ Quickstart & Installation</h1>
-    <p><code>astd</code> indexes your codebase AST into a local SQLite database (WAL mode). Instead of burning millions of tokens on grep, AI coding agents get exact symbol definitions, skeletons, and call graphs in <strong>1 turn with 95% fewer tokens</strong>.</p>
+      <h1 id="overview">Overview & Integration Guide</h1>
+      <p>
+        <code>astd</code> connects directly to your local Git repository, scans the Abstract Syntax Tree (AST) across Go, TypeScript, Python, and Rust, indexes everything into an embedded SQLite database (WAL mode), and makes it searchable via <strong>Model Context Protocol (MCP)</strong>, CLI, or API.
+      </p>
 
-    <h2>Universal 1-Liner Installation</h2>
-    <pre><code># macOS & Linux (curl)
+      <h2 id="what-gets-indexed">What gets indexed</h2>
+      <ul>
+        <li><strong>Function & Method Declarations</strong>: Names, receiver types, argument signatures, return types, and line boundaries.</li>
+        <li><strong>Structs, Classes & Interfaces</strong>: Field names, types, docstrings, and embedded interfaces.</li>
+        <li><strong>Call Sites & Dependencies</strong>: Cross-file call graphs and references.</li>
+        <li><strong>Test Counterparts</strong>: Automated linking between implementation files and unit tests.</li>
+      </ul>
+
+      <h2 id="quickstart">1-Minute Quickstart</h2>
+      <p>Run the universal installation command in your terminal:</p>
+
+      <div class="expressive-code">
+        <div class="code-header">
+          <span>Terminal (macOS / Linux / Windows)</span>
+          <button class="copy-btn-code" onclick="copySnippet(this)">Copy</button>
+        </div>
+        <pre><code># macOS & Linux (curl)
 curl -fsSL https://recscse.github.io/astd/install.sh | bash && astd setup
 
 # Windows (PowerShell)
-irm https://recscse.github.io/astd/install.ps1 | iex; astd setup
+irm https://recscse.github.io/astd/install.ps1 | iex; astd setup</code></pre>
+      </div>
 
-# Go Developer
-go install github.com/recscse/astd@latest && astd setup</code></pre>
+      <h2 id="cursor">Cursor IDE Configuration</h2>
+      <p>Running <code>astd setup</code> automatically writes your local MCP configuration into <code>~/.cursor/mcp.json</code>:</p>
 
-    <h2 id="editors">Editor Auto-Configuration</h2>
-    <p>Running <code>astd setup</code> automatically wires all 14 MCP tools with <code>autoApprove: true</code> into:</p>
-    <ul>
-      <li><strong>Cursor IDE</strong>: <code>~/.cursor/mcp.json</code></li>
-      <li><strong>Claude Desktop & Claude Code</strong>: <code>claude_desktop_config.json</code></li>
-      <li><strong>Google Antigravity</strong>: Registered in global agent guidelines</li>
-      <li><strong>VS Code (Cline / Continue)</strong>: <code>~/.continue/config.json</code></li>
-      <li><strong>Windsurf</strong>: <code>.windsurfrules</code></li>
-    </ul>
+      <div class="expressive-code">
+        <div class="code-header">
+          <span>~/.cursor/mcp.json</span>
+          <button class="copy-btn-code" onclick="copySnippet(this)">Copy</button>
+        </div>
+        <pre><code>{
+  "mcpServers": {
+    "astd": {
+      "command": "astd",
+      "args": ["serve"]
+    }
+  }
+}</code></pre>
+      </div>
 
-    <h2 id="cli">Essential CLI Commands</h2>
-    <table>
-      <thead>
-        <tr><th>Command</th><th>Description</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><code>astd setup</code></td><td>Auto-configures MCP in installed AI tools</td></tr>
-        <tr><td><code>astd init</code></td><td>Scans & indexes repository from scratch</td></tr>
-        <tr><td><code>astd update</code></td><td>Incrementally syncs modified files (&lt;5ms)</td></tr>
-        <tr><td><code>astd stats</code></td><td>Displays real-time tokens & cloud money saved counter</td></tr>
-        <tr><td><code>astd blast &lt;symbol&gt;</code></td><td>Analyzes PR blast radius & affected test suites</td></tr>
-        <tr><td><code>astd map --web</code></td><td>Launches interactive visual network graph on localhost:7890</td></tr>
-      </tbody>
-    </table>
+      <h2 id="claude">Claude Desktop & Claude Code Setup</h2>
+      <p>Add <code>astd</code> to your <code>claude_desktop_config.json</code>:</p>
 
-    <h2 id="pack">Core MCP Tools</h2>
+      <div class="expressive-code">
+        <div class="code-header">
+          <span>claude_desktop_config.json</span>
+          <button class="copy-btn-code" onclick="copySnippet(this)">Copy</button>
+        </div>
+        <pre><code>{
+  "mcpServers": {
+    "astd": {
+      "command": "astd",
+      "args": ["serve"]
+    }
+  }
+}</code></pre>
+      </div>
 
-    <h3>1. pack_feature_context (95% Token Savings)</h3>
-    <p>Bundles routes, models, schemas, and test suites for any feature keyword into a single 240-token payload.</p>
+      <h2 id="pack">Core MCP Tools</h2>
 
-    <h3 id="skeleton">2. get_file_skeleton (90% Token Savings)</h3>
-    <p>Strips function bodies into <code>/* L45-L92 */</code> stubs, turning 2,000-line files into concise 50-token outlines.</p>
+      <h3>1. pack_feature_context (95% Token Savings)</h3>
+      <p>Given a feature keyword (e.g. <code>auth</code>, <code>billing</code>), bundles related routes, data models, schemas, skeletons, and test suites in 1 single turn (240 tokens vs 8,000 tokens).</p>
 
-    <h3 id="blast">3. blast_radius (85% Token Savings)</h3>
-    <p>Answers <em>"If I change this symbol, what will break?"</em> by evaluating callers and test suites across the repository.</p>
+      <div class="expressive-code">
+        <div class="code-header">
+          <span>AI Agent Tool Call</span>
+          <button class="copy-btn-code" onclick="copySnippet(this)">Copy</button>
+        </div>
+        <pre><code>astd:pack_feature_context(feature="auth")</code></pre>
+      </div>
 
-    <h3 id="symbols">4. find_symbol & find_callers</h3>
-    <p>Instantly pinpoints exact symbol definitions and discovers all call sites across the codebase.</p>
+      <h3>2. blast_radius (PR Regression Guard)</h3>
+      <p>Evaluates all callers and affected files across the repository to tell the AI agent what will break before applying a refactor.</p>
 
-    <h3 id="decisions">5. save_decision & get_decisions</h3>
-    <p>Durable SQLite store for architectural invariants so future agent sessions never repeat past bugs.</p>
-  </main>
+      <div class="expressive-code">
+        <div class="code-header">
+          <span>AI Agent Tool Call</span>
+          <button class="copy-btn-code" onclick="copySnippet(this)">Copy</button>
+        </div>
+        <pre><code>astd:blast_radius(symbol="GenerateToken")</code></pre>
+      </div>
 
+      <!-- Pagination Footer -->
+      <div class="pagination-footer">
+        <a href="index.html" class="pagination-card">
+          <div class="pagination-direction">← Previous</div>
+          <div class="pagination-title">Main Landing Page</div>
+        </a>
+        <a href="#quickstart" class="pagination-card" style="text-align: right;">
+          <div class="pagination-direction">Next →</div>
+          <div class="pagination-title">1-Minute Quickstart</div>
+        </a>
+      </div>
+    </main>
+
+    <!-- Right Sidebar Table of Contents (On this page) -->
+    <aside class="sidebar-right">
+      <div class="toc-title">On this page</div>
+      <ul class="toc-list">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#what-gets-indexed">What gets indexed</a></li>
+        <li><a href="#quickstart">1-Minute Quickstart</a></li>
+        <li><a href="#cursor">Cursor IDE Setup</a></li>
+        <li><a href="#claude">Claude Desktop Setup</a></li>
+        <li><a href="#pack">pack_feature_context</a></li>
+        <li><a href="#blast">blast_radius</a></li>
+      </ul>
+    </aside>
+  </div>
+
+  <script>
+    function copySnippet(btn) {
+      const code = btn.closest('.expressive-code').querySelector('pre code').textContent;
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy', 2000);
+      });
+    }
+  </script>
 </body>
 </html>
