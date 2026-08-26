@@ -162,7 +162,7 @@ func generateRulesMarkdown(stack ProjectStack) string {
 
 	sb.WriteString("## Code Search & Exploration Rules\n")
 	sb.WriteString("- **DO NOT** use raw `grep`, `ripgrep`, or recursive `list_dir` for codebase exploration.\n")
-	sb.WriteString("- **ALWAYS PREFER** the `ctxd` MCP tools for zero-token code discovery:\n")
+	sb.WriteString("- **ALWAYS PREFER** the `devctx` MCP tools for zero-token code discovery:\n")
 	sb.WriteString("  1. Use `devctx:get_repo_map` to understand the codebase structure and symbols.\n")
 	sb.WriteString("  2. Use `devctx:get_file_skeleton` to inspect file structure without dumping thousands of tokens.\n")
 	sb.WriteString("  3. Use `devctx:find_symbol` when locating function, class, or type definitions.\n")
