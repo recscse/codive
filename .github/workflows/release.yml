@@ -1,4 +1,4 @@
-name: Release Multi-Platform Binaries
+name: Release devctx Binaries
 
 on:
   push:
@@ -9,99 +9,74 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build Binary for ${{ matrix.os }}/${{ matrix.arch }}
+  build-release:
+    name: Build & Publish Binaries
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - os: darwin
-            arch: arm64
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+            archive: zip
+          - goos: darwin
+            goarch: arm64
             ext: ""
-            compress: tar
-          - os: darwin
-            arch: amd64
+            archive: tar.gz
+          - goos: darwin
+            goarch: amd64
             ext: ""
-            compress: tar
-          - os: linux
-            arch: amd64
+            archive: tar.gz
+          - goos: linux
+            goarch: amd64
             ext: ""
-            compress: tar
-          - os: linux
-            arch: arm64
+            archive: tar.gz
+          - goos: linux
+            goarch: arm64
             ext: ""
-            compress: tar
-          - os: windows
-            arch: amd64
-            ext: ".exe"
-            compress: zip
+            archive: tar.gz
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Go
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache: true
+          check-latest: true
 
       - name: Build Binary
         env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          VERSION="${{ github.ref_name }}"
-          COMMIT="${{ github.sha }}"
-          BUILD_DATE=$(date -u +%Y-%m-%d)
-          
-          BIN_NAME="devctx${{ matrix.ext }}"
-          OUTPUT_DIR="dist/devctx_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}"
-          mkdir -p "${OUTPUT_DIR}"
-          
-          go build -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${COMMIT:0:7} -X main.BuildDate=${BUILD_DATE}" -o "${OUTPUT_DIR}/${BIN_NAME}" .
-          
-          cd dist
-          if [ "${{ matrix.compress }}" = "tar" ]; then
-            tar -czvf "devctx_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz" -C "devctx_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}" "${BIN_NAME}"
-          else
-            zip -j "devctx_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}.zip" "devctx_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}/${BIN_NAME}"
-          fi
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          OUTPUT_NAME="devctx${{ matrix.ext }}"
+          go build -ldflags="-s -w -X main.Version=${TAG_NAME} -X main.GitCommit=${{ github.sha }} -X main.BuildDate=$(date -u +%Y-%m-%d)" -o dist/${OUTPUT_NAME} .
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: binary-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
-
-  publish:
-    name: Publish GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release_assets
-          pattern: binary-*
-          merge-multiple: true
-
-      - name: Generate Checksums
+      - name: Package Binary (Windows Zip)
+        if: matrix.archive == 'zip'
         run: |
-          mkdir -p release_assets
-          cd release_assets
-          ls -la
-          sha256sum * > checksums.txt
-          cat checksums.txt
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          cd dist
+          zip -j "devctx_${TAG_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}.zip" devctx.exe
+          cd ..
 
-      - name: Create GitHub Release
+      - name: Package Binary (Unix Tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          cd dist
+          tar -czvf "devctx_${TAG_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz" devctx
+          cd ..
+
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release_assets/*
-          generate_release_notes: true
-          draft: false
-          prerelease: false
+            dist/*.zip
+            dist/*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
