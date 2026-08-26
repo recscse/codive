@@ -35,7 +35,7 @@ func RunBlast(targetDir string, targetSymbol string, asJSON bool) error {
 
 	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
+		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'devctx init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -57,25 +57,30 @@ func RunBlast(targetDir string, targetSymbol string, asJSON bool) error {
 	var riskBadge string
 	switch result.RiskLevel {
 	case "HIGH":
-		riskBadge = ui.Red.Sprint("⚠️  HIGH IMPACT")
+		riskBadge = ui.Red.Sprint("HIGH RISK")
 	case "MEDIUM":
-		riskBadge = ui.Yellow.Sprint("⚡ MEDIUM IMPACT")
+		riskBadge = ui.Yellow.Sprint("MEDIUM RISK")
 	default:
-		riskBadge = ui.GreenBold.Sprint("✓ LOW IMPACT")
+		riskBadge = ui.GreenBold.Sprint("LOW RISK")
 	}
 
 	fmt.Println()
-	ui.CyanBold.Printf("💥 Blast Radius Analysis for '%s':\n", ui.Bold.Sprint(result.Symbol))
-	fmt.Printf("  ├── Risk Assessment:   %s (%d direct callers across %d files)\n",
-		riskBadge, result.CallSites, len(result.AffectedFiles))
+	ui.Header(fmt.Sprintf("devctx — Blast Radius Analysis: %s", result.Symbol))
+	ui.Divider()
+	ui.KeyValue("Risk Level", fmt.Sprintf("%s (%d direct callers across %d files)", riskBadge, result.CallSites, len(result.AffectedFiles)))
 
-	fmt.Printf("  ├── 📦 Affected Files:   %s\n", strings.Join(result.AffectedFiles, ", "))
+	if len(result.AffectedFiles) > 0 {
+		ui.KeyValue("Affected Files", strings.Join(result.AffectedFiles, ", "))
+	} else {
+		ui.KeyValue("Affected Files", ui.Dim.Sprint("None (isolated declaration)"))
+	}
 
 	if len(result.TestsToRun) > 0 {
-		fmt.Printf("  └── 🧪 Tests to Run:     %s\n", strings.Join(result.TestsToRun, ", "))
+		ui.KeyValueHighlight("Tests to Run", strings.Join(result.TestsToRun, ", "))
 	} else {
-		fmt.Printf("  └── 🧪 Tests to Run:     %s\n", ui.Dim.Sprint("No dedicated unit test suites detected"))
+		ui.KeyValue("Tests to Run", ui.Dim.Sprint("No dedicated unit test suites detected"))
 	}
+	ui.Divider()
 	fmt.Println()
 
 	return nil

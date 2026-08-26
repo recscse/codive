@@ -24,7 +24,7 @@ func RunSearch(targetDir string, query string, limit int, asJSON bool) error {
 
 	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
+		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'devctx init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -48,18 +48,22 @@ func RunSearch(targetDir string, query string, limit int, asJSON bool) error {
 		return nil
 	}
 
-	ui.CyanBold.Printf("Found %d match(es) for '%s':\n\n", len(results), query)
+	fmt.Println()
+	ui.Header(fmt.Sprintf("devctx — Search Results: '%s' (%d matches)", query, len(results)))
+	ui.Divider()
 	for i, res := range results {
-		fmt.Printf("%2d. 📄 %s\n", i+1, ui.GreenBold.Sprint(res.Path))
+		fmt.Printf("  %s %s\n", ui.Dim.Sprintf("%2d.", i+1), ui.GreenBold.Sprint(res.Path))
 		cleanSnippet := strings.ReplaceAll(res.Snippet, ">>>", "")
 		cleanSnippet = strings.ReplaceAll(cleanSnippet, "<<<", "")
 		cleanSnippet = strings.TrimSpace(cleanSnippet)
 		lines := strings.Split(cleanSnippet, "\n")
 		for _, l := range lines {
-			fmt.Printf("    %s %s\n", ui.Dim.Sprint("│"), strings.TrimRight(l, "\r"))
+			fmt.Printf("      %s %s\n", ui.Dim.Sprint("│"), strings.TrimRight(l, "\r"))
 		}
 		fmt.Println()
 	}
+	ui.Divider()
+	fmt.Println()
 
 	return nil
 }

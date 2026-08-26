@@ -126,14 +126,17 @@ func RunInit(targetDir string) error {
 	}
 
 	fmt.Println()
+	ui.Header("devctx — Repository Index Initialization")
 	ui.Divider()
-	ui.Success("✨ ctxd initialization complete!")
-	fmt.Printf("  %s  %s (%s)\n", ui.Dim.Sprint("Indexed:          "), ui.GreenBold.Sprintf("%d files", len(scanResult.Files)), formatBytes(scanResult.TotalSizeBytes))
-	fmt.Printf("  %s  %s\n", ui.Dim.Sprint("Symbols Extracted:"), ui.CyanBold.Sprintf("%d symbols", len(allSymbols)))
-	fmt.Printf("  %s  %s\n", ui.Dim.Sprint("Primary Language: "), ui.Bold.Sprint(primaryLang))
-	fmt.Printf("  %s  %s\n", ui.Dim.Sprint("Database:         "), dbPath)
-	fmt.Printf("  %s  %s\n", ui.Dim.Sprint("Time Elapsed:     "), duration.Round(time.Millisecond))
+	ui.KeyValueHighlight("Indexed Files", fmt.Sprintf("%d files (%s)", len(scanResult.Files), formatBytes(scanResult.TotalSizeBytes)))
+	ui.KeyValueHighlight("AST Symbols", fmt.Sprintf("%d symbols", len(allSymbols)))
+	ui.KeyValue("Language", primaryLang)
+	ui.KeyValue("Database Path", dbPath)
+	ui.KeyValue("Latency", fmt.Sprintf("%v", duration.Round(time.Millisecond)))
 	ui.Divider()
+	fmt.Println()
+	ui.Success("Repository successfully indexed into local SQLite (WAL mode)!")
+	fmt.Println()
 
 	return nil
 }

@@ -436,22 +436,15 @@ curl -fsSL https://recscse.github.io/devctx/install.cmd -o install.cmd && instal
 }</code></pre>
       </div>
 
-      <h2 id="claude">Claude Desktop & Claude Code Setup</h2>
-      <p>Add <code>devctx</code> to your <code>claude_desktop_config.json</code>:</p>
+      <h2 id="vscode">VS Code (Continue, Cline, Roo Code, Workspace)</h2>
+      <p>Running <code>devctx setup</code> automatically wires your local MCP server into <strong>VS Code Workspace</strong> (<code>.vscode/mcp.json</code>), <strong>Continue</strong> (<code>~/.continue/config.json</code>), <strong>Cline</strong>, and <strong>Roo Code</strong> with zero manual JSON editing:</p>
 
       <div class="expressive-code">
         <div class="code-header">
-          <span>claude_desktop_config.json</span>
+          <span>Terminal (Auto-Configuration)</span>
           <button class="copy-btn-code" onclick="copySnippet(this)">Copy</button>
         </div>
-        <pre><code>{
-  "mcpServers": {
-    "devctx": {
-      "command": "devctx",
-      "args": ["serve"]
-    }
-  }
-}</code></pre>
+        <pre><code>devctx setup</code></pre>
       </div>
 
       <h2 id="pack">Core MCP Tools</h2>

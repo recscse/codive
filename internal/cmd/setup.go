@@ -63,9 +63,16 @@ func RunSetup(targetDir string) error {
 		appData = filepath.Join(homeDir, "AppData", "Roaming")
 	}
 
+	codeStorage := filepath.Join(appData, "Code", "User", "globalStorage")
+	if runtime.GOOS == "darwin" {
+		codeStorage = filepath.Join(homeDir, "Library", "Application Support", "Code", "User", "globalStorage")
+	} else if runtime.GOOS == "linux" {
+		codeStorage = filepath.Join(homeDir, ".config", "Code", "User", "globalStorage")
+	}
+
 	targets := []agentTarget{
 		{
-			Name: "Google Antigravity (Global)",
+			Name: "Google Antigravity",
 			PathGetter: func() (string, error) {
 				return filepath.Join(homeDir, ".gemini", "config", "mcp_config.json"), nil
 			},
@@ -83,9 +90,15 @@ func RunSetup(targetDir string) error {
 			},
 		},
 		{
-			Name: "Cursor IDE (Global)",
+			Name: "Cursor IDE",
 			PathGetter: func() (string, error) {
 				return filepath.Join(homeDir, ".cursor", "mcp.json"), nil
+			},
+		},
+		{
+			Name: "Windsurf",
+			PathGetter: func() (string, error) {
+				return filepath.Join(homeDir, ".codeium", "windsurf", "mcp_config.json"), nil
 			},
 		},
 		{
@@ -94,12 +107,32 @@ func RunSetup(targetDir string) error {
 				return filepath.Join(homeDir, ".continue", "config.json"), nil
 			},
 		},
+		{
+			Name: "VS Code / Cline Extension",
+			PathGetter: func() (string, error) {
+				return filepath.Join(codeStorage, "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"), nil
+			},
+		},
+		{
+			Name: "VS Code / Roo Code Extension",
+			PathGetter: func() (string, error) {
+				return filepath.Join(codeStorage, "rooveterinaryinc.roo-cline", "settings", "cline_mcp_settings.json"), nil
+			},
+		},
+		{
+			Name: "VS Code / Workspace (.vscode/mcp.json)",
+			PathGetter: func() (string, error) {
+				return filepath.Join(absTarget, ".vscode", "mcp.json"), nil
+			},
+		},
 	}
 
-	ui.Header("⚡ Auto-Configuring ctxd for AI Agents")
+	ui.Header("devctx — AI Client MCP Configuration Setup")
+	ui.Divider()
+	ui.KeyValue("Executable", exePath)
+	ui.KeyValue("Target Repo", absTarget)
+	ui.Divider()
 	fmt.Println()
-	fmt.Printf("  %s %s\n", ui.Dim.Sprint("Executable:"), ui.Bold.Sprint(exePath))
-	fmt.Printf("  %s %s\n\n", ui.Dim.Sprint("Target Repo:"), ui.Bold.Sprint(absTarget))
 
 	configuredCount := 0
 
@@ -115,8 +148,8 @@ func RunSetup(targetDir string) error {
 			continue
 		}
 
-		fmt.Printf("  %s %s\n     %s\n",
-			ui.GreenBold.Sprint("✓ Configured MCP: "),
+		fmt.Printf("  %s %s (%s)\n",
+			ui.GreenBold.Sprint("✔"),
 			ui.Bold.Sprint(t.Name),
 			ui.Dim.Sprint(cfgPath))
 		configuredCount++
@@ -124,9 +157,9 @@ func RunSetup(targetDir string) error {
 
 	// 2. Install agent prioritization rules
 	rulePaths := []string{
-		filepath.Join(homeDir, ".gemini", "antigravity", "rules", "ctxd.md"),
-		filepath.Join(homeDir, ".gemini", "rules", "ctxd.md"),
-		filepath.Join(absTarget, ".gemini", "rules", "ctxd.md"),
+		filepath.Join(homeDir, ".gemini", "antigravity", "rules", "devctx.md"),
+		filepath.Join(homeDir, ".gemini", "rules", "devctx.md"),
+		filepath.Join(absTarget, ".gemini", "rules", "devctx.md"),
 		filepath.Join(absTarget, ".cursorrules"),
 		filepath.Join(absTarget, ".windsurfrules"),
 		filepath.Join(absTarget, "CLAUDE.md"),
@@ -136,15 +169,15 @@ func RunSetup(targetDir string) error {
 	for _, rp := range rulePaths {
 		if err := writeAgentRule(rp); err == nil {
 			fmt.Printf("  %s %s\n",
-				ui.GreenBold.Sprint("✓ Installed Rule: "),
+				ui.GreenBold.Sprint("✔ Rule Installed:"),
 				ui.Dim.Sprint(rp))
 		}
 	}
 
 	fmt.Println()
 	if configuredCount > 0 {
-		ui.Success("✨ ctxd is now fully wired into your AI agents with automatic prioritization!")
-		fmt.Println("   AI agents will now automatically call ctxd first for architecture maps and symbol lookup.")
+		ui.Success("devctx is now fully registered across all AI coding assistants!")
+		fmt.Println("  AI agents will now automatically call devctx MCP tools for symbol search and context packing.")
 	} else {
 		ui.Warning("No supported AI agent configuration directories were found.")
 	}

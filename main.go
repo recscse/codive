@@ -19,7 +19,8 @@ var (
 )
 
 func printUsage() {
-	ui.Header(fmt.Sprintf("devctx %s - Local-first context engine for AI coding agents", Version))
+	ui.Header(fmt.Sprintf("devctx %s — Developer Context Engine for AI Coding Agents", Version))
+	ui.Divider()
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  devctx <command> [arguments] [flags]")
@@ -42,7 +43,9 @@ func printUsage() {
 	fmt.Println("  search        <query>     Fast full-text code search across indexed files")
 	fmt.Println("  pack          <query>     Build a token-optimized context pack for LLMs")
 	fmt.Println("  watch         [path]      Watch repository and auto-sync changes in real-time")
-	fmt.Println("  setup         [path]      Auto-configure ctxd for installed AI agents")
+	fmt.Println("  setup         [path]      Auto-configure devctx for installed AI agents")
+	fmt.Println("  upgrade                   Self-update devctx binary to latest release")
+	fmt.Println("  about                     Show project background, author, and license")
 	fmt.Println("  logs          [path]      Show recent log entries from .devctx/devctx.log")
 	fmt.Println("  serve         [path]      Run the Model Context Protocol (MCP) server")
 	fmt.Println("  version                   Show detailed version and build information")
@@ -52,15 +55,14 @@ func printUsage() {
 	fmt.Println("  --no-color                Disable ANSI color styling")
 	fmt.Println("  --verbose                 Output structured logs to stderr in real-time")
 	fmt.Println("\nExamples:")
-	fmt.Println("  ctxd setup")
-	fmt.Println("  ctxd init")
-	fmt.Println("  ctxd status --json")
-	fmt.Println("  ctxd map --json")
-	fmt.Println("  ctxd symbol Scan")
-	fmt.Println("  ctxd search \"SearchFTS\"")
-	fmt.Println("  ctxd pack \"symbol extraction\"")
-	fmt.Println("  ctxd logs")
-	fmt.Println("  ctxd serve")
+	fmt.Println("  devctx setup")
+	fmt.Println("  devctx init")
+	fmt.Println("  devctx search \"PaymentProcessor\"")
+	fmt.Println("  devctx blast GenerateToken")
+	fmt.Println("  devctx pack auth")
+	fmt.Println("  devctx map --web")
+	fmt.Println("  devctx upgrade")
+	fmt.Println("  devctx about")
 }
 
 func main() {
@@ -349,6 +351,18 @@ func main() {
 			targetDir = args[1]
 		}
 		if err := cmd.RunServe(targetDir); err != nil {
+			ui.Error(err.Error())
+			os.Exit(1)
+		}
+
+	case "upgrade", "self-update":
+		if err := cmd.RunUpgrade(Version); err != nil {
+			ui.Error(err.Error())
+			os.Exit(1)
+		}
+
+	case "about", "info":
+		if err := cmd.RunAbout(Version, BuildDate, GitCommit); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}
