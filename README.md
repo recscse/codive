@@ -1,63 +1,43 @@
-<div align="center">
+# devctx
 
-<img src="assets/logo.svg" alt="devctx Logo" width="120" />
+Fast, local-first code context engine and Model Context Protocol (MCP) server for AI coding agents.
 
-# `devctx`
+[![CI](https://github.com/recscse/devctx/actions/workflows/ci.yml/badge.svg)](https://github.com/recscse/devctx/actions)
+[![Release](https://img.shields.io/github/v/release/recscse/devctx?style=flat-square)](https://github.com/recscse/devctx/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/recscse/devctx)](https://goreportcard.com/report/github.com/recscse/devctx)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
-### Sub-Millisecond AST Context Engine & Model Context Protocol (MCP) Server for AI Coding Agents
+`devctx` indexes your repository's Abstract Syntax Tree (AST) into a local SQLite database and exposes 14 specialized query tools to AI coding agents (Claude Desktop, Cursor, Google Antigravity, Windsurf, VS Code) over standard MCP (JSON-RPC) or CLI.
 
-[![Release](https://img.shields.io/badge/Release-v1.0.0-20c20e?style=flat-square)](https://github.com/recscse/devctx/releases)
-[![Go Version](https://img.shields.io/badge/Go-1.21%2B-00ADD8?style=flat-square&logo=go)](https://golang.org)
-[![MCP Protocol](https://img.shields.io/badge/Model_Context_Protocol-14_Tools-7C3AED?style=flat-square)](https://modelcontextprotocol.io)
-[![License](https://img.shields.io/badge/License-MIT-gray?style=flat-square)](LICENSE)
-
-<br/>
-
-**Stop letting AI coding assistants burn millions of tokens on brute-force grep.**<br/>
-`devctx` indexes AST symbols into an embedded SQLite database (WAL mode) and serves exact code signatures, skeletons, and call graphs to **Claude Code, Cursor, Windsurf, Google Antigravity, and VS Code** in `< 2ms`.
-
-<br/>
-
-[Website](https://recscse.github.io/devctx/) • [Documentation](https://recscse.github.io/devctx/docs.html) • [Engineering Blog](https://recscse.github.io/devctx/blog.html) • [14 MCP Tools](#-14-specialized-mcp-tools) • [Architecture Deep-Dive](docs/ARCHITECTURE.md)
-
-</div>
+Instead of running brute-force `grep` or dumping entire multi-thousand-line source files into the LLM context window, `devctx` returns exact function signatures, structural file skeletons, caller graphs, and test pairings in sub-millisecond queries.
 
 ---
 
-## 💡 The Core Problem: Why Grep Fails for AI Agents
+## Features
 
-When an AI coding assistant explores your codebase, its default fallback is raw `grep` and dumping entire 2,000-line files:
-
-1. **Massive Token Waste**: A single `grep` for a common term (e.g. `GenerateToken`, `handleAuth`) returns hundreds of lines across mocks, test fixtures, and comments (burning 3,000–8,000 tokens).
-2. **Compound Transcript Re-Sending**: Because LLM API calls are stateless, **the full conversation history is re-sent on every subsequent turn**. Paying for 8,000 noisy tokens on Turn 1 means paying for them again on Turn 2, Turn 3... Turn 15 (burning 100,000+ tokens for a single refactoring task).
-3. **Context Window Drift**: Flooding the context window with raw text degrades model attention, leading to hallucinated method signatures and broken callers.
-
-### The `devctx` Solution:
-`devctx` parses Abstract Syntax Trees (AST) across **Go, TypeScript/JavaScript, Python, and Rust**, indexing declarations, signatures, and call hierarchies into local SQLite. Your AI coding agent receives exact definitions, function skeletons, and call graphs in **1 turn and 250 tokens**.
-
-```text
-┌───────────────────────────────────────────────────┐     ┌───────────────────────────────────────────────────┐
-│  ❌ TRADITIONAL BRUTE-FORCE GREP FLOW              │     │  ⚡ DEVCTX LOCAL AST CONTEXT ENGINE FLOW          │
-├───────────────────────────────────────────────────┤     ├───────────────────────────────────────────────────┤
-│  Turn 1: grep -rn "GenerateToken" .               │     │  Turn 1: devctx:pack_feature_context("auth")      │
-│  └── 380 lines across mocks (4,200 tokens)        │     │  └── Bundled models, handlers & tests (240 tokens)│
-│                                                   │     │                                                   │
-│  Turn 2: view_file auth_service.go                │     │  Turn 1 (cont): devctx:find_callers(...)          │
-│  └── 2,100-line full file dump (5,200 tokens)     │     │  └── Pinpointed all 3 callers in 2ms (18 tokens)  │
-│                                                   │     │                                                   │
-│  Turn 3–6: Guess edit ➔ 3 callers broke on import! │     │  Turn 2: Targeted edit applied & verified         │
-│  └── Retry loops & hallucinated signatures        │     │  └── 100% test pass on first attempt              │
-├───────────────────────────────────────────────────┤     ├───────────────────────────────────────────────────┤
-│  TOTAL: 15 turns | ~64,000 tokens | 62s ($0.19)   │     │  TOTAL: 2 turns | ~2,100 tokens | 4s ($0.006)     │
-└───────────────────────────────────────────────────┘     └───────────────────────────────────────────────────┘
-                                                           🚀 96% Token Savings • 5x Faster Turnaround
-```
+- **Sub-Millisecond Queries**: Embedded SQLite with Write-Ahead Logging (WAL) mode delivers symbol searches and call graphs in `< 2ms`.
+- **Structural File Skeletons**: Emits file outlines where function bodies are replaced with `{ /* L45-L92 */ }` line references, reducing token consumption while preserving structural awareness.
+- **1-Shot Feature Bundling**: `pack_feature_context` aggregates route handlers, data models, skeletons, and test suites matching a feature in a single query turn.
+- **Blast Radius Analysis**: Traces upstream callers and linked unit test suites before applying code edits to prevent regressions.
+- **100% Local & Private**: Indexes your code locally in `.devctx/index.db`. Zero cloud telemetry or external network calls.
+- **Zero-Config Editor Setup**: `devctx setup` automatically configures MCP integration for Claude Desktop, Cursor, Google Antigravity, and VS Code.
 
 ---
 
-## ⚡ Quick Install (1-Liner)
+## Supported Languages
 
-### macOS & Linux
+| Language | Extracted Symbols |
+| :--- | :--- |
+| **Go** | Functions, methods, structs, interfaces, type aliases, imports |
+| **TypeScript / JavaScript** | Functions, classes, methods, interfaces, types, exports |
+| **Python** | Functions, async functions, classes, methods, docstrings |
+| **Rust** | Functions, structs, enums, traits, `impl` blocks |
+
+---
+
+## Installation
+
+### macOS / Linux
 ```bash
 curl -fsSL https://recscse.github.io/devctx/install.sh | bash && devctx setup
 ```
@@ -67,77 +47,147 @@ curl -fsSL https://recscse.github.io/devctx/install.sh | bash && devctx setup
 irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
 ```
 
-### Go Developers
+### Via Go
 ```bash
-go install github.com/recscse/devctx@latest && devctx setup
+go install github.com/recscse/devctx@latest
 ```
 
-> **Note**: Running `devctx setup` automatically detects installed AI tools (**Claude Desktop, Cursor, Google Antigravity, Windsurf, VS Code**) and registers the MCP server with `autoApprove: true` — zero manual configuration needed.
-
 ---
 
-## 🛠️ 14 Specialized MCP Tools
+## Quick Start
 
-AI agents connected to `devctx` execute 14 token-optimized tools:
+### 1. Initialize Index
 
-| MCP Tool | Purpose | Real Token Impact |
-| :--- | :--- | :---: |
-| **`pack_feature_context`** | 1-Shot bundle of feature data models, entrypoints, test suites & skeletons | **~240 tokens (vs 8,000)** |
-| **`get_file_skeleton`** | Strips function bodies into `{ /* L45-L92 */ }` comments | **~50 tokens (vs 5,000)** |
-| **`blast_radius`** | Answers *"If I change this symbol, what breaks?"* before applying refactors | **Zero Broken Callers** |
-| **`find_symbol`** | Locates exact definition line numbers and signatures across all files | **< 2ms Latency** |
-| **`find_callers`** | Discovers all call sites and functions invoking a target symbol | **100% Graph Precision** |
-| **`find_callees`** | Discovers internal functions and types called inside a function | **Exact Call Stack** |
-| **`find_tests_for`** | Automatically finds corresponding test files & test functions | **Instant Test Pairing** |
-| **`save_decision`** | Durable SQLite store for architectural invariants (agent memory) | **Persistent Memory** |
-| **`get_decisions`** | Retrieves past architectural invariants matching a topic | **Zero Bug Recurrence** |
-| **`get_repo_map`** | Structural repo skeleton with strict token-budget protection | **Budget Protected** |
-| **`get_git_changes`** | AST-aware git diff summary (maps changed lines to functions/classes) | **Clean Diffs** |
-| **`search_code`** | Symbol-boosted FTS5 full-text search with snippet highlights | **Noisy Lines Removed** |
-| **`read_file_context`** | Reads file with prepended AST symbol declarations | **Full File Context** |
-| **`find_references`** | Universal cross-file reference and usage discovery | **Complete Usages** |
-
----
-
-## 🔒 Security & Privacy Guarantees
-
-- **100% Local-First**: All indexing and searches run on your local machine in SQLite (`.devctx/index.db`).
-- **Zero Cloud Telemetry**: Source code and AST symbols are never uploaded to any remote server.
-- **Path Traversal Protection**: All file read operations are validated strictly within the repository boundary.
-- **Zero Elevated Privileges**: Runs entirely in user space without requiring root or administrator access.
-
----
-
-## 💻 CLI Commands Reference
+Run `devctx init` in the root of any Git repository:
 
 ```bash
-# Initialize and index a repository into SQLite
+cd /path/to/project
 devctx init
+```
 
-# Search AST symbols instantly (< 2ms)
-devctx search "PaymentProcessor"
+```text
+⚡ devctx - Indexing repository...
+  Scanning files: 100% [==============================] (142 files)
+  Parsing AST symbols...
+✓ Indexed 142 files (580 symbols) into .devctx/index.db in 42ms
+```
 
-# PR Blast Radius regression analyzer
-devctx blast "GenerateToken"
+### 2. Connect to Your AI Assistant
 
-# 1-shot feature context packing
-devctx pack auth
+Run `devctx setup` to automatically register the MCP server with your installed AI assistants:
 
-# Launch local interactive visual network graph in browser
-devctx map --web
-
-# View real-time token & dollar savings counter
-devctx stats
-
-# Run system health and MCP diagnostics
-devctx doctor
-
-# Auto-configure MCP in installed AI coding assistants
+```bash
 devctx setup
 ```
 
+```text
+🔧 devctx Setup - AI Client MCP Configuration
+  ✓ Configured Claude Desktop: ~/.config/Claude/claude_desktop_config.json
+  ✓ Configured Cursor IDE: ~/.cursor/mcp.json
+  ✓ Configured Google Antigravity: ~/.gemini/config/mcp_config.json
+✨ devctx MCP server successfully registered across all clients!
+```
+
 ---
 
-## 📄 License
+## MCP Server Configuration
 
-`devctx` is open-source software licensed under the [MIT License](LICENSE).
+If you prefer manual configuration, add the following to your assistant's MCP config file (`mcp.json` or `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "devctx": {
+      "command": "devctx",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+---
+
+## MCP Tools Reference
+
+When running as an MCP server (`devctx serve`), the following 14 tools are available:
+
+| Tool | Arguments | Description |
+| :--- | :--- | :--- |
+| `get_repo_map` | `max_tokens` (int, optional) | Returns a high-level repository symbol map within a token budget. |
+| `get_file_skeleton` | `path` (string) | Returns an AST skeleton of a file with function signatures and line numbers. |
+| `find_symbol` | `query` (string), `kind` (string, optional) | Searches for symbol declarations by name and kind (function, class, struct). |
+| `find_callers` | `symbol` (string) | Finds all functions and files that call the specified symbol. |
+| `find_callees` | `symbol` (string) | Lists functions and types called within a specific function body. |
+| `find_tests_for` | `target` (string) | Finds unit tests corresponding to a target function or file. |
+| `pack_feature_context` | `feature` (string) | Bundles all models, handlers, and skeletons for a feature into a single response. |
+| `blast_radius` | `symbol` (string) | Assesses upstream impact and affected test suites for a symbol before refactoring. |
+| `save_decision` | `topic` (string), `summary` (string) | Saves an architectural decision or constraint to local SQLite storage. |
+| `get_decisions` | `topic` (string, optional) | Retrieves saved architectural decisions matching a topic. |
+| `get_git_changes` | None | Returns uncommitted git diffs mapped to affected AST symbols. |
+| `search_code` | `query` (string), `limit` (int, optional) | Full-text search (SQLite FTS5) with extracted context snippets. |
+| `read_file_context` | `path` (string) | Reads file content with prepended symbol declaration metadata. |
+| `find_references` | `query` (string), `limit` (int, optional) | Finds cross-file references and usages of an identifier. |
+
+---
+
+## CLI Usage
+
+```bash
+# Repository Indexing
+devctx init [path]          # Scan and index a repository from scratch
+devctx update [path]        # Incrementally scan modified files
+devctx reindex [path]       # Rebuild index from scratch
+devctx doctor [path]        # Run system health checks and verify MCP configurations
+devctx stats [path]         # Show file and symbol statistics
+
+# Code Inspection
+devctx search <query>       # Search AST symbols from the terminal
+devctx blast <symbol>       # Analyze refactoring blast radius
+devctx pack <feature>       # Generate 1-turn bundled feature context
+devctx map --web            # Launch interactive browser architecture map (http://localhost:7890)
+
+# Server & Integration
+devctx serve                # Start MCP JSON-RPC server over stdio
+devctx setup                # Auto-wire MCP configurations for all AI clients
+devctx init-rules           # Generate AGENTS.md / CLAUDE.md / .cursorrules
+devctx install-hooks        # Install Git post-commit hooks for automatic re-indexing
+```
+
+---
+
+## Architecture & Design
+
+### SQLite Index Schema
+`devctx` creates a local SQLite database at `.devctx/index.db` configured with WAL mode and normalized tables:
+- `files`: File paths, content hashes (SHA-256), languages, sizes, and timestamps.
+- `symbols`: Symbol names, kinds (`func`, `struct`, `class`, `interface`), signatures, and line numbers.
+- `file_fts`: FTS5 virtual table for full-text search with BM25 ranking.
+- `decisions`: Persistent key-value store for architectural notes recorded by agents.
+
+### Line-Number Drift Protection
+When an AI agent requests a file skeleton or symbol via MCP, `devctx` inspects the file's `ModTime` on disk. If the file has been edited since the last indexing pass, `devctx` re-parses the file on-the-fly to ensure line numbers and signatures remain exact without requiring a full repository re-index.
+
+### Security
+- **Sandboxed File Access**: File operations validate paths against the repository root to prevent directory traversal (`../`).
+- **Parameterized SQL**: All database operations use parameterized queries to prevent SQL injection.
+- **Local-Only**: No external network requests are made during indexing or query execution.
+
+---
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and testing instructions.
+
+```bash
+# Run tests
+go test -v ./...
+
+# Run linter
+go vet ./...
+```
+
+---
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
