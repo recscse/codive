@@ -2,8 +2,9 @@
 # Usage: irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
 
 $ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-Write-Host "⚡ Installing devctx (Developer Context Engine) for Windows..." -ForegroundColor Green
+Write-Host "[devctx] Installing Developer Context Engine for Windows..." -ForegroundColor Green
 
 $InstallDir = "$env:LOCALAPPDATA\devctx\bin"
 if (!(Test-Path $InstallDir)) {
@@ -28,7 +29,7 @@ try {
 
 # 2. Fallback: If go is installed, build from source
 if (-not $Installed -and (Get-Command go -ErrorAction SilentlyContinue)) {
-    Write-Host "🔨 Compiling with Go..." -ForegroundColor Green
+    Write-Host "[devctx] Compiling with Go..." -ForegroundColor Green
     go install github.com/recscse/devctx@latest
     $Gopath = go env GOPATH
     $GoBin = Join-Path $Gopath "bin\devctx.exe"
@@ -43,9 +44,11 @@ $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($UserPath -notlike "*$InstallDir*") {
     [Environment]::SetEnvironmentVariable("Path", "$UserPath;$InstallDir", "User")
     $env:Path = "$env:Path;$InstallDir"
-    Write-Host "✓ Added $InstallDir to User PATH" -ForegroundColor Green
+    Write-Host "[OK] Added $InstallDir to User PATH" -ForegroundColor Green
 }
 
-Write-Host "✨ devctx installed successfully to $TargetBin!" -ForegroundColor Green
+Write-Host "[OK] devctx installed successfully to $TargetBin!" -ForegroundColor Green
 Write-Host ""
-Write-Host "🚀 Next step: Run 'devctx setup' in your repository to configure all AI agents automatically." -ForegroundColor Cyan
+Write-Host "[NEXT] Running devctx setup to configure AI clients..." -ForegroundColor Cyan
+
+& "$TargetBin" setup

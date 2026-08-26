@@ -1,7 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
+chcp 65001 >nul
 
-echo ⚡ Installing devctx (Developer Context Engine) for Windows...
+echo [devctx] Installing Developer Context Engine for Windows...
 
 set "INSTALL_DIR=%LOCALAPPDATA%\devctx\bin"
 if not exist "%INSTALL_DIR%" (
@@ -12,7 +13,7 @@ set "TARGET_BIN=%INSTALL_DIR%\devctx.exe"
 set "ZIP_PATH=%TEMP%\devctx_v1.0.0_windows_amd64.zip"
 set "DOWNLOAD_URL=https://github.com/recscse/devctx/releases/latest/download/devctx_v1.0.0_windows_amd64.zip"
 
-echo 📦 Downloading pre-compiled binary...
+echo [devctx] Downloading pre-compiled binary...
 curl -fsSL "%DOWNLOAD_URL%" -o "%ZIP_PATH%" >nul 2>&1
 
 if exist "%ZIP_PATH%" (
@@ -21,7 +22,7 @@ if exist "%ZIP_PATH%" (
 )
 
 if not exist "%TARGET_BIN%" (
-    echo 🔨 Fallback: Compiling via Go...
+    echo [devctx] Compiling via Go...
     where go >nul 2>&1
     if !errorlevel! equ 0 (
         go install github.com/recscse/devctx@latest
@@ -34,7 +35,7 @@ if not exist "%TARGET_BIN%" (
 )
 
 if not exist "%TARGET_BIN%" (
-    echo ❌ Failed to install devctx. Please ensure curl/tar or Go is available.
+    echo [ERROR] Failed to install devctx. Please ensure curl/tar or Go is available.
     exit /b 1
 )
 
@@ -43,12 +44,12 @@ echo %PATH% | findstr /i /c:"%INSTALL_DIR%" >nul
 if %errorlevel% neq 0 (
     powershell -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';%INSTALL_DIR%', 'User')" >nul 2>&1
     set "PATH=%PATH%;%INSTALL_DIR%"
-    echo ✓ Added %INSTALL_DIR% to User PATH
+    echo [OK] Added %INSTALL_DIR% to User PATH
 )
 
-echo ✨ devctx installed successfully to %TARGET_BIN%!
+echo [OK] devctx installed successfully to %TARGET_BIN%!
 echo.
-echo 🚀 Next step: Run 'devctx setup' in your repository root.
+echo [NEXT] Running devctx setup...
 echo.
 
 "%TARGET_BIN%" setup
