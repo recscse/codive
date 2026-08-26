@@ -20,7 +20,7 @@ func RunStats(targetDir string, asJSON bool) error {
 
 	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
+		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'devctx init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -43,7 +43,7 @@ func RunStats(targetDir string, asJSON bool) error {
 
 	fmt.Println()
 	ui.CyanBold.Println("┌─────────────────────────────────────────────────────────────┐")
-	ui.CyanBold.Println("│  ⚡ ctxd AI Efficiency & Cost Savings Report                │")
+	ui.CyanBold.Println("│  ⚡ devctx AI Efficiency & Cost Savings Report              │")
 	ui.CyanBold.Println("├─────────────────────────────────────────────────────────────┤")
 	fmt.Printf("│  🔍 Agent Searches Served:     %-28s │\n", ui.Bold.Sprintf("%d queries", savings.TotalQueriesServed))
 	fmt.Printf("│  ⏱️  Total Latency Reduced:     %-28s │\n", ui.GreenBold.Sprintf("%.1f minutes saved", minutesSaved))
@@ -52,7 +52,7 @@ func RunStats(targetDir string, asJSON bool) error {
 	fmt.Printf("│  🚀 Speed Multiplier:          %-28s │\n", ui.CyanBold.Sprintf("%.1fx FASTER agent turns", savings.SpeedMultiplier))
 	ui.CyanBold.Println("└─────────────────────────────────────────────────────────────┘")
 	fmt.Println()
-	fmt.Printf("  %s %s\n", ui.Dim.Sprint("Embed in README.md:"), ui.Bold.Sprint("[![ctxd-token-reduction](https://img.shields.io/badge/Tokens_Saved-"+formatTokens(savings.TotalTokensSaved)+"-brightgreen)](#)"))
+	fmt.Printf("  %s %s\n", ui.Dim.Sprint("Embed in README.md:"), ui.Bold.Sprint("[![devctx-token-reduction](https://img.shields.io/badge/Tokens_Saved-"+formatTokens(savings.TotalTokensSaved)+"-brightgreen)](#)"))
 	fmt.Println()
 
 	return nil
