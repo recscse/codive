@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/recscse/ctxd/internal/db"
+	"github.com/recscse/devctx/internal/db"
 )
 
 func setupTestDB(t *testing.T) (string, func()) {
@@ -19,7 +19,7 @@ func setupTestDB(t *testing.T) (string, func()) {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 
-	dbPath := filepath.Join(tempDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(tempDir, ".devctx", "index.db")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
@@ -84,7 +84,7 @@ func TestMCPServer(t *testing.T) {
 	tempDir, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	dbPath := filepath.Join(tempDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(tempDir, ".devctx", "index.db")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)

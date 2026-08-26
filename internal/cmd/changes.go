@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/git"
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/git"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // RunChanges inspects uncommitted git changes and prints an AST-aware token-efficient summary.
@@ -18,7 +18,7 @@ func RunChanges(targetDir string, asJSON bool) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	dbConn, err := db.Open(dbPath)
 	if err == nil {
 		defer dbConn.Close()

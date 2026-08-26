@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // RunInstallHooks writes post-commit and post-checkout Git hooks to keep the index synchronized automatically.

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/recscse/ctxd/internal/db"
+	"github.com/recscse/devctx/internal/db"
 )
 
 func TestScanner(t *testing.T) {
@@ -50,7 +50,7 @@ func TestScanner(t *testing.T) {
 		"target/app.jar",
 		"bin/binary.exe",
 		"obj/debug.o",
-		".ctxd/index.db",
+		".devctx/index.db",
 	}
 
 	for _, relPath := range ignoredFiles {
@@ -160,7 +160,7 @@ func TestLargeFileExclusion(t *testing.T) {
 	}
 }
 
-func TestCtxdIgnore(t *testing.T) {
+func TestDevctxIgnore(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "ctxd_ignore_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -174,8 +174,8 @@ temp/
 # Ignore secret files
 .env
 `
-	if err := os.WriteFile(filepath.Join(tempDir, ".ctxdignore"), []byte(ignoreContent), 0644); err != nil {
-		t.Fatalf("failed to write .ctxdignore: %v", err)
+	if err := os.WriteFile(filepath.Join(tempDir, ".devctxignore"), []byte(ignoreContent), 0644); err != nil {
+		t.Fatalf("failed to write .devctxignore: %v", err)
 	}
 
 	// Create test files

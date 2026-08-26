@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // RunSearch executes full-text search across indexed files.
@@ -22,7 +22,7 @@ func RunSearch(targetDir string, query string, limit int, asJSON bool) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
 	}

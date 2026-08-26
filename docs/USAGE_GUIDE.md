@@ -1,6 +1,6 @@
-# 📖 `ctxd` Complete User & Integration Guide
+# 📖 `devctx` Complete User & Integration Guide
 
-This guide covers everything you need to know about setting up, configuring, and using `ctxd` with any AI coding assistant.
+This guide covers everything you need to know about setting up, configuring, and using `devctx` with any AI coding assistant.
 
 ---
 
@@ -9,9 +9,9 @@ This guide covers everything you need to know about setting up, configuring, and
 ### A. Automatic Setup (Recommended)
 In your terminal, navigate to your repository root and run:
 ```bash
-ctxd setup
+devctx setup
 ```
-`ctxd setup` automatically scans and registers `ctxd` in:
+`devctx setup` automatically scans and registers `devctx` in:
 - **Google Antigravity**: `~/.gemini/config/mcp_config.json`
 - **Claude Desktop**: `~/Library/Application Support/Claude/claude_desktop_config.json` or `%APPDATA%\Claude\claude_desktop_config.json`
 - **Cursor IDE**: `~/.cursor/mcp.json`
@@ -26,8 +26,8 @@ If you prefer adding the configuration manually to your editor's MCP config:
 ```json
 {
   "mcpServers": {
-    "ctxd": {
-      "command": "ctxd",
+    "devctx": {
+      "command": "devctx",
       "args": ["serve"],
       "autoApprove": [
         "pack_feature_context",
@@ -119,13 +119,13 @@ If you prefer adding the configuration manually to your editor's MCP config:
 
 | Command | Action | Example |
 | :--- | :--- | :--- |
-| `ctxd setup` | Auto-configures MCP in installed AI clients | `ctxd setup` |
-| `ctxd init` | Scans and indexes the repository | `ctxd init` |
-| `ctxd update` | Fast incremental synchronization (<5ms) | `ctxd update` |
-| `ctxd stats` | Displays the token and cloud money savings box | `ctxd stats` |
-| `ctxd blast <sym>` | Evaluates refactoring blast radius | `ctxd blast GenerateToken` |
-| `ctxd map --web` | Launches the interactive browser network graph | `ctxd map --web` |
-| `ctxd doctor` | Verifies SQLite integrity and MCP setup | `ctxd doctor` |
-| `ctxd diff` | AST-aware summary of uncommitted git changes | `ctxd diff` |
-| `ctxd init-rules` | Auto-generates `AGENTS.md` and `.cursorrules` | `ctxd init-rules` |
-| `ctxd install-hooks`| Installs Git post-commit & post-checkout hooks | `ctxd install-hooks` |
+| `devctx setup` | Auto-configures MCP in installed AI clients | `devctx setup` |
+| `devctx init` | Scans and indexes the repository | `devctx init` |
+| `devctx update` | Fast incremental synchronization (<5ms) | `devctx update` |
+| `devctx stats` | Displays the token and cloud money savings box | `devctx stats` |
+| `devctx blast <sym>` | Evaluates refactoring blast radius | `devctx blast GenerateToken` |
+| `devctx map --web` | Launches the interactive browser network graph | `devctx map --web` |
+| `devctx doctor` | Verifies SQLite integrity and MCP setup | `devctx doctor` |
+| `devctx diff` | AST-aware summary of uncommitted git changes | `devctx diff` |
+| `devctx init-rules` | Auto-generates `AGENTS.md` and `.cursorrules` | `devctx init-rules` |
+| `devctx install-hooks`| Installs Git post-commit & post-checkout hooks | `devctx install-hooks` |

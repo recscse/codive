@@ -8,20 +8,20 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/scanner"
-	"github.com/recscse/ctxd/internal/symbols"
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/scanner"
+	"github.com/recscse/devctx/internal/symbols"
+	"github.com/recscse/devctx/internal/ui"
 )
 
-// RunUpdate performs incremental scanning and synchronizes .ctxd/index.db with the repo.
+// RunUpdate performs incremental scanning and synchronizes .devctx/index.db with the repo.
 func RunUpdate(targetDir string) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
 	}

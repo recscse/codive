@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/recscse/ctxd/internal/db"
+	"github.com/recscse/devctx/internal/db"
 )
 
 // FileDiffSummary represents the AST-aware changes for a specific file.

@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Why Grep is Burning Millions of Tokens in AI Coding Agents | devctx Blog</title>
+  <meta name="description" content="How brute-force text search destroys context windows and costs teams thousands of dollars, and how building a local AST SQLite engine in Go fixes it.">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg: #06070b;
+      --surface: #0b0e17;
+      --surface-card: #101422;
+      --surface-border: rgba(255, 255, 255, 0.08);
+      --accent: #20c20e;
+      --accent-glow: rgba(32, 194, 14, 0.25);
+      --accent-dim: rgba(32, 194, 14, 0.08);
+      --cyan: #00f0ff;
+      --text: #94a3b8;
+      --text-muted: #64748b;
+      --text-bright: #ffffff;
+      --code-bg: #090c14;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Fixed Navigation */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      border-bottom: 1px solid var(--surface-border);
+      background: rgba(6, 7, 11, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .nav-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+    }
+    .logo-brand {
+      font-family: 'Fira Code', monospace;
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--text-bright);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+    }
+    .logo-brand span { color: var(--accent); }
+    .nav-center-links {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 32px;
+    }
+    @media (max-width: 860px) { .nav-center-links { display: none; } }
+    .nav-link {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .nav-link:hover, .nav-link.active { color: var(--text-bright); }
+    .nav-link.active {
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 4px;
+      margin-bottom: -6px;
+    }
+    .btn-nav-cta {
+      background: var(--accent);
+      color: #000;
+      font-weight: 800;
+      font-size: 13px;
+      padding: 8px 18px;
+      border-radius: 6px;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+
+    /* Article Container */
+    .article-container {
+      max-width: 840px;
+      margin: 140px auto 80px;
+      padding: 0 24px;
+    }
+    .article-tag {
+      font-family: 'Fira Code', monospace;
+      font-size: 12.5px;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 16px;
+    }
+    .article-title {
+      font-size: clamp(34px, 5vw, 52px);
+      font-weight: 900;
+      line-height: 1.15;
+      color: var(--text-bright);
+      letter-spacing: -0.03em;
+      margin-bottom: 20px;
+    }
+    .article-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 40px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    .author-name { color: var(--text-bright); font-weight: 600; }
+
+    /* Article Prose */
+    .prose { font-size: 16.5px; line-height: 1.8; color: #cbd5e1; }
+    .prose h2 { font-size: 26px; font-weight: 800; color: var(--text-bright); margin: 48px 0 20px; letter-spacing: -0.02em; }
+    .prose h3 { font-size: 18px; font-weight: 700; color: var(--accent); margin: 32px 0 14px; font-family: 'Fira Code', monospace; }
+    .prose p { margin-bottom: 24px; }
+    .prose ul, .prose ol { margin-left: 24px; margin-bottom: 24px; }
+    .prose li { margin-bottom: 10px; }
+    .prose strong { color: var(--text-bright); }
+    .prose blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 20px;
+      margin: 28px 0;
+      color: #94a3b8;
+      font-style: italic;
+    }
+
+    /* Expressive Code Blocks */
+    .code-block {
+      background: var(--code-bg);
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      padding: 20px;
+      margin: 24px 0 32px;
+      font-family: 'Fira Code', monospace;
+      font-size: 13.5px;
+      color: #7dd3fc;
+      overflow-x: auto;
+      line-height: 1.7;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--surface-border);
+      padding: 56px 24px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-top: auto;
+    }
+    footer a { color: var(--text-bright); text-decoration: none; font-weight: 600; }
+    footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <nav>
+    <div class="nav-container">
+      <a href="index.html" class="logo-brand">devctx<span>_</span></a>
+
+      <div class="nav-center-links">
+        <a href="index.html" class="nav-link">Home</a>
+        <a href="docs.html" class="nav-link">Docs</a>
+        <a href="blog.html" class="nav-link active">Blog</a>
+        <a href="index.html#how-it-works" class="nav-link">How it Works</a>
+        <a href="index.html#features" class="nav-link">Features</a>
+      </div>
+
+      <div class="nav-actions">
+        <a href="index.html#install" class="btn-nav-cta">Get started</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Article -->
+  <main class="article-container">
+    <div class="article-tag">Engineering Deep-Dive • Architecture</div>
+    <h1 class="article-title">Why Grep is Burning Millions of Tokens in AI Coding Agents (and How We Fixed It)</h1>
+
+    <div class="article-meta">
+      <span class="author-name">By Brijesh Yadav</span>
+      <span>•</span>
+      <span>August 25, 2026</span>
+      <span>•</span>
+      <span>8 min read</span>
+    </div>
+
+    <article class="prose">
+      <p>
+        If you have used Claude Code, Cursor, Windsurf, or Google Antigravity on a production repository, you have likely noticed a frustrating pattern: your AI assistant takes 6 to 10 turns just searching for code, dumps thousands of irrelevant lines into the conversation history, and sometimes breaks upstream callers on refactor.
+      </p>
+
+      <h2>1. The Brute-Force Grep Problem</h2>
+      <p>
+        When an AI coding agent tries to discover code in your repository, its default fallback is raw <code>grep</code> or <code>ripgrep</code>. While grep is lightning-fast for humans scanning a few lines, it is disastrous for Large Language Models:
+      </p>
+
+      <ul>
+        <li><strong>Noisy Results</strong>: A search for <code>GenerateToken</code> returns 300+ lines of mocks, tests, and comments (costing 3,800 tokens).</li>
+        <li><strong>Compound Transcript Re-Sending</strong>: Because LLM APIs are stateless, that 3,800-token payload is re-sent on Turn 2, Turn 3, ... Turn 15, costing <strong>over 60,000 tokens</strong> for a simple refactor.</li>
+        <li><strong>Context Degradation</strong>: Dumping entire 2,000-line files causes the model's attention to drift, leading to hallucinated method signatures.</li>
+      </ul>
+
+      <h2>2. Enter devctx: Local AST + SQLite WAL Mode</h2>
+      <p>
+        We designed <strong>`devctx`</strong> as an open-source, local-first context engine in Go. Instead of substring text matching, `devctx` parses Abstract Syntax Trees (AST) across Go, TypeScript, Python, and Rust, indexing symbols, signatures, and call hierarchies into a zero-lock SQLite database (WAL mode).
+      </p>
+
+      <div class="code-block">
+// 1-turn feature bundle with exact models, handlers, and skeletons (240 tokens vs 8,000)
+devctx:pack_feature_context(feature="auth")
+      </div>
+
+      <h2>3. Four Architectural Breakthroughs</h2>
+
+      <h3>1. One-Shot Feature Context Packing</h3>
+      <p>
+        Instead of 5 sequential tool turns, <code>pack_feature_context</code> automatically groups route entrypoints, data models, and test suites into a single 240-token summary in <strong>1 turn</strong>.
+      </p>
+
+      <h3>2. The Code Skeletonizer</h3>
+      <p>
+        Rather than dumping a 2,000-line file (5,000 tokens), <code>get_file_skeleton</code> strips function bodies into line-annotated comments:
+      </p>
+
+      <div class="code-block">
+type PaymentProcessor struct { ... }
+func (p *PaymentProcessor) ProcessPayment(ctx Context, event Event) (Result, error) { /* L45-L92 */ }
+      </div>
+
+      <h3>3. PR Blast Radius Analyzer</h3>
+      <p>
+        Answers <em>"If I change this symbol, what breaks?"</em> by evaluating upstream call sites and pinpoint test suites before applying edits.
+      </p>
+
+      <h3>4. Persistent SQLite Agent Memory</h3>
+      <p>
+        Durable storage for architectural invariants (e.g. <em>"PgBouncer in transaction mode; disable prepared statements"</em>) so future agent sessions never repeat past mistakes.
+      </p>
+
+      <h2>Conclusion</h2>
+      <p>
+        By shifting AI coding assistants from brute-force string searches to structured AST graph queries, teams cut token costs by <strong>80% to 95%</strong> while dramatically increasing refactoring accuracy.
+      </p>
+    </article>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <p>devctx is open-source under the MIT License • Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a></p>
+  </footer>
+
+</body>
+</html>

@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/scanner"
-	"github.com/recscse/ctxd/internal/symbols"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/scanner"
+	"github.com/recscse/devctx/internal/symbols"
 )
 
 // RunWatch starts a continuous watcher that automatically synchronizes index.db on file changes.
@@ -21,7 +21,7 @@ func RunWatch(targetDir string, pollInterval time.Duration) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		fmt.Println("Index not initialized. Running initial scan...")
 		if err := RunInit(absDir); err != nil {

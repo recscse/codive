@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // RunReindex wipes existing index database and rebuilds the index completely from scratch.
@@ -16,7 +16,7 @@ func RunReindex(targetDir string) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); err == nil {
 		ui.Warning(fmt.Sprintf("Removing existing index at %s", dbPath))
 		_ = os.Remove(dbPath)

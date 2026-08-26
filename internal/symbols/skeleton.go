@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/recscse/ctxd/internal/db"
+	"github.com/recscse/devctx/internal/db"
 )
 
 // GenerateSkeleton returns a token-efficient structural outline of a source file with stripped function bodies.

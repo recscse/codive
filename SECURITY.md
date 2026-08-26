@@ -9,7 +9,7 @@
 
 ## Reporting a Vulnerability
 
-The `ctxd` team takes security seriously. If you discover a security vulnerability or path traversal issue, please report it privately:
+The `devctx` team takes security seriously. If you discover a security vulnerability or path traversal issue, please report it privately:
 
 1. **Email**: Send details to `recscse@gmail.com` (or submit a private security advisory via GitHub Advisories).
 2. **Details to Include**:
@@ -22,7 +22,7 @@ The `ctxd` team takes security seriously. If you discover a security vulnerabili
 
 ## Local Sandboxing Guarantees
 
-`ctxd` is strictly designed for local developer security:
+`devctx` is strictly designed for local developer security:
 - Zero telemetry sent outside your local machine.
 - Path traversal protection ensuring all queries remain strictly within the target repository boundary.
 - Zero root or elevated permissions required.

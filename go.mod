@@ -1,4 +1,4 @@
-module github.com/recscse/ctxd
+module github.com/recscse/devctx
 
 go 1.27.0
 

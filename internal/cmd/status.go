@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // StatusJSON represents the JSON output format for ctxd status.
@@ -21,14 +21,14 @@ type StatusJSON struct {
 	Languages      map[string]int `json:"languages"`
 }
 
-// RunStatus reads .ctxd/index.db and prints the repository indexing status.
+// RunStatus reads .devctx/index.db and prints the repository indexing status.
 func RunStatus(targetDir string, asJSON bool) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
 	}

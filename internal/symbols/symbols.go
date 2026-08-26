@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/recscse/ctxd/internal/db"
+	"github.com/recscse/devctx/internal/db"
 )
 
 // ExtractSymbols parses source code based on its language and returns declared symbols.

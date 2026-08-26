@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // MCPConfigFile represents standard MCP JSON configurations.
@@ -33,11 +33,11 @@ type agentTarget struct {
 const ctxdAgentRule = `## Code Search & Exploration Rules
 - **DO NOT** use raw ` + "`grep`" + `, ` + "`ripgrep`" + `, or recursive ` + "`list_dir`" + ` for codebase exploration.
 - **ALWAYS PREFER** the ` + "`ctxd`" + ` MCP tools:
-  1. Use ` + "`ctxd:get_repo_map`" + ` to understand the codebase structure and symbols.
-  2. Use ` + "`ctxd:find_symbol`" + ` when locating function, class, or type definitions.
-  3. Use ` + "`ctxd:find_references`" + ` when discovering callers or usages of a function/type.
-  4. Use ` + "`ctxd:search_code`" + ` when searching for terms or strings across files.
-  5. Use ` + "`ctxd:read_file_context`" + ` to read files with AST symbol summaries.
+  1. Use ` + "`devctx:get_repo_map`" + ` to understand the codebase structure and symbols.
+  2. Use ` + "`devctx:find_symbol`" + ` when locating function, class, or type definitions.
+  3. Use ` + "`devctx:find_references`" + ` when discovering callers or usages of a function/type.
+  4. Use ` + "`devctx:search_code`" + ` when searching for terms or strings across files.
+  5. Use ` + "`devctx:read_file_context`" + ` to read files with AST symbol summaries.
 `
 
 // RunSetup automatically detects installed AI tools, configures ctxd MCP server entries, and installs agent prioritization rules.
@@ -171,7 +171,7 @@ func writeOrMergeMCPConfig(cfgPath string, exePath string, repoDir string) error
 	}
 
 	// Set/Update ctxd with autoApprove enabled
-	config.MCPServers["ctxd"] = MCPServerConfig{
+	config.MCPServers["devctx"] = MCPServerConfig{
 		Command: exePath,
 		Args:    []string{"serve", repoDir},
 		AutoApprove: []string{
@@ -199,7 +199,7 @@ func writeAgentRule(rulePath string) error {
 
 	// If file exists and already contains ctxd rule, skip
 	if existing, err := os.ReadFile(rulePath); err == nil {
-		if strings.Contains(string(existing), "ctxd") {
+		if strings.Contains(string(existing), "devctx") {
 			return nil
 		}
 		// Append rule

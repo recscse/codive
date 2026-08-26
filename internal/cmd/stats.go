@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // RunStats prints the real-time token & money savings report.
@@ -18,7 +18,7 @@ func RunStats(targetDir string, asJSON bool) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
 	}

@@ -10,10 +10,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/scanner"
-	"github.com/recscse/ctxd/internal/symbols"
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/scanner"
+	"github.com/recscse/devctx/internal/symbols"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // formatBytes converts byte count to human-readable format.
@@ -30,7 +30,7 @@ func formatBytes(b int64) string {
 	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-// RunInit initializes the repository index by scanning files and populating .ctxd/index.db.
+// RunInit initializes the repository index by scanning files and populating .devctx/index.db.
 func RunInit(targetDir string) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
@@ -54,7 +54,7 @@ func RunInit(targetDir string) error {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
-	ctxdDir := filepath.Join(absDir, ".ctxd")
+	ctxdDir := filepath.Join(absDir, ".devctx")
 	dbPath := filepath.Join(ctxdDir, "index.db")
 
 	database, err := db.Open(dbPath)

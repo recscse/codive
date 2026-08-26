@@ -1,6 +1,6 @@
-# 🏛️ `ctxd` Technical Architecture & Design Philosophy
+# 🏛️ `devctx` Technical Architecture & Design Philosophy
 
-This document provides a deep technical analysis of the internal architecture of `ctxd`, comparing its design with systems built by Anthropic (Model Context Protocol), Cursor (Symbol Graph & Indexing), Aider (Tree-sitter Repo Map), and Sourcegraph (SCIP / LSIF).
+This document provides a deep technical analysis of the internal architecture of `devctx`, comparing its design with systems built by Anthropic (Model Context Protocol), Cursor (Symbol Graph & Indexing), Aider (Tree-sitter Repo Map), and Sourcegraph (SCIP / LSIF).
 
 ---
 
@@ -26,13 +26,13 @@ In a 10-turn debugging session, burning 8,000 tokens on Turn 1 means you pay for
 
 ## 2. Industry Architecture Comparison
 
-| Dimension | **`ctxd`** | **Anthropic MCP Model** | **Cursor Indexer** | **Aider Repo Map** |
+| Dimension | **`devctx`** | **Anthropic MCP Model** | **Cursor Indexer** | **Aider Repo Map** |
 | :--- | :--- | :--- | :--- | :--- |
 | **Storage Engine** | **SQLite (WAL Mode) + FTS5** | Protocol Standard (No fixed DB) | Cloud Merkle Trees & Local Cache | In-Memory NetworkX Graph |
 | **Parsing Mechanism** | **Multi-Language AST Engine** | Delegated to Server Implementations | Tree-sitter + LSP | Tree-sitter AST |
 | **Code Skeletonizer** | **Native (`get_file_skeleton`)** | Client Discretion | Proprietary Chunking | Syntax Tag Summaries |
 | **Call Graph / Blast** | **Native (`find_callers`, `blast`)** | Standard Call Protocol | Proprietary AI Ranking | PageRank over References |
-| **Telemetry / ROI** | **Real-Time Token Counter (`ctxd stats`)** | None | Usage Metering | Token Counter |
+| **Telemetry / ROI** | **Real-Time Token Counter (`devctx stats`)** | None | Usage Metering | Token Counter |
 | **Privacy** | **100% Local-First (Zero Cloud)** | Depends on MCP Server | Cloud Indexing Optional | 100% Local |
 
 ---
@@ -63,7 +63,7 @@ graph TB
     end
 
     subgraph Storage Layer (Local-First)
-        DB[(".ctxd/index.db<br/>SQLite in WAL Mode")]
+        DB[(".devctx/index.db<br/>SQLite in WAL Mode")]
         T_FILES[("files Table")]
         T_SYMS[("symbols Table")]
         T_FTS[("file_fts (FTS5 Table)")]
@@ -83,14 +83,14 @@ graph TB
 ## 4. Key Subsystem Deep-Dives
 
 ### A. Sub-Millisecond AST Extraction
-`ctxd` extracts declarations (functions, structs, interfaces, classes, methods) using dedicated deterministic lexical AST extractors:
+`devctx` extracts declarations (functions, structs, interfaces, classes, methods) using dedicated deterministic lexical AST extractors:
 - **Go**: `go/parser` and `go/ast` extracting package names, receivers, structs, interfaces, and function signatures.
 - **TypeScript / JavaScript**: Multi-pass regex and token-based parser extracting `export function`, `export class`, `interface`, `type`, `const handler = () => {}`.
 - **Python**: Class and `def` extractors with decorator association and type annotations.
 - **Rust**: `struct`, `enum`, `trait`, `impl`, and `fn` extractors.
 
 ### B. SQLite WAL Mode Storage & PRAGMA Optimization
-`ctxd` configures SQLite for zero-lock concurrency:
+`devctx` configures SQLite for zero-lock concurrency:
 ```sql
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -101,13 +101,13 @@ PRAGMA user_version = 5;
 - **Write Latency**: `< 5ms` during incremental updates.
 
 ### C. Symbol-Boosted Full-Text Search (FTS5)
-Standard FTS5 matches strings anywhere in file contents. `ctxd` combines FTS5 with symbol ranking:
+Standard FTS5 matches strings anywhere in file contents. `devctx` combines FTS5 with symbol ranking:
 1. Performs BM25 keyword search across `file_fts`.
 2. Computes an AST boost: If a file *declares* a symbol with the search term, its score is boosted by $3\times$.
 3. Emits clean snippet highlights using `[` and `]` delimiters.
 
 ### D. Line-Number Drift Protection
-When an AI agent modifies a file in the editor, the database index might have slightly older line numbers. `ctxd` intercepts `read_file_context`, `get_file_skeleton`, and `find_symbol`:
+When an AI agent modifies a file in the editor, the database index might have slightly older line numbers. `devctx` intercepts `read_file_context`, `get_file_skeleton`, and `find_symbol`:
 1. Compares the file's disk modified timestamp (`mtime`) with `files.last_indexed`.
 2. If $mtime > last\_indexed$, it triggers a synchronous **micro-reparse** in $<2\text{ms}$.
 3. Guarantees line numbers passed to the AI are always 100% exact.
@@ -116,6 +116,6 @@ When an AI agent modifies a file in the editor, the database index might have sl
 
 ## 5. Security & Privacy Guarantees
 
-1. **Zero External Network Calls**: `ctxd` operates strictly on `localhost` via standard I/O pipes or local loopback HTTP (`127.0.0.1:7890`).
-2. **Zero Cloud Telemetry**: All token savings statistics remain strictly inside your local `.ctxd/index.db`.
+1. **Zero External Network Calls**: `devctx` operates strictly on `localhost` via standard I/O pipes or local loopback HTTP (`127.0.0.1:7890`).
+2. **Zero Cloud Telemetry**: All token savings statistics remain strictly inside your local `.devctx/index.db`.
 3. **Repository Sandboxing**: All file paths are strictly validated against repository boundaries, preventing path traversal attacks.

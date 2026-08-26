@@ -1,7 +1,7 @@
 # Why Brute-Force Grep Destroys AI Coding Performance
 ### *And how local SQLite + AST indexing cuts agent token costs by 80%*
 
-**By the ctxd Team** • 8 min read
+**By the devctx Team** • 8 min read
 
 ---
 
@@ -57,14 +57,14 @@ However, developers working in enterprise environments often face strict constra
 
 ---
 
-## 3. Introducing `ctxd`: Local-First SQLite + AST Architecture
+## 3. Introducing `devctx`: Local-First SQLite + AST Architecture
 
-`ctxd` is a lightweight, open-source context engine and MCP server written in Go. It operates on a simple premise: **Treat your repository's AST as a fast, queryable local relational database.**
+`devctx` is a lightweight, open-source context engine and MCP server written in Go. It operates on a simple premise: **Treat your repository's AST as a fast, queryable local relational database.**
 
 ### The Architecture:
 1. **Sub-Millisecond AST Extraction**: Deterministically extracts functions, types, interfaces, and classes across Go, TypeScript, Python, and Rust.
-2. **SQLite WAL Mode Storage (`.ctxd/index.db`)**: Stores file hashes, AST symbols, and full-text search indexes with zero database locking (`PRAGMA synchronous = NORMAL`).
-3. **Line-Number Drift Protection**: Checks file modification timestamps on every query. If an agent edits a file during a session, `ctxd` micro-reparses that single file in $<2\text{ms}$, guaranteeing line numbers are never stale.
+2. **SQLite WAL Mode Storage (`.devctx/index.db`)**: Stores file hashes, AST symbols, and full-text search indexes with zero database locking (`PRAGMA synchronous = NORMAL`).
+3. **Line-Number Drift Protection**: Checks file modification timestamps on every query. If an agent edits a file during a session, `devctx` micro-reparses that single file in $<2\text{ms}$, guaranteeing line numbers are never stale.
 
 ---
 
@@ -97,7 +97,7 @@ In traditional workflows, starting work on a feature requires 5 separate tool ca
 
 ---
 
-### C. PR Blast Radius Analyzer (`ctxd blast <symbol>`)
+### C. PR Blast Radius Analyzer (`devctx blast <symbol>`)
 Before an AI agent modifies a function signature, `blast_radius` checks every call site across the codebase:
 
 ```text
@@ -110,12 +110,12 @@ Before an AI agent modifies a function signature, `blast_radius` checks every ca
 
 ---
 
-### D. Real-Time Token & Money Savings Counter (`ctxd stats`)
-`ctxd` tracks every query served and computes exact tokens saved vs. brute-force grep:
+### D. Real-Time Token & Money Savings Counter (`devctx stats`)
+`devctx` tracks every query served and computes exact tokens saved vs. brute-force grep:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│  ⚡ ctxd AI Efficiency & Cost Savings Report                │
+│  ⚡ devctx AI Efficiency & Cost Savings Report                │
 ├─────────────────────────────────────────────────────────────┤
 │  🔍 Agent Searches Served:     1,420 queries                │
 │  ⏱️  Total Latency Reduced:     48.2 minutes saved           │
@@ -129,19 +129,19 @@ Before an AI agent modifies a function signature, `blast_radius` checks every ca
 
 ## 5. Getting Started in 10 Seconds
 
-`ctxd` requires no Docker containers, no external dependencies, and zero configuration:
+`devctx` requires no Docker containers, no external dependencies, and zero configuration:
 
 ### macOS / Linux:
 ```bash
-curl -fsSL https://ctxd.dev/install.sh | bash && ctxd setup
+curl -fsSL https://recscse.github.io/devctx/install.sh | bash && devctx setup
 ```
 
 ### Windows (PowerShell):
 ```powershell
-irm https://ctxd.dev/install.ps1 | iex; ctxd setup
+irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
 ```
 
-Running `ctxd setup` automatically configures **Claude Desktop, Cursor, Google Antigravity, VS Code, and Windsurf** with zero manual JSON editing.
+Running `devctx setup` automatically configures **Claude Desktop, Cursor, Google Antigravity, VS Code, and Windsurf** with zero manual JSON editing.
 
 ---
 
@@ -149,5 +149,5 @@ Running `ctxd setup` automatically configures **Claude Desktop, Cursor, Google A
 
 Brute-force text search was designed for human terminals in 1974, not for token-budgeted LLMs in 2026. By replacing raw grep with structured, sub-millisecond AST context, we can make AI coding agents faster, cheaper, and vastly more reliable.
 
-- **GitHub Repository**: [https://github.com/recscse/ctxd](https://github.com/recscse/ctxd)
+- **GitHub Repository**: [https://github.com/recscse/devctx](https://github.com/recscse/devctx)
 - **License**: MIT (100% Open Source)

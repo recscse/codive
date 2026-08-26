@@ -12,8 +12,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // GraphData represents the network nodes and edges for the web map.

@@ -1,6 +1,6 @@
-# Contributing to `ctxd`
+# Contributing to `devctx`
 
-Thank you for your interest in contributing to `ctxd`! We welcome contributions of all kinds: new language AST parsers, MCP tools, bug reports, performance optimizations, and documentation improvements.
+Thank you for your interest in contributing to `devctx`! We welcome contributions of all kinds: new language AST parsers, MCP tools, bug reports, performance optimizations, and documentation improvements.
 
 ---
 
@@ -13,14 +13,14 @@ Thank you for your interest in contributing to `ctxd`! We welcome contributions 
 ### 1. Clone & Build
 ```bash
 # Clone the repository
-git clone https://github.com/recscse/ctxd.git
-cd ctxd
+git clone https://github.com/recscse/devctx.git
+cd devctx
 
 # Download dependencies
 go mod download
 
 # Build the local binary
-go build -o ctxd .
+go build -o devctx .
 ```
 
 ### 2. Run Tests
@@ -37,7 +37,7 @@ go vet ./...
 
 ## 🧩 Adding a New Language AST Parser
 
-`ctxd` is designed to be easily extensible to new programming languages:
+`devctx` is designed to be easily extensible to new programming languages:
 1. Navigate to `internal/symbols/`.
 2. Implement your language symbol extractor (e.g. `ExtractJavaSymbols` or `ExtractCSharpSymbols`).
 3. Add the language mapping to `internal/scanner/scanner.go` in `DetectLanguage()`.
@@ -73,4 +73,4 @@ To expose a new MCP tool to AI agents:
 ---
 
 ## 📄 License
-By contributing to `ctxd`, you agree that your contributions will be licensed under the project's [MIT License](LICENSE).
+By contributing to `devctx`, you agree that your contributions will be licensed under the project's [MIT License](LICENSE).

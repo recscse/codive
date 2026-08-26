@@ -18,7 +18,7 @@ all: build
 
 build:
 	@echo "Building local binary..."
-	go build -ldflags "$(LDFLAGS)" -o ctxd .
+	go build -ldflags "$(LDFLAGS)" -o devctx .
 
 test:
 	@echo "Running tests..."
@@ -30,7 +30,7 @@ build-all: clean
 	@for target in $(TARGETS); do \
 		os=$${target%/*}; \
 		arch=$${target#*/}; \
-		output="dist/ctxd-$$os-$$arch"; \
+		output="dist/devctx-$$os-$$arch"; \
 		if [ "$$os" = "windows" ]; then output="$$output.exe"; fi; \
 		echo "Building $$output ($$target)..."; \
 		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o "$$output" . || exit 1; \

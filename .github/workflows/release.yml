@@ -56,17 +56,17 @@ jobs:
           COMMIT="${{ github.sha }}"
           BUILD_DATE=$(date -u +%Y-%m-%d)
           
-          BIN_NAME="ctxd${{ matrix.ext }}"
-          OUTPUT_DIR="dist/ctxd_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}"
+          BIN_NAME="devctx${{ matrix.ext }}"
+          OUTPUT_DIR="dist/devctx_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}"
           mkdir -p "${OUTPUT_DIR}"
           
           go build -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${COMMIT:0:7} -X main.BuildDate=${BUILD_DATE}" -o "${OUTPUT_DIR}/${BIN_NAME}" .
           
           cd dist
           if [ "${{ matrix.compress }}" = "tar" ]; then
-            tar -czvf "ctxd_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz" -C "ctxd_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}" "${BIN_NAME}"
+            tar -czvf "devctx_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz" -C "devctx_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}" "${BIN_NAME}"
           else
-            zip -j "ctxd_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}.zip" "ctxd_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}/${BIN_NAME}"
+            zip -j "devctx_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}.zip" "devctx_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}/${BIN_NAME}"
           fi
 
       - name: Upload Artifact

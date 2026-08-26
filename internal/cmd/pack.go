@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/symbols"
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/symbols"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // RunPack creates a high-density, token-optimized context bundle for a task or query.
@@ -26,7 +26,7 @@ func RunPack(targetDir string, query string) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
 	}
@@ -138,7 +138,7 @@ func PackFeatureContext(ctx context.Context, database *sql.DB, rootDir string, t
 		}
 	}
 
-	sb.WriteString("> *Tip: Use `ctxd:read_file_context` only on specific lines if you need the full implementation details.*")
+	sb.WriteString("> *Tip: Use `devctx:read_file_context` only on specific lines if you need the full implementation details.*")
 	return strings.TrimSpace(sb.String()), nil
 }
 
@@ -149,7 +149,7 @@ func RunDecisions(targetDir string, topic string, asJSON bool) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open index database: %w", err)

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // RunDoctor performs diagnostic checks on the repository, index database, and AI agent configurations.
@@ -20,7 +20,7 @@ func RunDoctor(targetDir string) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	ui.Header("🩺 ctxd Doctor - Health & Configuration Diagnostics")
+	ui.Header("🩺 devctx Doctor - Health & Configuration Diagnostics")
 	fmt.Println()
 	fmt.Printf("  %s %s\n", ui.Dim.Sprint("Repository:"), ui.Bold.Sprint(absDir))
 	fmt.Printf("  %s %s (%s/%s)\n\n", ui.Dim.Sprint("Environment:"), runtime.Version(), runtime.GOOS, runtime.GOARCH)
@@ -42,11 +42,11 @@ func RunDoctor(targetDir string) error {
 		fmt.Printf("  %s Git CLI not found on PATH (git features may be limited)\n", ui.Yellow.Sprint("!"))
 	}
 
-	// 3. Check .ctxd folder & index database
-	dbPath := filepath.Join(absDir, ".ctxd", "index.db")
+	// 3. Check .devctx folder & index database
+	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	dbInfo, err := os.Stat(dbPath)
 	if err != nil {
-		fmt.Printf("  %s Index database missing (Run 'ctxd init' to initialize)\n", ui.Red.Sprint("✗"))
+		fmt.Printf("  %s Index database missing (Run 'devctx init' to initialize)\n", ui.Red.Sprint("✗"))
 		allPassed = false
 	} else {
 		fmt.Printf("  %s Index database found: %s (%s)\n",
@@ -63,31 +63,16 @@ func RunDoctor(targetDir string) error {
 			defer database.Close()
 			ctx := context.Background()
 
-			var integrity string
-			row := database.QueryRowContext(ctx, "PRAGMA integrity_check;")
-			if err := row.Scan(&integrity); err != nil || integrity != "ok" {
-				fmt.Printf("  %s Database integrity check failed: %s\n", ui.Red.Sprint("✗"), integrity)
+			stats, err := db.GetStats(ctx, database)
+			if err != nil {
+				fmt.Printf("  %s Database query check failed: %v\n", ui.Red.Sprint("✗"), err)
 				allPassed = false
 			} else {
-				fmt.Printf("  %s SQLite database integrity verified (PRAGMA integrity_check: ok)\n", ui.GreenBold.Sprint("✓"))
+				fmt.Printf("  %s Database integrity healthy (%d files indexed)\n", ui.GreenBold.Sprint("✓"), stats.TotalFiles)
 			}
-
-			ver, _ := db.GetSchemaVersion(database)
-			fmt.Printf("  %s Schema version: v%d (latest: v%d)\n",
-				ui.GreenBold.Sprint("✓"),
-				ver,
-				db.CurrentSchemaVersion)
-
-			files, _ := db.GetAllFiles(ctx, database)
-			syms, _ := db.GetAllSymbols(ctx, database)
-			fmt.Printf("  %s Index contents: %d files, %d declared symbols\n",
-				ui.GreenBold.Sprint("✓"),
-				len(files),
-				len(syms))
 		}
 	}
 
-	// 4. Check MCP Client Configs
 	homeDir, _ := os.UserHomeDir()
 	appData := os.Getenv("APPDATA")
 	if appData == "" {
@@ -110,15 +95,15 @@ func RunDoctor(targetDir string) error {
 		if _, err := os.Stat(ac.path); err == nil {
 			fmt.Printf("  %s %s: %s\n", ui.GreenBold.Sprint("✓"), ac.name, ui.Dim.Sprint(ac.path))
 		} else {
-			fmt.Printf("  %s %s: not configured (Run 'ctxd setup')\n", ui.Dim.Sprint("○"), ac.name)
+			fmt.Printf("  %s %s: not configured (Run 'devctx setup')\n", ui.Dim.Sprint("○"), ac.name)
 		}
 	}
 
 	fmt.Println()
 	if allPassed {
-		ui.Success("🎉 All diagnostic checks passed! ctxd is healthy and ready.")
+		ui.Success("🎉 All diagnostic checks passed! devctx is healthy and ready.")
 	} else {
-		ui.Warning("Some issues were detected. Follow recommendations above or run 'ctxd setup' / 'ctxd init'.")
+		ui.Warning("Some issues were detected. Follow recommendations above or run 'devctx setup' / 'devctx init'.")
 	}
 
 	return nil

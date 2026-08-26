@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // ProjectStack contains detected tech stack metadata.
@@ -163,18 +163,18 @@ func generateRulesMarkdown(stack ProjectStack) string {
 	sb.WriteString("## Code Search & Exploration Rules\n")
 	sb.WriteString("- **DO NOT** use raw `grep`, `ripgrep`, or recursive `list_dir` for codebase exploration.\n")
 	sb.WriteString("- **ALWAYS PREFER** the `ctxd` MCP tools for zero-token code discovery:\n")
-	sb.WriteString("  1. Use `ctxd:get_repo_map` to understand the codebase structure and symbols.\n")
-	sb.WriteString("  2. Use `ctxd:get_file_skeleton` to inspect file structure without dumping thousands of tokens.\n")
-	sb.WriteString("  3. Use `ctxd:find_symbol` when locating function, class, or type definitions.\n")
-	sb.WriteString("  4. Use `ctxd:find_callers` or `ctxd:find_references` when discovering usages or refactoring.\n")
-	sb.WriteString("  5. Use `ctxd:find_tests_for` to locate corresponding unit test suites before and after making changes.\n")
-	sb.WriteString("  6. Use `ctxd:pack_feature_context` to bundle complete feature entrypoints in 1 single turn.\n")
-	sb.WriteString("  7. Use `ctxd:get_git_changes` to review uncommitted AST changes without noisy unified diffs.\n\n")
+	sb.WriteString("  1. Use `devctx:get_repo_map` to understand the codebase structure and symbols.\n")
+	sb.WriteString("  2. Use `devctx:get_file_skeleton` to inspect file structure without dumping thousands of tokens.\n")
+	sb.WriteString("  3. Use `devctx:find_symbol` when locating function, class, or type definitions.\n")
+	sb.WriteString("  4. Use `devctx:find_callers` or `devctx:find_references` when discovering usages or refactoring.\n")
+	sb.WriteString("  5. Use `devctx:find_tests_for` to locate corresponding unit test suites before and after making changes.\n")
+	sb.WriteString("  6. Use `devctx:pack_feature_context` to bundle complete feature entrypoints in 1 single turn.\n")
+	sb.WriteString("  7. Use `devctx:get_git_changes` to review uncommitted AST changes without noisy unified diffs.\n\n")
 
 	sb.WriteString("## Engineering Conventions\n")
 	sb.WriteString("1. Always run tests using the verified test command after making edits.\n")
 	sb.WriteString("2. Avoid breaking existing exported signatures without updating all callers.\n")
-	sb.WriteString("3. Record significant architectural decisions using `ctxd:save_decision`.\n")
+	sb.WriteString("3. Record significant architectural decisions using `devctx:save_decision`.\n")
 
 	return sb.String()
 }

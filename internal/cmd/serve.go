@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/mcp"
-	"github.com/recscse/ctxd/internal/scanner"
-	"github.com/recscse/ctxd/internal/symbols"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/mcp"
+	"github.com/recscse/devctx/internal/scanner"
+	"github.com/recscse/devctx/internal/symbols"
 )
 
 // RunServe starts the MCP (Model Context Protocol) JSON-RPC server over standard I/O with background auto-sync.
@@ -23,7 +23,7 @@ func RunServe(targetDir string) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		// Auto-initialize if not initialized yet
 		_ = RunInit(absDir)

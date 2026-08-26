@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>GitHub Integration & Setup | astd docs</title>
+  <title>devctx Documentation — Developer Context Engine</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   
   <style>
     :root {
@@ -318,11 +318,12 @@
   <!-- Fixed Header -->
   <header class="header">
     <div class="header-inner">
-      <a href="index.html" class="logo-brand">astd<span>_</span></a>
+      <a href="index.html" class="logo-brand">devctx<span>_</span></a>
 
       <div class="nav-center-links">
         <a href="index.html" class="nav-link">Home</a>
         <a href="docs.html" class="nav-link active">Docs</a>
+        <a href="blog.html" class="nav-link">Blog</a>
         <a href="index.html#how-it-works" class="nav-link">How it Works</a>
         <a href="index.html#features" class="nav-link">Features</a>
       </div>
@@ -382,7 +383,7 @@
 
       <h1 id="overview">Overview & Integration Guide</h1>
       <p>
-        <code>astd</code> connects directly to your local Git repository, scans the Abstract Syntax Tree (AST) across Go, TypeScript, Python, and Rust, indexes everything into an embedded SQLite database (WAL mode), and makes it searchable via <strong>Model Context Protocol (MCP)</strong>, CLI, or API.
+        <code>devctx</code> connects directly to your local Git repository, scans the Abstract Syntax Tree (AST) across Go, TypeScript, Python, and Rust, indexes everything into an embedded SQLite database (WAL mode), and makes it searchable via <strong>Model Context Protocol (MCP)</strong>, CLI, or API.
       </p>
 
       <h2 id="what-gets-indexed">What gets indexed</h2>
@@ -402,14 +403,14 @@
           <button class="copy-btn-code" onclick="copySnippet(this)">Copy</button>
         </div>
         <pre><code># macOS & Linux (curl)
-curl -fsSL https://recscse.github.io/astd/install.sh | bash && astd setup
+curl -fsSL https://recscse.github.io/devctx/install.sh | bash && devctx setup
 
 # Windows (PowerShell)
-irm https://recscse.github.io/astd/install.ps1 | iex; astd setup</code></pre>
+irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup</code></pre>
       </div>
 
       <h2 id="cursor">Cursor IDE Configuration</h2>
-      <p>Running <code>astd setup</code> automatically writes your local MCP configuration into <code>~/.cursor/mcp.json</code>:</p>
+      <p>Running <code>devctx setup</code> automatically writes your local MCP configuration into <code>~/.cursor/mcp.json</code>:</p>
 
       <div class="expressive-code">
         <div class="code-header">
@@ -418,8 +419,8 @@ irm https://recscse.github.io/astd/install.ps1 | iex; astd setup</code></pre>
         </div>
         <pre><code>{
   "mcpServers": {
-    "astd": {
-      "command": "astd",
+    "devctx": {
+      "command": "devctx",
       "args": ["serve"]
     }
   }
@@ -427,7 +428,7 @@ irm https://recscse.github.io/astd/install.ps1 | iex; astd setup</code></pre>
       </div>
 
       <h2 id="claude">Claude Desktop & Claude Code Setup</h2>
-      <p>Add <code>astd</code> to your <code>claude_desktop_config.json</code>:</p>
+      <p>Add <code>devctx</code> to your <code>claude_desktop_config.json</code>:</p>
 
       <div class="expressive-code">
         <div class="code-header">
@@ -436,8 +437,8 @@ irm https://recscse.github.io/astd/install.ps1 | iex; astd setup</code></pre>
         </div>
         <pre><code>{
   "mcpServers": {
-    "astd": {
-      "command": "astd",
+    "devctx": {
+      "command": "devctx",
       "args": ["serve"]
     }
   }
@@ -454,7 +455,7 @@ irm https://recscse.github.io/astd/install.ps1 | iex; astd setup</code></pre>
           <span>AI Agent Tool Call</span>
           <button class="copy-btn-code" onclick="copySnippet(this)">Copy</button>
         </div>
-        <pre><code>astd:pack_feature_context(feature="auth")</code></pre>
+        <pre><code>devctx:pack_feature_context(feature="auth")</code></pre>
       </div>
 
       <h3>2. blast_radius (PR Regression Guard)</h3>
@@ -465,7 +466,7 @@ irm https://recscse.github.io/astd/install.ps1 | iex; astd setup</code></pre>
           <span>AI Agent Tool Call</span>
           <button class="copy-btn-code" onclick="copySnippet(this)">Copy</button>
         </div>
-        <pre><code>astd:blast_radius(symbol="GenerateToken")</code></pre>
+        <pre><code>devctx:blast_radius(symbol="GenerateToken")</code></pre>
       </div>
 
       <!-- Pagination Footer -->

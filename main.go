@@ -6,9 +6,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/recscse/ctxd/internal/cmd"
-	"github.com/recscse/ctxd/internal/logger"
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/cmd"
+	"github.com/recscse/devctx/internal/logger"
+	"github.com/recscse/devctx/internal/ui"
 )
 
 // Build metadata injected via -ldflags during build
@@ -19,10 +19,10 @@ var (
 )
 
 func printUsage() {
-	ui.Header(fmt.Sprintf("ctxd %s - Local-first context engine for AI coding agents", Version))
+	ui.Header(fmt.Sprintf("devctx %s - Local-first context engine for AI coding agents", Version))
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  ctxd <command> [arguments] [flags]")
+	fmt.Println("  devctx <command> [arguments] [flags]")
 	fmt.Println("\nAvailable Commands:")
 	fmt.Println("  init          [path]      Scan and index a repository from scratch")
 	fmt.Println("  init-rules    [path]      Auto-generate customized AI architecture rules")
@@ -43,7 +43,7 @@ func printUsage() {
 	fmt.Println("  pack          <query>     Build a token-optimized context pack for LLMs")
 	fmt.Println("  watch         [path]      Watch repository and auto-sync changes in real-time")
 	fmt.Println("  setup         [path]      Auto-configure ctxd for installed AI agents")
-	fmt.Println("  logs          [path]      Show recent log entries from .ctxd/ctxd.log")
+	fmt.Println("  logs          [path]      Show recent log entries from .devctx/devctx.log")
 	fmt.Println("  serve         [path]      Run the Model Context Protocol (MCP) server")
 	fmt.Println("  version                   Show detailed version and build information")
 	fmt.Println("  help                      Show this help message")
@@ -363,7 +363,7 @@ func main() {
 				"platform":   fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 			})
 		} else {
-			ui.Header(fmt.Sprintf("ctxd %s", Version))
+			ui.Header(fmt.Sprintf("devctx %s", Version))
 			fmt.Printf("  %s   %s\n", ui.Dim.Sprint("Git Commit:"), GitCommit)
 			fmt.Printf("  %s   %s\n", ui.Dim.Sprint("Build Date:"), BuildDate)
 			fmt.Printf("  %s   %s\n", ui.Dim.Sprint("Go Version:"), runtime.Version())

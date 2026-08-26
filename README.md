@@ -1,185 +1,143 @@
 <div align="center">
 
-<img src="assets/banner.svg" alt="ctxd - Sub-Millisecond AST Context Engine for AI Coding Agents" width="100%" />
+<img src="assets/logo.svg" alt="devctx Logo" width="120" />
 
-<br/><br/>
+# `devctx`
 
-[![Go Version](https://img.shields.io/badge/Go-1.21%2B-00ADD8?style=for-the-badge&logo=go)](https://golang.org)
-[![MCP Protocol](https://img.shields.io/badge/Model_Context_Protocol-14_Tools-7C3AED?style=for-the-badge)](https://modelcontextprotocol.io)
-[![License](https://img.shields.io/badge/License-MIT-10B981?style=for-the-badge)](LICENSE)
-[![Tokens Saved](https://img.shields.io/badge/Tokens_Saved-4.8M%2B-00F0FF?style=for-the-badge)](#benchmarks)
-[![Speed](https://img.shields.io/badge/Latency-%3C_2ms-F59E0B?style=for-the-badge)](#benchmarks)
+### Sub-Millisecond AST Context Engine & Model Context Protocol (MCP) Server for AI Coding Agents
+
+[![Release](https://img.shields.io/badge/Release-v1.0.0-20c20e?style=flat-square)](https://github.com/recscse/devctx/releases)
+[![Go Version](https://img.shields.io/badge/Go-1.21%2B-00ADD8?style=flat-square&logo=go)](https://golang.org)
+[![MCP Protocol](https://img.shields.io/badge/Model_Context_Protocol-14_Tools-7C3AED?style=flat-square)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/License-MIT-gray?style=flat-square)](LICENSE)
 
 <br/>
 
-**Stop letting AI coding agents burn millions of tokens on raw grep.**<br/>
-Local-first SQLite + AST context engine for **Claude Code, Cursor, Windsurf, Google Antigravity, and VS Code**.
+**Stop letting AI coding assistants burn millions of tokens on brute-force grep.**<br/>
+`devctx` indexes AST symbols into an embedded SQLite database (WAL mode) and serves exact code signatures, skeletons, and call graphs to **Claude Code, Cursor, Windsurf, Google Antigravity, and VS Code** in `< 2ms`.
 
-[Quickstart](#-quick-install-1-liner) • [14 MCP Tools](#-complete-mcp-tool-suite-14-tools) • [Architecture Deep-Dive](docs/ARCHITECTURE.md) • [Interactive Web Map](#-interactive-web-architecture-map-ctxd-map---web) • [Launch Playbook](docs/LAUNCH_PLAYBOOK.md)
+<br/>
+
+[Website](https://recscse.github.io/devctx/) • [Documentation](https://recscse.github.io/devctx/docs.html) • [Engineering Blog](https://recscse.github.io/devctx/blog.html) • [14 MCP Tools](#-14-specialized-mcp-tools) • [Architecture Deep-Dive](docs/ARCHITECTURE.md)
 
 </div>
 
 ---
 
-## 💡 The Core Problem: Why Brute-Force Grep Fails
+## 💡 The Core Problem: Why Grep Fails for AI Agents
 
-When an AI coding assistant explores your repository, its default fallback is raw `grep` and dumping entire 2,000-line files:
+When an AI coding assistant explores your codebase, its default fallback is raw `grep` and dumping entire 2,000-line files:
 
-1. **Massive Token Waste**: A single `grep` for a common term (e.g. `getUser`, `status`) returns 100–400 lines of noise across comments, mock data, and test fixtures (burning 3,000–8,000 tokens).
-2. **Compound Transcript Cost**: Because LLMs are stateless, **the full conversation history is re-sent on every subsequent turn**. Paying for 8,000 noisy tokens on Turn 1 means paying for them again on Turn 2, Turn 3... Turn 15 (burning 120,000+ tokens).
-3. **Context Degradation**: Flooding the context window with raw text causes the model to lose track of subtle business logic and hallucinate incorrect signatures.
+1. **Massive Token Waste**: A single `grep` for a common term (e.g. `GenerateToken`, `handleAuth`) returns hundreds of lines across mocks, test fixtures, and comments (burning 3,000–8,000 tokens).
+2. **Compound Transcript Re-Sending**: Because LLM API calls are stateless, **the full conversation history is re-sent on every subsequent turn**. Paying for 8,000 noisy tokens on Turn 1 means paying for them again on Turn 2, Turn 3... Turn 15 (burning 100,000+ tokens for a single refactoring task).
+3. **Context Window Drift**: Flooding the context window with raw text degrades model attention, leading to hallucinated method signatures and broken callers.
 
-### The `ctxd` Solution:
-`ctxd` indexes AST symbols into a local SQLite database (WAL mode). Instead of 6 turns of noisy grep searches and broken refactors, your AI coding agent gets exact signatures, function skeletons, and call graphs in **1 turn and 250 tokens**.
+### The `devctx` Solution:
+`devctx` parses Abstract Syntax Trees (AST) across **Go, TypeScript/JavaScript, Python, and Rust**, indexing declarations, signatures, and call hierarchies into local SQLite. Your AI coding agent receives exact definitions, function skeletons, and call graphs in **1 turn and 250 tokens**.
 
-```mermaid
-graph TD
-    subgraph Traditional Brute-Force Flow
-        T1["Prompt: 'Refactor Auth Token'"] --> T2["5x grep & list_dir calls (10,000 tokens)"]
-        T2 --> T3["Full 2,000-line file read (5,000 tokens)"]
-        T3 --> T4["Guess edits & broken callers"]
-        T4 --> T5["Fail tests & retry loops"]
-        T5 --> T6["Total: ~15 turns | ~60,000 tokens | 60s ($0.18)"]
-    end
-
-    subgraph ctxd-Powered Flow
-        C1["Prompt: 'Refactor Auth Token'"] --> C2["ctxd:pack_feature_context('auth') (250 tokens)"]
-        C2 --> C3["ctxd:find_callers('GenerateToken') (18 tokens)"]
-        C3 --> C4["ctxd:find_tests_for('auth.go') (15 tokens)"]
-        C4 --> C5["Targeted edit & tests pass on Turn 1!"]
-        C5 --> C6["Total: ~2 turns | ~2,500 tokens | 4s ($0.007)"]
-    end
+```text
+┌───────────────────────────────────────────────────┐     ┌───────────────────────────────────────────────────┐
+│  ❌ TRADITIONAL BRUTE-FORCE GREP FLOW              │     │  ⚡ DEVCTX LOCAL AST CONTEXT ENGINE FLOW          │
+├───────────────────────────────────────────────────┤     ├───────────────────────────────────────────────────┤
+│  Turn 1: grep -rn "GenerateToken" .               │     │  Turn 1: devctx:pack_feature_context("auth")      │
+│  └── 380 lines across mocks (4,200 tokens)        │     │  └── Bundled models, handlers & tests (240 tokens)│
+│                                                   │     │                                                   │
+│  Turn 2: view_file auth_service.go                │     │  Turn 1 (cont): devctx:find_callers(...)          │
+│  └── 2,100-line full file dump (5,200 tokens)     │     │  └── Pinpointed all 3 callers in 2ms (18 tokens)  │
+│                                                   │     │                                                   │
+│  Turn 3–6: Guess edit ➔ 3 callers broke on import! │     │  Turn 2: Targeted edit applied & verified         │
+│  └── Retry loops & hallucinated signatures        │     │  └── 100% test pass on first attempt              │
+├───────────────────────────────────────────────────┤     ├───────────────────────────────────────────────────┤
+│  TOTAL: 15 turns | ~64,000 tokens | 62s ($0.19)   │     │  TOTAL: 2 turns | ~2,100 tokens | 4s ($0.006)     │
+└───────────────────────────────────────────────────┘     └───────────────────────────────────────────────────┘
+                                                           🚀 96% Token Savings • 5x Faster Turnaround
 ```
 
 ---
 
 ## ⚡ Quick Install (1-Liner)
 
-### macOS / Linux
+### macOS & Linux
 ```bash
-curl -fsSL https://ctxd.dev/install.sh | bash && ctxd setup
+curl -fsSL https://recscse.github.io/devctx/install.sh | bash && devctx setup
 ```
 
 ### Windows (PowerShell)
 ```powershell
-irm https://ctxd.dev/install.ps1 | iex; ctxd setup
+irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
 ```
 
-Running `ctxd setup` automatically detects and configures **Claude Desktop, Cursor, Google Antigravity, VS Code (Continue / Cline), and Windsurf** with `autoApprove: true` — zero manual JSON editing required.
+### Go Developers
+```bash
+go install github.com/recscse/devctx@latest && devctx setup
+```
+
+> **Note**: Running `devctx setup` automatically detects installed AI tools (**Claude Desktop, Cursor, Google Antigravity, Windsurf, VS Code**) and registers the MCP server with `autoApprove: true` — zero manual configuration needed.
 
 ---
 
-## 📊 Benchmark: `ctxd` vs. Alternatives
+## 🛠️ 14 Specialized MCP Tools
 
-| Capability | `ctxd` | Raw Grep / Ripgrep | Aider | Sourcegraph / Cody |
-| :--- | :---: | :---: | :---: | :---: |
-| **Token Cost per Search** | **~25 tokens** | 2,500–8,000 tokens | 800–2,000 tokens | 1,500+ tokens |
-| **Query Latency** | **< 2 ms** | 450–3,000 ms | 1,200 ms | Cloud Roundtrip |
-| **AST Symbol Resolution** | ✅ Yes (Go, TS, Python, Rust) | ❌ Text Only | ⚠️ Python/Tree-sitter | ⚠️ Cloud index |
-| **Code Skeletonizer** | ✅ Yes (`get_file_skeleton`) | ❌ No | ⚠️ Partial | ❌ No |
-| **Call Graph Impact** | ✅ Yes (`find_callers`, `blast`) | ❌ No | ❌ No | ⚠️ Cloud LSIF |
-| **Privacy / Local-First** | ✅ **100% Local (SQLite)** | ✅ Local | ✅ Local | ❌ Cloud Upload |
-| **MCP Native Protocol** | ✅ **14 Native Tools** | ❌ No | ❌ No | ❌ Custom |
+AI agents connected to `devctx` execute 14 token-optimized tools:
 
----
-
-## 🛠️ Complete MCP Tool Suite (14 Tools)
-
-AI agents connected to `ctxd` execute 14 specialized, token-optimized tools:
-
-| MCP Tool | Purpose | Token Savings |
+| MCP Tool | Purpose | Real Token Impact |
 | :--- | :--- | :---: |
-| **`pack_feature_context`** | 1-Shot bundle of feature data models, entrypoints, test suites, skeletons & decisions | **95%** |
-| **`get_file_skeleton`** | Strips function bodies into `{ /* L45-L92 */ }` (~50-token skeleton) | **90%** |
-| **`blast_radius`** | Answers *"If I change this symbol, what breaks?"* before refactoring | **85%** |
-| **`find_symbol`** | Locates exact definition line numbers and signatures across all files | **98%** |
-| **`find_callers`** | Discovers all call sites and functions invoking a target symbol | **92%** |
-| **`find_callees`** | Discovers internal functions and types called inside a function | **88%** |
-| **`find_tests_for`** | Automatically finds corresponding test files & test functions | **90%** |
-| **`get_repo_map`** | Structural repo skeleton with strict token-budget protection | **80%** |
-| **`get_git_changes`** | AST-aware git diff summary (maps lines to functions/classes) | **90%** |
-| **`save_decision`** | Stores durable architectural invariants in SQLite memory | **100%** |
-| **`get_decisions`** | Retrieves stored architectural rules from previous agents | **95%** |
-| **`search_code`** | Symbol-boosted full-text code search | **75%** |
-| **`read_file_context`** | Verified file content with drift protection & symbol outline | **50%** |
-| **`find_references`** | Discovers all references across the repo | **85%** |
+| **`pack_feature_context`** | 1-Shot bundle of feature data models, entrypoints, test suites & skeletons | **~240 tokens (vs 8,000)** |
+| **`get_file_skeleton`** | Strips function bodies into `{ /* L45-L92 */ }` comments | **~50 tokens (vs 5,000)** |
+| **`blast_radius`** | Answers *"If I change this symbol, what breaks?"* before applying refactors | **Zero Broken Callers** |
+| **`find_symbol`** | Locates exact definition line numbers and signatures across all files | **< 2ms Latency** |
+| **`find_callers`** | Discovers all call sites and functions invoking a target symbol | **100% Graph Precision** |
+| **`find_callees`** | Discovers internal functions and types called inside a function | **Exact Call Stack** |
+| **`find_tests_for`** | Automatically finds corresponding test files & test functions | **Instant Test Pairing** |
+| **`save_decision`** | Durable SQLite store for architectural invariants (agent memory) | **Persistent Memory** |
+| **`get_decisions`** | Retrieves past architectural invariants matching a topic | **Zero Bug Recurrence** |
+| **`get_repo_map`** | Structural repo skeleton with strict token-budget protection | **Budget Protected** |
+| **`get_git_changes`** | AST-aware git diff summary (maps changed lines to functions/classes) | **Clean Diffs** |
+| **`search_code`** | Symbol-boosted FTS5 full-text search with snippet highlights | **Noisy Lines Removed** |
+| **`read_file_context`** | Reads file with prepended AST symbol declarations | **Full File Context** |
+| **`find_references`** | Universal cross-file reference and usage discovery | **Complete Usages** |
 
 ---
 
-## 🔥 Key Killer Features
+## 🔒 Security & Privacy Guarantees
 
-### 1. Real-Time "Token & Money Saved" Counter (`ctxd stats`)
-```text
-$ ctxd stats
-
-┌─────────────────────────────────────────────────────────────┐
-│  ⚡ ctxd AI Efficiency & Cost Savings Report                │
-├─────────────────────────────────────────────────────────────┤
-│  🔍 Agent Searches Served:     1,420 queries                │
-│  ⏱️  Total Latency Reduced:     48.2 minutes saved           │
-│  🪙  Tokens Saved vs Raw Grep:  4,850,000 tokens             │
-│  💰 Estimated Cloud Savings:   $14.55 USD (Claude/GPT-4o)    │
-│  🚀 Speed Multiplier:          5.2x FASTER agent turns       │
-└─────────────────────────────────────────────────────────────┘
-
-  Embed in README.md: [![ctxd-token-reduction](https://img.shields.io/badge/Tokens_Saved-4.8M-brightgreen)](#)
-```
+- **100% Local-First**: All indexing and searches run on your local machine in SQLite (`.devctx/index.db`).
+- **Zero Cloud Telemetry**: Source code and AST symbols are never uploaded to any remote server.
+- **Path Traversal Protection**: All file read operations are validated strictly within the repository boundary.
+- **Zero Elevated Privileges**: Runs entirely in user space without requiring root or administrator access.
 
 ---
 
-### 2. PR Blast Radius Analyzer (`ctxd blast <symbol>`)
-```text
-$ ctxd blast ScanIncremental
-
-💥 Blast Radius Analysis for 'ScanIncremental':
-  ├── Risk Assessment:   ⚠️  HIGH IMPACT (14 direct callers across 5 files)
-  ├── 📦 Affected Files:   internal/scanner/scanner.go, internal/cmd/watch.go, internal/cmd/update.go
-  └── 🧪 Tests to Run:     internal/scanner/scanner_test.go
-```
-
----
-
-### 3. Interactive Web Architecture Map (`ctxd map --web`)
-```bash
-ctxd map --web
-# Launches: http://localhost:7890
-```
-Spins up a local web server displaying an interactive force network graph connecting **Files ➔ Structs ➔ Functions ➔ Callers** with instant search and one-click context prompt export.
-
----
-
-## 💻 CLI Commands
+## 💻 CLI Commands Reference
 
 ```bash
-ctxd setup          # Auto-configure MCP in Cursor, Claude, Antigravity, VS Code
-ctxd init           # Scan and index a repository from scratch
-ctxd update         # Fast incremental update (<5ms)
-ctxd status         # Index statistics & language breakdown
-ctxd doctor         # Health check and MCP configuration diagnostics
-ctxd diff           # AST-aware uncommitted git changes
-ctxd blast <name>   # PR Blast radius & regression risk analysis
-ctxd stats          # Real-time token and cloud money savings counter
-ctxd pack <topic>   # Generate 1-shot token-optimized context pack
-ctxd map --web      # Open interactive browser architecture map
-ctxd decisions      # View recorded architectural memories & invariants
-ctxd init-rules     # Auto-generate customized AGENTS.md / .cursorrules
-ctxd install-hooks  # Install Git post-commit & post-checkout hooks
+# Initialize and index a repository into SQLite
+devctx init
+
+# Search AST symbols instantly (< 2ms)
+devctx search "PaymentProcessor"
+
+# PR Blast Radius regression analyzer
+devctx blast "GenerateToken"
+
+# 1-shot feature context packing
+devctx pack auth
+
+# Launch local interactive visual network graph in browser
+devctx map --web
+
+# View real-time token & dollar savings counter
+devctx stats
+
+# Run system health and MCP diagnostics
+devctx doctor
+
+# Auto-configure MCP in installed AI coding assistants
+devctx setup
 ```
 
 ---
 
-## 📚 Documentation
+## 📄 License
 
-- [Technical Architecture Deep Dive](docs/ARCHITECTURE.md)
-- [Complete Client Integration & Usage Guide](docs/USAGE_GUIDE.md)
-- [Viral Engineering Blog Post](docs/BLOG_POST.md)
-- [Community Distribution & Launch Playbook](docs/LAUNCH_PLAYBOOK.md)
-- [Domain & Zero-Cost Hosting Guide](docs/DOMAIN_AND_HOSTING.md)
-
----
-
-## 📄 License & Author
-
-`ctxd` is open-source software licensed under the [MIT License](LICENSE).
-
-Crafted with high-voltage precision by **[Brijesh Yadav](https://recscse.github.io)** ([@recscse](https://github.com/recscse)).
+`devctx` is open-source software licensed under the [MIT License](LICENSE).

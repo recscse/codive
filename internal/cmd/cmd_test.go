@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/recscse/ctxd/internal/db"
+	"github.com/recscse/devctx/internal/db"
 )
 
 func TestUpdateOnOutdatedSchema(t *testing.T) {
@@ -21,10 +21,10 @@ func TestUpdateOnOutdatedSchema(t *testing.T) {
 		t.Fatalf("failed to write source file: %v", err)
 	}
 
-	// Create .ctxd directory with an old V1 schema (only files table, NO file_fts and NO symbols)
-	ctxdDir := filepath.Join(tempDir, ".ctxd")
+	// Create .devctx directory with an old V1 schema (only files table, NO file_fts and NO symbols)
+	ctxdDir := filepath.Join(tempDir, ".devctx")
 	if err := os.MkdirAll(ctxdDir, 0755); err != nil {
-		t.Fatalf("failed to create .ctxd dir: %v", err)
+		t.Fatalf("failed to create .devctx dir: %v", err)
 	}
 	dbPath := filepath.Join(ctxdDir, "index.db")
 

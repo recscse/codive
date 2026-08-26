@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/recscse/ctxd/internal/ui"
+	"github.com/recscse/devctx/internal/ui"
 )
 
-// RunLogs reads and prints the most recent log entries from .ctxd/ctxd.log.
+// RunLogs reads and prints the most recent log entries from .devctx/devctx.log.
 func RunLogs(targetDir string, lineCount int) error {
 	if lineCount <= 0 {
 		lineCount = 50
@@ -20,7 +20,7 @@ func RunLogs(targetDir string, lineCount int) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	logPath := filepath.Join(absDir, ".ctxd", "ctxd.log")
+	logPath := filepath.Join(absDir, ".devctx", "devctx.log")
 	file, err := os.Open(logPath)
 	if os.IsNotExist(err) {
 		ui.Warning(fmt.Sprintf("No log file found at %s. Run ctxd commands first.", logPath))

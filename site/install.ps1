@@ -1,21 +1,21 @@
-# ctxd Universal Installer for Windows PowerShell
-# Usage: irm https://ctxd.dev/install.ps1 | iex; ctxd setup
+# devctx Universal Installer for Windows PowerShell
+# Usage: irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "⚡ Installing ctxd (AI Context Engine) for Windows..." -ForegroundColor Cyan
+Write-Host "⚡ Installing devctx (Developer Context Engine) for Windows..." -ForegroundColor Green
 
-$InstallDir = "$env:LOCALAPPDATA\ctxd\bin"
+$InstallDir = "$env:LOCALAPPDATA\devctx\bin"
 if (!(Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 }
 
-$TargetBin = Join-Path $InstallDir "ctxd.exe"
+$TargetBin = Join-Path $InstallDir "devctx.exe"
 $Installed = $false
 
 # 1. Try downloading pre-compiled binary from GitHub Releases
-$DownloadUrl = "https://github.com/recscse/ctxd/releases/latest/download/ctxd_v1.0.0_windows_amd64.zip"
-$ZipPath = Join-Path $env:TEMP "ctxd_v1.0.0_windows_amd64.zip"
+$DownloadUrl = "https://github.com/recscse/devctx/releases/latest/download/devctx_v1.0.0_windows_amd64.zip"
+$ZipPath = Join-Path $env:TEMP "devctx_v1.0.0_windows_amd64.zip"
 
 try {
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $ZipPath -UseBasicParsing
@@ -29,9 +29,9 @@ try {
 # 2. Fallback: If go is installed, build from source
 if (-not $Installed -and (Get-Command go -ErrorAction SilentlyContinue)) {
     Write-Host "🔨 Compiling with Go..." -ForegroundColor Green
-    go install github.com/recscse/ctxd@latest
+    go install github.com/recscse/devctx@latest
     $Gopath = go env GOPATH
-    $GoBin = Join-Path $Gopath "bin\ctxd.exe"
+    $GoBin = Join-Path $Gopath "bin\devctx.exe"
     if (Test-Path $GoBin) {
         Copy-Item $GoBin $TargetBin -Force
         $Installed = $true
@@ -46,6 +46,6 @@ if ($UserPath -notlike "*$InstallDir*") {
     Write-Host "✓ Added $InstallDir to User PATH" -ForegroundColor Green
 }
 
-Write-Host "✨ ctxd installed successfully to $TargetBin!" -ForegroundColor Green
+Write-Host "✨ devctx installed successfully to $TargetBin!" -ForegroundColor Green
 Write-Host ""
-Write-Host "🚀 Next step: Run 'ctxd setup' in your repository to configure all AI agents automatically." -ForegroundColor Cyan
+Write-Host "🚀 Next step: Run 'devctx setup' in your repository to configure all AI agents automatically." -ForegroundColor Cyan

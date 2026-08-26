@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/recscse/ctxd/internal/db"
-	"github.com/recscse/ctxd/internal/git"
-	"github.com/recscse/ctxd/internal/scanner"
-	"github.com/recscse/ctxd/internal/symbols"
+	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/devctx/internal/git"
+	"github.com/recscse/devctx/internal/scanner"
+	"github.com/recscse/devctx/internal/symbols"
 )
 
 // JSONRPCRequest represents an incoming JSON-RPC 2.0 message.
@@ -96,7 +96,7 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 		return cached, absPath, nil
 	}
 
-	dbPath := filepath.Join(absPath, ".ctxd", "index.db")
+	dbPath := filepath.Join(absPath, ".devctx", "index.db")
 	dbConn, err := db.Open(dbPath)
 	if err != nil {
 		return nil, absPath, fmt.Errorf("failed to open database for %s: %w", absPath, err)
@@ -163,7 +163,7 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 					"tools": map[string]any{},
 				},
 				"serverInfo": map[string]any{
-					"name":    "ctxd",
+					"name":    "devctx",
 					"version": "1.3.0",
 				},
 			},
@@ -752,7 +752,10 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		relPath = filepath.ToSlash(relPath)
 		s.ensureFreshSymbols(ctx, targetDB, targetDir, relPath)
 
-		fullPath := filepath.Join(targetDir, filepath.FromSlash(relPath))
+		fullPath, err := validateSafeRelPath(targetDir, relPath)
+		if err != nil {
+			return nil, err
+		}
 		contentBytes, err := os.ReadFile(fullPath)
 		if err != nil {
 			ftsContent, ftsErr := db.GetFileContent(ctx, targetDB, relPath)
@@ -1015,7 +1018,10 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		// Line-Number Drift Protection
 		s.ensureFreshSymbols(ctx, targetDB, targetDir, relPath)
 
-		fullPath := filepath.Join(targetDir, filepath.FromSlash(relPath))
+		fullPath, err := validateSafeRelPath(targetDir, relPath)
+		if err != nil {
+			return nil, err
+		}
 		contentBytes, err := os.ReadFile(fullPath)
 		if err != nil {
 			// Fallback to FTS content if disk read fails
@@ -1052,9 +1058,37 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 	}
 }
 
+// validateSafeRelPath ensures that relPath does not escape the root repository directory.
+func validateSafeRelPath(rootDir string, relPath string) (string, error) {
+	cleanRel := filepath.Clean(filepath.FromSlash(relPath))
+	if filepath.IsAbs(cleanRel) {
+		return "", fmt.Errorf("absolute paths are not permitted: %s", relPath)
+	}
+	if strings.HasPrefix(cleanRel, "..") || strings.Contains(cleanRel, filepath.FromSlash("/../")) {
+		return "", fmt.Errorf("directory traversal outside repository boundary is prohibited: %s", relPath)
+	}
+	absRoot, err := filepath.Abs(rootDir)
+	if err != nil {
+		return "", err
+	}
+	absTarget := filepath.Join(absRoot, cleanRel)
+	absTargetClean, err := filepath.Abs(absTarget)
+	if err != nil {
+		return "", err
+	}
+	relCheck, err := filepath.Rel(absRoot, absTargetClean)
+	if err != nil || strings.HasPrefix(relCheck, "..") {
+		return "", fmt.Errorf("path escapes repository boundary: %s", relPath)
+	}
+	return absTargetClean, nil
+}
+
 // ensureFreshSymbols checks if the file on disk was modified after index time and micro-reparses on-the-fly.
 func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootDir string, relPath string) {
-	fullPath := filepath.Join(rootDir, filepath.FromSlash(relPath))
+	fullPath, err := validateSafeRelPath(rootDir, relPath)
+	if err != nil {
+		return
+	}
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		return

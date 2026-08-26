@@ -15,7 +15,7 @@ func TestDB(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	dbPath := filepath.Join(tempDir, ".ctxd", "index.db")
+	dbPath := filepath.Join(tempDir, ".devctx", "index.db")
 	database, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
