@@ -5,6 +5,7 @@
 *.so
 *.dylib
 ctxd
+devctx
 dist/
 
 # Test binary, built with `go test -c`
@@ -18,10 +19,12 @@ dist/
 
 # Local SQLite databases and logs
 .ctxd/
+.devctx/
 *.db
 *.db-wal
 *.db-shm
 ctxd.log
+devctx.log
 
 # IDE specific files
 .idea/
