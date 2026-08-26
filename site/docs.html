@@ -367,6 +367,12 @@
         <li><a href="#decisions">save_decision</a></li>
       </ul>
 
+      <div class="group-title">Sync & Maintenance</div>
+      <ul class="sidebar-menu">
+        <li><a href="#auto-updates">Automatic Sync</a></li>
+        <li><a href="#reindex">Clearing & Reindexing</a></li>
+      </ul>
+
       <div class="group-title">CLI Manual</div>
       <ul class="sidebar-menu">
         <li><a href="#cli-search">devctx search</a></li>
@@ -469,6 +475,30 @@ irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup</code></pre
         <pre><code>devctx:blast_radius(symbol="GenerateToken")</code></pre>
       </div>
 
+      <h2 id="auto-updates">Automatic Synchronization & Updating</h2>
+      <p>You never have to worry about the index going out of date. <code>devctx</code> maintains accurate symbol graphs through three automatic mechanisms:</p>
+
+      <ul>
+        <li><strong>On-The-Fly Line Drift Protection</strong>: Whenever an AI agent calls any tool (like <code>get_file_skeleton</code> or <code>read_file_context</code>), <code>devctx</code> checks the file's disk <code>ModTime</code>. If you or the AI edited the file seconds ago, it re-parses and updates SQLite in &lt;1ms before answering.</li>
+        <li><strong>Git Hooks Auto-Sync</strong>: Run <code>devctx install-hooks</code> once. Whenever you commit or pull code (<code>git commit</code>, <code>git checkout</code>), the repository is automatically updated in the background.</li>
+        <li><strong>Live File Watcher</strong>: Run <code>devctx watch</code> in a background terminal to continuously index files the millisecond they are saved.</li>
+      </ul>
+
+      <h2 id="reindex">Clearing & Rebuilding the Index</h2>
+      <p>To completely wipe the SQLite cache and rebuild all symbols and FTS tables from scratch:</p>
+
+      <div class="expressive-code">
+        <div class="code-header">
+          <span>Terminal</span>
+          <button class="copy-btn-code" onclick="copySnippet(this)">Copy</button>
+        </div>
+        <pre><code># Wipe and cleanly rebuild .devctx/index.db
+devctx reindex
+
+# Or run incremental scan
+devctx update</code></pre>
+      </div>
+
       <!-- Pagination Footer -->
       <div class="pagination-footer">
         <a href="index.html" class="pagination-card">
@@ -493,6 +523,8 @@ irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup</code></pre
         <li><a href="#claude">Claude Desktop Setup</a></li>
         <li><a href="#pack">pack_feature_context</a></li>
         <li><a href="#blast">blast_radius</a></li>
+        <li><a href="#auto-updates">Automatic Sync</a></li>
+        <li><a href="#reindex">Clearing & Reindexing</a></li>
       </ul>
     </aside>
   </div>

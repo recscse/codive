@@ -164,8 +164,19 @@ devctx install-hooks        # Install Git post-commit hooks for automatic re-ind
 - `file_fts`: FTS5 virtual table for full-text search with BM25 ranking.
 - `decisions`: Persistent key-value store for architectural notes recorded by agents.
 
-### Line-Number Drift Protection
-When an AI agent requests a file skeleton or symbol via MCP, `devctx` inspects the file's `ModTime` on disk. If the file has been edited since the last indexing pass, `devctx` re-parses the file on-the-fly to ensure line numbers and signatures remain exact without requiring a full repository re-index.
+### Automatic Updates vs. Manual Reindexing
+
+| Operation | Command / Mechanism | How It Works |
+| :--- | :--- | :--- |
+| **On-The-Fly Drift Protection** | *Automatic on every tool call* | Checks file `ModTime` on disk. If dirty, micro-reparses the single file in `< 1ms` before answering MCP queries. |
+| **Git Commit & Pull Sync** | `devctx install-hooks` | Installs Git `post-commit` and `post-checkout` hooks to auto-update SQLite on branch switches. |
+| **Live File Watcher** | `devctx watch` | Runs a background filesystem watcher (fsnotify) to index files immediately on save. |
+| **Manual Incremental Sync** | `devctx update` | Scans only files changed since the last indexed timestamp. |
+| **Full Wipe & Rebuild** | `devctx reindex` | Completely wipes `.devctx/index.db` and rebuilds all symbols and FTS tables from scratch. |
+
+### Privacy & Download Analytics
+- **100% Local-First**: No code, embeddings, or queries ever leave your machine. `devctx` contains zero telemetry tracking code.
+- **Tracking Public Adoption**: Project download statistics are tracked transparently via official GitHub Release binary downloads and GitHub Traffic Insights (`Insights > Traffic`).
 
 ### Security
 - **Sandboxed File Access**: File operations validate paths against the repository root to prevent directory traversal (`../`).
