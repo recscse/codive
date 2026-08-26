@@ -4,6 +4,7 @@ Fast, local-first code context engine and Model Context Protocol (MCP) server fo
 
 [![CI](https://github.com/recscse/devctx/actions/workflows/ci.yml/badge.svg)](https://github.com/recscse/devctx/actions)
 [![Release](https://img.shields.io/github/v/release/recscse/devctx?style=flat-square)](https://github.com/recscse/devctx/releases)
+[![Downloads](https://img.shields.io/github/downloads/recscse/devctx/total?style=flat-square&color=20c20e&label=Downloads)](https://github.com/recscse/devctx/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/recscse/devctx)](https://goreportcard.com/report/github.com/recscse/devctx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
