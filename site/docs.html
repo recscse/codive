@@ -414,8 +414,8 @@ curl -fsSL https://recscse.github.io/devctx/install.sh | bash && devctx setup
 # Windows (PowerShell)
 irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
 
-# Windows (Command Prompt / CMD)
-powershell -c "irm https://recscse.github.io/devctx/install.ps1 | iex"</code></pre>
+# Windows (Command Prompt / CMD via curl)
+curl -fsSL https://recscse.github.io/devctx/install.cmd -o install.cmd && install.cmd && del install.cmd</code></pre>
       </div>
 
       <h2 id="cursor">Cursor IDE Configuration</h2>

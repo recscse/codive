@@ -47,9 +47,9 @@ curl -fsSL https://recscse.github.io/devctx/install.sh | bash && devctx setup
 irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
 ```
 
-### Windows (Command Prompt / CMD)
+### Windows (Command Prompt / CMD via curl)
 ```cmd
-powershell -c "irm https://recscse.github.io/devctx/install.ps1 | iex"
+curl -fsSL https://recscse.github.io/devctx/install.cmd -o install.cmd && install.cmd && del install.cmd
 ```
 
 ### Via Go

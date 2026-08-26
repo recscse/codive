@@ -537,8 +537,8 @@
 <span style="color: #64748b;"># Windows (PowerShell)</span>
 <span style="color: #20c20e;">irm</span> https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
 
-<span style="color: #64748b;"># Windows (Command Prompt / CMD)</span>
-<span style="color: #20c20e;">powershell -c</span> "irm https://recscse.github.io/devctx/install.ps1 | iex"
+<span style="color: #64748b;"># Windows (Command Prompt / CMD via curl)</span>
+<span style="color: #20c20e;">curl</span> -fsSL https://recscse.github.io/devctx/install.cmd -o install.cmd && install.cmd && del install.cmd
       </div>
 
       <!-- Tab 1: CLI -->
