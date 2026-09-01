@@ -3,49 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Why Grep Fails for AI Coding Agents: Building a Local AST SQLite Engine in Go | devctx Blog</title>
-  <meta name="description" content="A deep-dive into how brute-force grep wastes context windows in AI coding agents, and how we engineered devctx—a local AST context engine with SQLite WAL mode and 14 MCP tools.">
-  <meta name="keywords" content="AI coding agents, AST parser, grep vs AST, model context protocol, SQLite WAL Go, token optimization, Claude Code, Cursor IDE, Antigravity">
+  <title>Engineering Blog & Architecture Case Studies | devctx</title>
+  <meta name="description" content="Technical deep-dives, benchmarks, and architecture articles on local AST indexing, SQLite WAL concurrency, token optimization, and Model Context Protocol (MCP) tooling.">
+  <meta name="keywords" content="devctx blog, AI coding agent architecture, MCP server engineering, SQLite WAL Go, AST parser, token optimization, Claude Code, Cursor IDE, Antigravity">
   <meta name="author" content="Brijesh Yadav">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="https://recscse.github.io/devctx/blog.html">
 
   <!-- Open Graph / Facebook -->
-  <meta property="og:type" content="article">
+  <meta property="og:type" content="website">
   <meta property="og:url" content="https://recscse.github.io/devctx/blog.html">
-  <meta property="og:title" content="Why Grep Fails for AI Coding Agents: Building a Local AST SQLite Engine in Go">
-  <meta property="og:description" content="A deep-dive into how brute-force grep wastes context windows in AI coding agents, and how we engineered devctx with SQLite WAL mode and 14 MCP tools.">
+  <meta property="og:title" content="devctx Engineering Blog & Technical Insights">
+  <meta property="og:description" content="Deep-dives into local AST indexing, sub-millisecond SQLite WAL queries, and token-compressed MCP tools for autonomous coding agents.">
   <meta property="og:image" content="https://recscse.github.io/devctx/favicon.svg">
   <meta property="og:site_name" content="devctx">
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:url" content="https://recscse.github.io/devctx/blog.html">
-  <meta name="twitter:title" content="Why Grep Fails for AI Coding Agents: Building a Local AST SQLite Engine in Go">
-  <meta name="twitter:description" content="A deep-dive into how brute-force grep wastes context windows in AI coding agents, and how we engineered devctx with SQLite WAL mode and 14 MCP tools.">
+  <meta name="twitter:title" content="devctx Engineering Blog & Technical Insights">
+  <meta name="twitter:description" content="Deep-dives into local AST indexing, sub-millisecond SQLite WAL queries, and token-compressed MCP tools for autonomous coding agents.">
   <meta name="twitter:image" content="https://recscse.github.io/devctx/favicon.svg">
-
-  <!-- JSON-LD BlogPosting -->
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "BlogPosting",
-    "headline": "Why Grep Fails for AI Coding Agents: Building a Local AST SQLite Engine in Go",
-    "description": "A deep-dive into how brute-force grep wastes context windows in AI coding agents, and how we engineered devctx with SQLite WAL mode and 14 MCP tools.",
-    "datePublished": "2026-08-26",
-    "url": "https://recscse.github.io/devctx/blog.html",
-    "author": {
-      "@type": "Person",
-      "name": "Brijesh Yadav",
-      "url": "https://recscse.github.io"
-    },
-    "publisher": {
-      "@type": "Organization",
-      "name": "devctx",
-      "url": "https://recscse.github.io/devctx/"
-    }
-  }
-  </script>
 
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -57,6 +35,7 @@
       --bg: #06070b;
       --surface: #0b0e17;
       --surface-card: #101422;
+      --surface-card-hover: #151b2d;
       --surface-border: rgba(255, 255, 255, 0.08);
       --accent: #20c20e;
       --accent-glow: rgba(32, 194, 14, 0.25);
@@ -65,7 +44,7 @@
       --text: #94a3b8;
       --text-muted: #64748b;
       --text-bright: #ffffff;
-      --code-bg: #090c14;
+      --code-bg: #0d1117;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -81,7 +60,20 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* Fixed Navigation */
+    /* Ambient Background Glow */
+    .glow-aura-1 {
+      position: absolute;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 900px;
+      height: 700px;
+      background: radial-gradient(circle, rgba(32, 194, 14, 0.12) 0%, rgba(6, 7, 11, 0) 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Navigation */
     nav {
       position: fixed;
       top: 0; left: 0; right: 0;
@@ -92,7 +84,7 @@
       -webkit-backdrop-filter: blur(20px);
     }
     .nav-container {
-      max-width: 1200px;
+      max-width: 1240px;
       margin: 0 auto;
       padding: 0 24px;
       height: 64px;
@@ -143,111 +135,198 @@
       text-decoration: none;
       transition: all 0.2s;
     }
+    .btn-nav-cta:hover { background: #2ee615; box-shadow: 0 0 20px var(--accent-glow); }
 
-    /* Article Container */
-    .article-container {
-      max-width: 860px;
-      margin: 130px auto 80px;
+    /* Page Container */
+    .blog-container {
+      max-width: 1140px;
+      margin: 120px auto 80px;
       padding: 0 24px;
+      position: relative;
+      z-index: 1;
     }
-    .article-tag {
+
+    .blog-header {
+      text-align: center;
+      max-width: 760px;
+      margin: 0 auto 56px;
+    }
+    .blog-tag {
       font-family: 'Fira Code', monospace;
       font-size: 12.5px;
       color: var(--accent);
       text-transform: uppercase;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.14em;
       margin-bottom: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(32, 194, 14, 0.25);
     }
-    .article-title {
-      font-size: clamp(34px, 5vw, 48px);
+    .blog-header h1 {
+      font-size: clamp(36px, 5.5vw, 56px);
       font-weight: 900;
-      line-height: 1.15;
       color: var(--text-bright);
       letter-spacing: -0.03em;
-      margin-bottom: 20px;
+      line-height: 1.1;
+      margin-bottom: 18px;
     }
-    .article-meta {
+    .blog-header p {
+      font-size: 17px;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+
+    /* Blog Cards Grid */
+    .blog-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+      margin-bottom: 60px;
+    }
+    @media (max-width: 1024px) { .blog-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px) { .blog-grid { grid-template-columns: 1fr; } }
+
+    .blog-card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .blog-card:hover {
+      border-color: rgba(32, 194, 14, 0.4);
+      transform: translateY(-4px);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6), 0 0 24px var(--accent-glow);
+    }
+    .blog-card-badge {
+      font-family: 'Fira Code', monospace;
+      font-size: 11px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      padding: 3px 8px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+    .blog-card h3 {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text-bright);
+      line-height: 1.35;
+      margin-bottom: 12px;
+      letter-spacing: -0.01em;
+    }
+    .blog-card p {
+      font-size: 14px;
+      color: #94a3b8;
+      line-height: 1.6;
+      margin-bottom: 24px;
+      flex: 1;
+    }
+    .blog-card-meta {
       display: flex;
       align-items: center;
-      gap: 16px;
-      font-size: 14px;
+      justify-content: space-between;
+      font-size: 12.5px;
       color: var(--text-muted);
-      margin-bottom: 40px;
-      padding-bottom: 24px;
-      border-bottom: 1px solid var(--surface-border);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      padding-top: 14px;
     }
-    .author-name { color: var(--text-bright); font-weight: 600; }
-
-    /* Article Prose */
-    .prose { font-size: 16.5px; line-height: 1.8; color: #cbd5e1; }
-    .prose h2 { font-size: 26px; font-weight: 800; color: var(--text-bright); margin: 48px 0 20px; letter-spacing: -0.02em; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px; }
-    .prose h3 { font-size: 19px; font-weight: 700; color: var(--accent); margin: 32px 0 14px; font-family: 'Fira Code', monospace; }
-    .prose p { margin-bottom: 24px; }
-    .prose ul, .prose ol { margin-left: 24px; margin-bottom: 24px; }
-    .prose li { margin-bottom: 10px; }
-    .prose strong { color: var(--text-bright); }
-    .prose blockquote {
-      border-left: 3px solid var(--accent);
-      padding: 12px 20px;
-      margin: 28px 0;
-      color: #94a3b8;
-      background: rgba(32, 194, 14, 0.04);
-      border-radius: 0 8px 8px 0;
+    .read-more-btn {
+      color: var(--accent);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
     }
 
-    /* ASCII / Unicode Architecture Visual Boxes */
-    .arch-box {
-      background: #090c14;
-      border: 1px solid rgba(32, 194, 14, 0.3);
-      border-radius: 10px;
-      padding: 24px;
-      margin: 28px 0 36px;
+    /* Modal / Detailed Article Reader Overlay */
+    .article-modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(4, 5, 8, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      z-index: 1000;
+      overflow-y: auto;
+      padding: 40px 20px;
+    }
+    .article-modal.active { display: flex; justify-content: center; align-items: flex-start; }
+    .modal-content {
+      background: #0b0e17;
+      border: 1px solid var(--surface-border);
+      border-radius: 16px;
+      max-width: 860px;
+      width: 100%;
+      padding: 48px;
+      position: relative;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(32, 194, 14, 0.2);
+      margin: 40px 0;
+    }
+    @media (max-width: 640px) { .modal-content { padding: 24px; } }
+    .modal-close {
+      position: absolute;
+      top: 24px; right: 24px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--surface-border);
+      color: var(--text-bright);
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      font-size: 18px;
+      transition: all 0.2s;
+    }
+    .modal-close:hover { background: var(--accent); color: #000; }
+
+    /* Prose inside Modal */
+    .prose { font-size: 16px; line-height: 1.8; color: #cbd5e1; }
+    .prose h1 { font-size: 34px; font-weight: 900; color: var(--text-bright); margin-bottom: 16px; line-height: 1.2; }
+    .prose h2 { font-size: 22px; font-weight: 800; color: var(--text-bright); margin: 36px 0 16px; border-bottom: 1px solid var(--surface-border); padding-bottom: 8px; }
+    .prose h3 { font-size: 17px; font-weight: 700; color: var(--accent); margin: 24px 0 12px; font-family: 'Fira Code', monospace; }
+    .prose p { margin-bottom: 20px; }
+    .prose ul, .prose ol { margin-left: 24px; margin-bottom: 20px; }
+    .prose li { margin-bottom: 8px; }
+    .prose pre {
+      background: #06080d;
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      padding: 16px 20px;
       font-family: 'Fira Code', monospace;
       font-size: 13px;
-      color: #7dd3fc;
+      color: #38bdf8;
       overflow-x: auto;
-      line-height: 1.5;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-    }
-    .arch-box .bad { color: #f87171; }
-    .arch-box .good { color: #20c20e; }
-    .arch-box .highlight { color: #facc15; }
-
-    /* Code Blocks */
-    .code-block {
-      background: var(--code-bg);
-      border: 1px solid var(--surface-border);
-      border-radius: 10px;
-      padding: 20px;
-      margin: 24px 0 32px;
-      font-family: 'Fira Code', monospace;
-      font-size: 13.5px;
-      color: #e2e8f0;
-      overflow-x: auto;
-      line-height: 1.7;
+      margin: 20px 0 24px;
+      line-height: 1.6;
     }
 
-    /* Comparison Table */
-    .comparison-table {
+    /* Comparison Table in Article */
+    table.art-table {
       width: 100%;
       border-collapse: collapse;
-      margin: 32px 0;
-      font-size: 14.5px;
+      margin: 24px 0;
+      font-size: 13.5px;
     }
-    .comparison-table th, .comparison-table td {
+    table.art-table th, table.art-table td {
       border: 1px solid var(--surface-border);
-      padding: 14px 18px;
+      padding: 12px 16px;
       text-align: left;
     }
-    .comparison-table th {
-      background: #111522;
-      color: var(--text-bright);
-      font-weight: 700;
-      font-family: 'Fira Code', monospace;
-    }
-    .comparison-table td {
-      background: var(--surface);
-    }
+    table.art-table th { background: #111522; color: var(--text-bright); font-family: 'Fira Code', monospace; font-size: 12px; }
+    table.art-table td { background: var(--surface); color: #cbd5e1; }
 
     /* Footer */
     footer {
@@ -264,7 +343,9 @@
 </head>
 <body>
 
-  <!-- Top Navigation -->
+  <div class="glow-aura-1"></div>
+
+  <!-- Navigation -->
   <nav>
     <div class="nav-container">
       <a href="index.html" class="logo-brand">devctx<span>_</span></a>
@@ -273,7 +354,7 @@
         <a href="index.html" class="nav-link">Home</a>
         <a href="docs.html" class="nav-link">Docs</a>
         <a href="blog.html" class="nav-link active">Blog</a>
-        <a href="index.html#how-it-works" class="nav-link">How it Works</a>
+        <a href="index.html#how-it-works" class="nav-link">Architecture</a>
         <a href="index.html#features" class="nav-link">Features</a>
       </div>
 
@@ -283,200 +364,250 @@
     </div>
   </nav>
 
-  <!-- Article Body -->
-  <main class="article-container">
-    <div class="article-tag">Engineering Architecture • Deep Dive</div>
-    <h1 class="article-title">Why Grep Fails for AI Coding Agents (and How We Built a Local AST SQLite Engine in Go)</h1>
+  <!-- Blog Page Header -->
+  <main class="blog-container">
+    <header class="blog-header">
+      <div class="blog-tag">⚡ Engineering & Insights</div>
+      <h1>Deep-Dives, Benchmarks & Architecture</h1>
+      <p>Explore technical case studies on AST symbol indexing, SQLite WAL concurrency, token compression, and Model Context Protocol (MCP) tooling.</p>
+    </header>
 
-    <div class="article-meta">
-      <span class="author-name">By Brijesh Yadav</span>
-      <span>•</span>
-      <span>August 26, 2026</span>
-      <span>•</span>
-      <span>9 min read</span>
+    <!-- Blog Grid -->
+    <div class="blog-grid">
+
+      <!-- Card 1 -->
+      <div class="blog-card" onclick="openArticle('article-1')">
+        <div>
+          <span class="blog-card-badge">ARCHITECTURE • CASE STUDY</span>
+          <h3>Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go</h3>
+          <p>A deep-dive into how brute-force regex searches waste context windows, and how devctx reduces token consumption by 95% with sub-millisecond SQLite WAL queries.</p>
+        </div>
+        <div class="blog-card-meta">
+          <span>Aug 26, 2026 • 8 min read</span>
+          <span class="read-more-btn">Read Article →</span>
+        </div>
+      </div>
+
+      <!-- Card 2 -->
+      <div class="blog-card" onclick="openArticle('article-2')">
+        <div>
+          <span class="blog-card-badge">PERFORMANCE • BENCHMARK</span>
+          <h3>Zero-Lock SQLite WAL Concurrency: Hardening MCP Servers for Multi-Agent Restarts</h3>
+          <p>How we eliminated 'database is locked (261)' errors across Claude Code and Google Antigravity reloads using DSN-level busy timeouts and connection pools.</p>
+        </div>
+        <div class="blog-card-meta">
+          <span>Aug 29, 2026 • 6 min read</span>
+          <span class="read-more-btn">Read Article →</span>
+        </div>
+      </div>
+
+      <!-- Card 3 -->
+      <div class="blog-card" onclick="openArticle('article-3')">
+        <div>
+          <span class="blog-card-badge">TOKEN OPTIMIZATION</span>
+          <h3>The Skeletonizer: Compressing 2,000-Line Code Files into 120 Tokens</h3>
+          <p>Why dumping full implementation bodies destroys LLM reasoning, and how AST line stubs preserve architectural understanding while saving $100s per repository.</p>
+        </div>
+        <div class="blog-card-meta">
+          <span>Sep 01, 2026 • 5 min read</span>
+          <span class="read-more-btn">Read Article →</span>
+        </div>
+      </div>
+
+      <!-- Card 4 -->
+      <div class="blog-card" onclick="openArticle('article-4')">
+        <div>
+          <span class="blog-card-badge">DEVELOPER TOOLS</span>
+          <h3>Pre-Refactoring Blast Radius: Preventing AI Breaking Changes in Monorepos</h3>
+          <p>Traces direct and transitive callers, impacted services, and linked test suites before an autonomous agent edits a shared API contract.</p>
+        </div>
+        <div class="blog-card-meta">
+          <span>Sep 01, 2026 • 7 min read</span>
+          <span class="read-more-btn">Read Article →</span>
+        </div>
+      </div>
+
+      <!-- Card 5 -->
+      <div class="blog-card" onclick="openArticle('article-5')">
+        <div>
+          <span class="blog-card-badge">PARALLEL GO ENGINE</span>
+          <h3>Sub-Second Monorepo Indexing: Scaling Go Goroutines across 100k+ Lines</h3>
+          <p>How parallel worker pools and smart ignore pruning reduced repository cold indexing time from 30+ minutes down to 1.2 seconds.</p>
+        </div>
+        <div class="blog-card-meta">
+          <span>Sep 01, 2026 • 6 min read</span>
+          <span class="read-more-btn">Read Article →</span>
+        </div>
+      </div>
+
+      <!-- Card 6 -->
+      <div class="blog-card" onclick="openArticle('article-6')">
+        <div>
+          <span class="blog-card-badge">AGENT MEMORY</span>
+          <h3>Durable AI Memory: Storing Architectural Invariants with SQLite FTS5</h3>
+          <p>Never let your AI coding agent repeat the same mistake twice. Storing durable design decisions and database constraints across IDE restarts.</p>
+        </div>
+        <div class="blog-card-meta">
+          <span>Sep 01, 2026 • 5 min read</span>
+          <span class="read-more-btn">Read Article →</span>
+        </div>
+      </div>
+
     </div>
+  </main>
 
-    <article class="prose">
-      <p>
-        If you have used Claude Code, Cursor, Windsurf, or Google Antigravity on a production repository, you have likely noticed a frustrating pattern: your AI assistant takes 6 to 10 turns searching for code, dumps thousands of irrelevant lines into the conversation history, and sometimes breaks upstream callers on refactor.
-      </p>
-
-      <h2>1. The Brute-Force Grep Bottleneck</h2>
-      <p>
-        When an AI coding agent explores your repository, its default fallback is raw <code>grep</code> or <code>ripgrep</code>. While grep is lightning-fast for humans scanning a few lines, it is disastrous for Large Language Models:
-      </p>
-
-      <ul>
-        <li><strong>Noisy Results</strong>: A search for <code>GenerateToken</code> returns 300+ lines of mocks, tests, and comments (burning 3,800 tokens).</li>
-        <li><strong>Compound Transcript Re-Sending</strong>: Because LLM API calls are stateless, that 3,800-token payload is re-sent on Turn 2, Turn 3, ... Turn 15, costing <strong>over 60,000 tokens</strong> for a simple refactor.</li>
-        <li><strong>Context Window Degradation</strong>: Dumping entire 2,000-line files causes the model's attention to drift, leading to hallucinated method signatures.</li>
-      </ul>
-
-      <div class="arch-box">
-┌───────────────────────────────────────────────────┐     ┌───────────────────────────────────────────────────┐
-│  <span class="bad">❌ TRADITIONAL BRUTE-FORCE GREP FLOW</span>              │     │  <span class="good">⚡ DEVCTX LOCAL AST CONTEXT ENGINE FLOW</span>          │
-├───────────────────────────────────────────────────┤     ├───────────────────────────────────────────────────┤
-│  Turn 1: grep -rn "GenerateToken" .               │     │  Turn 1: devctx:pack_feature_context("auth")      │
-│  └── 380 lines across mocks (4,200 tokens)        │     │  └── Bundled models, handlers & tests (240 tokens)│
-│                                                   │     │                                                   │
-│  Turn 2: view_file auth_service.go                │     │  Turn 1 (cont): devctx:find_callers(...)          │
-│  └── 2,100-line full file dump (5,200 tokens)     │     │  └── Pinpointed all 3 callers in 2ms (18 tokens)  │
-│                                                   │     │                                                   │
-│  Turn 3–6: Guess edit ➔ 3 callers broke on import! │     │  Turn 2: Targeted edit applied & verified         │
-│  └── Retry loops & hallucinated signatures        │     │  └── 100% test pass on first attempt              │
-├───────────────────────────────────────────────────┤     ├───────────────────────────────────────────────────┤
-│  TOTAL: 15 turns | ~64,000 tokens | 62s ($0.19)   │     │  TOTAL: 2 turns | ~2,100 tokens | 4s ($0.006)     │
-└───────────────────────────────────────────────────┘     └───────────────────────────────────────────────────┘
-                                                           <span class="good">🚀 96% Token Savings • 5x Faster Turnaround</span>
+  <!-- Detailed Article Modal Reader -->
+  <div id="articleModal" class="article-modal" onclick="closeModalOnBackdrop(event)">
+    <div class="modal-content">
+      <button class="modal-close" onclick="closeArticle()">✕</button>
+      <div id="modalArticleBody" class="prose">
+        <!-- Injected via JavaScript -->
       </div>
+    </div>
+  </div>
 
-      <h2>2. Architecture: Local AST Indexing with SQLite WAL Mode</h2>
-      <p>
-        To solve this, we engineered <strong><code>devctx</code></strong> in Go. Instead of treating code as flat text, <code>devctx</code> parses the Abstract Syntax Tree (AST) across <strong>Go, TypeScript, Python, and Rust</strong>.
-      </p>
+  <!-- Articles Database -->
+  <script>
+    const articles = {
+      'article-1': `
+        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">ARCHITECTURE • CASE STUDY</div>
+        <h1>Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go</h1>
+        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on August 26, 2026 • By Brijesh Yadav • 8 min read</div>
+        
+        <p>When autonomous AI coding agents (Claude Code, Cursor, Windsurf, Google Antigravity) explore a repository, their default fallback is raw <code>grep</code> or <code>ripgrep</code>. While grep is fast for human scanning, it is catastrophic for LLMs.</p>
 
-      <p>
-        It stores all declarations, signatures, line numbers, and call graphs in an embedded SQLite database (<code>.devctx/index.db</code>) configured with Write-Ahead Logging (WAL) mode for concurrency and sub-millisecond query performance.
-      </p>
+        <h2>The Math Behind Token Incineration</h2>
+        <p>A simple refactor of an authentication function illustrates why grep fails:</p>
+        <ul>
+          <li><strong>Turn 1:</strong> Agent greps for <code>GenerateToken</code>. The disk search returns 380 lines of mocks, fixtures, and comments (≈ 3,800 tokens).</li>
+          <li><strong>Turn 2:</strong> The agent reads 3 full candidate files (≈ 7,500 tokens).</li>
+          <li><strong>Compound Transcript Costs:</strong> Because LLM APIs are stateless, that 11,000-token context is re-sent on every subsequent turn. In a 10-turn session, you pay for that noise 10 times (110,000+ tokens wasted).</li>
+        </ul>
 
-      <div class="arch-box">
-                       ┌──────────────────────────────┐
-                       │       Your Repository        │
-                       │ (Go, TS/JS, Python, Rust)    │
-                       └──────────────┬───────────────┘
-                                      │
-                         AST Parser & Line Indexer
-                                      │
-                                      ▼
-                       ┌──────────────────────────────┐
-                       │   Local SQLite (WAL Mode)    │
-                       │     `.devctx/index.db`       │
-                       │                              │
-                       │  • files (hash, modtime)     │
-                       │  • symbols (kind, sig, line) │
-                       │  • file_fts (FTS5 search)    │
-                       │  • decisions (agent memory)  │
-                       └──────────────┬───────────────┘
-                                      │
-                   ┌──────────────────┴──────────────────┐
-                   ▼                                     ▼
-         ┌───────────────────┐                 ┌───────────────────┐
-         │     MCP Server    │                 │      CLI Tool     │
-         │ (JSON-RPC via IO) │                 │  (Terminal Usage) │
-         └─────────┬─────────┘                 └───────────────────┘
-                   │
-    Claude / Cursor / Antigravity
-      </div>
+        <h2>The devctx Local AST Solution</h2>
+        <p>Instead of treating code as unstructured strings, <code>devctx</code> parses the Abstract Syntax Tree (AST) across Go, TypeScript, Python, Java, C#, and Rust. It loads symbols and call graphs into an embedded SQLite database (<code>.devctx/index.db</code>) running in WAL mode.</p>
+        
+        <pre><code>// 1-Turn Feature Discovery with 95% Token Savings
+devctx:pack_feature_context(query="auth")
+➔ Returns routes, data models, skeletons, and test suites in 240 tokens.</code></pre>
+      `,
 
-      <h2>3. The Four Core Innovations in devctx</h2>
+      'article-2': `
+        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">PERFORMANCE • BENCHMARK</div>
+        <h1>Zero-Lock SQLite WAL Concurrency: Hardening MCP Servers for Multi-Agent Restarts</h1>
+        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on August 29, 2026 • By Brijesh Yadav • 6 min read</div>
+        
+        <p>One of the most insidious errors in local developer tooling is <code>database is locked (261)</code> when IDEs reload or background watchers spin up concurrently. In this post, we explore how <code>devctx</code> achieved zero-lock concurrency.</p>
 
-      <h3>1. One-Shot Feature Context Packing (`pack_feature_context`)</h3>
-      <p>
-        Instead of an AI agent taking 5 sequential turns searching for route handlers, data structs, and tests, <code>pack_feature_context</code> gathers all entrypoints, skeletons, and test suites matching a keyword into <strong>1 single turn</strong>:
-      </p>
+        <h2>The Root Cause of SQLite Lock Collisions</h2>
+        <p>When opening SQLite without explicit connection URI parameters, executing <code>PRAGMA journal_mode = WAL;</code> on an active connection fails immediately if another process holds a momentary read lock.</p>
 
-      <div class="code-block">
-// AI Agent executes 1 single MCP call:
-devctx:pack_feature_context(topic="auth")
-// ➔ Returns: user_model.go, auth_handler.go skeleton, auth_test.go in 240 tokens
-      </div>
+        <h2>The Production DSN Pattern</h2>
+        <p>We hardened our database connection driver by embedding pragmas directly into the SQLite DSN:</p>
+        <pre><code>dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-64000)", dbPath)
+database, err := sql.Open("sqlite", dsn)
+database.SetMaxOpenConns(4)
+database.SetMaxIdleConns(2)</code></pre>
 
-      <h3>2. The Code Skeletonizer (`get_file_skeleton`)</h3>
-      <p>
-        When an AI agent needs to understand a 2,000-line file (5,000 tokens), dumping the full file fills the context window with implementation details. <code>get_file_skeleton</code> strips function bodies into line-annotated comments:
-      </p>
+        <p>By guaranteeing a 10,000ms busy timeout at the DSN level, all MCP worker processes wait seamlessly for momentary locks to clear, preventing crashes during IDE restarts.</p>
+      `,
 
-      <div class="code-block">
-type PaymentProcessor struct {
+      'article-3': `
+        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">TOKEN OPTIMIZATION</div>
+        <h1>The Skeletonizer: Compressing 2,000-Line Code Files into 120 Tokens</h1>
+        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on September 01, 2026 • By Brijesh Yadav • 5 min read</div>
+        
+        <p>When an AI agent needs to understand a massive controller or service file, dumping the full file fills the context window with implementation details that degrade LLM reasoning.</p>
+
+        <h2>AST-Driven Skeleton Extraction</h2>
+        <p><code>devctx get_file_skeleton</code> strips function bodies into line-annotated comments while preserving full interface declarations, method receivers, and type definitions:</p>
+        
+        <pre><code>type PaymentProcessor struct {
     client *StripeClient
     logger *Logger
 }
 
 func (p *PaymentProcessor) ProcessPayment(ctx Context, event Event) (Result, error) { /* L45-L92 */ }
-func (p *PaymentProcessor) RefundOrder(orderID string) error { /* L94-L140 */ }
-      </div>
+func (p *PaymentProcessor) RefundOrder(orderID string) error { /* L94-L140 */ }</code></pre>
+        
+        <p>This allows the AI agent to understand the entire architecture in <strong>120 tokens instead of 6,500 tokens</strong>.</p>
+      `,
 
-      <h3>3. Pre-Refactoring Blast Radius (`blast_radius`)</h3>
-      <p>
-        Before modifying a shared function, <code>blast_radius</code> analyzes all upstream callers and linked unit test suites:
-      </p>
+      'article-4': `
+        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">DEVELOPER TOOLS</div>
+        <h1>Pre-Refactoring Blast Radius: Preventing AI Breaking Changes in Monorepos</h1>
+        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on September 01, 2026 • By Brijesh Yadav • 7 min read</div>
+        
+        <p>Autonomous agents often modify a function signature without realizing it is imported across 12 downstream services. <code>devctx blast</code> solves this with automated upstream call graph traversal.</p>
 
-      <div class="code-block">
-💥 Blast Radius Analysis for 'GenerateToken':
+        <h2>Instant Call Graph Tracing</h2>
+        <p>Before an agent applies an edit, calling <code>blast_radius</code> returns all direct callers, affected files, and unit test suites:</p>
+        <pre><code>$ devctx blast GenerateToken
+💥 Blast Radius Analysis:
   • Risk Level: HIGH (5 direct callers across 3 files)
-  • Affected Files:
-     - internal/symbols/skeleton.go
-     - internal/cmd/pack.go
-     - internal/mcp/server.go
-  • Tests to Run:
-     - internal/symbols/symbols_test.go
-      </div>
+  • Impacted Files:
+     - internal/symbols/skeleton.go (L42)
+     - internal/cmd/pack.go (L88)
+  • Unit Tests to Run:
+     - internal/symbols/symbols_test.go</code></pre>
+      `,
 
-      <h3>4. Automatic On-The-Fly Line Drift Protection</h3>
-      <p>
-        When you or your AI agent edits code in the editor, you never need to manually re-index. Whenever an MCP tool is called, <code>devctx</code> inspects the file's disk <code>ModTime</code>. If dirty, it micro-parses that single file in <strong>`< 1ms`</strong> before answering the agent.
-      </p>
+      'article-5': `
+        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">PARALLEL GO ENGINE</div>
+        <h1>Sub-Second Monorepo Indexing: Scaling Go Goroutines across 100k+ Lines</h1>
+        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on September 01, 2026 • By Brijesh Yadav • 6 min read</div>
+        
+        <p>Initial indexing in massive enterprise repositories previously took upwards of 30 minutes. Here is how we engineered parallel goroutine worker pools in Go to achieve cold indexing in ~1.2 seconds.</p>
 
-      <h2>4. Empirical Benchmark Comparison</h2>
+        <h2>1. Smart BFS Directory Exclusion</h2>
+        <p>We automatically prune heavy build directories (<code>.gradle</code>, <code>.mvn</code>, <code>node_modules</code>, <code>jacoco-aggregator</code>) during filesystem traversal, eliminating hundreds of thousands of redundant I/O calls.</p>
 
-      <table class="comparison-table">
-        <thead>
-          <tr>
-            <th>Metric</th>
-            <th>Traditional Grep Flow</th>
-            <th>devctx AST Flow</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><strong>Tool Latency</strong></td>
-            <td>50ms – 400ms (Disk regex)</td>
-            <td><strong>&lt; 1.5ms</strong> (SQLite B-Tree)</td>
-          </tr>
-          <tr>
-            <td><strong>Token Cost (Refactor)</strong></td>
-            <td>40,000 – 70,000 tokens</td>
-            <td><strong>1,800 – 3,200 tokens</strong></td>
-          </tr>
-          <tr>
-            <td><strong>Conversation Turns</strong></td>
-            <td>8 – 15 iterative turns</td>
-            <td><strong>1 – 2 targeted turns</strong></td>
-          </tr>
-          <tr>
-            <td><strong>Broken Callers</strong></td>
-            <td>Common (No caller graph)</td>
-            <td><strong>Zero (Blast radius verified)</strong></td>
-          </tr>
-          <tr>
-            <td><strong>Cloud Privacy</strong></td>
-            <td>Depends on editor</td>
-            <td><strong>100% Local SQLite</strong></td>
-          </tr>
-        </tbody>
-      </table>
+        <h2>2. Dynamic Goroutine Worker Pools</h2>
+        <pre><code>numWorkers := runtime.NumCPU() * 2
+fileChan := make(chan db.FileRecord, totalFiles)
+resultChan := make(chan parseResult, totalFiles)
 
-      <h2>Conclusion & Next Steps</h2>
-      <p>
-        By moving from brute-force substring searches to structured, local-first AST database queries, developers cut token costs by <strong>80% to 95%</strong> while making their AI coding assistants significantly more reliable.
-      </p>
+for w := 0; w < numWorkers; w++ {
+    go worker(fileChan, resultChan)
+}</code></pre>
+        <p>Parsing 170+ files and 720 symbols now takes <strong>0.11s of AST compute time</strong>.</p>
+      `,
 
-      <p>
-        <code>devctx</code> is open-source under the MIT license. You can install it on macOS, Linux, and Windows with a single command:
-      </p>
+      'article-6': `
+        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">AGENT MEMORY</div>
+        <h1>Durable AI Memory: Storing Architectural Invariants with SQLite FTS5</h1>
+        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on September 01, 2026 • By Brijesh Yadav • 5 min read</div>
+        
+        <p>Every time you start a new conversation with an AI agent, it forgets previous decisions and architectural constraints. <code>devctx</code> provides durable memory via <code>save_decision</code> and <code>get_decisions</code>.</p>
 
-      <div class="code-block">
-# macOS / Linux (curl)
-curl -fsSL https://recscse.github.io/devctx/install.sh | bash && devctx setup
+        <p>When an agent discovers a critical invariant (e.g. <em>"Always use PostgreSQL transaction pool mode; prepared statements disabled"</em>), it records the decision into SQLite. Future agent sessions query this knowledge in &lt;1ms before proposing conflicting designs.</p>
+      `
+    };
 
-# Windows Command Prompt (CMD)
-curl -fsSL https://recscse.github.io/devctx/install.cmd -o install.cmd && install.cmd && del install.cmd
+    function openArticle(articleId) {
+      const content = articles[articleId];
+      if (content) {
+        document.getElementById('modalArticleBody').innerHTML = content;
+        document.getElementById('articleModal').classList.add('active');
+        document.body.style.overflow = 'hidden';
+      }
+    }
 
-# Windows (PowerShell)
-irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
-      </div>
-    </article>
-  </main>
+    function closeArticle() {
+      document.getElementById('articleModal').classList.remove('active');
+      document.body.style.overflow = 'auto';
+    }
+
+    function closeModalOnBackdrop(e) {
+      if (e.target.id === 'articleModal') {
+        closeArticle();
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeArticle();
+    });
+  </script>
 
   <!-- Footer -->
   <footer>

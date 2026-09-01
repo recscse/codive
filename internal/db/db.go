@@ -50,22 +50,27 @@ func Open(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create db directory: %w", err)
 	}
 
-	database, err := sql.Open("sqlite", dbPath)
+	// Modernc sqlite supports DSN query parameters for busy_timeout, journal_mode, and sync
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-64000)", filepath.ToSlash(dbPath))
+
+	database, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
 
-	// Performance pragmatic settings for local-first SQLite
-	pragmas := []string{
-		"PRAGMA journal_mode = WAL;",
-		"PRAGMA synchronous = NORMAL;",
-		"PRAGMA busy_timeout = 5000;",
-	}
-	for _, pragma := range pragmas {
-		if _, err := database.Exec(pragma); err != nil {
-			database.Close()
-			return nil, fmt.Errorf("failed to set pragma '%s': %w", pragma, err)
+	// Limit idle connections to prevent holding lock during restarts
+	database.SetMaxOpenConns(4)
+	database.SetMaxIdleConns(2)
+	database.SetConnMaxLifetime(10 * time.Minute)
+
+	// Ensure WAL & busy timeout with retry if another process is briefly finishing
+	var pragmaErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		_, pragmaErr = database.Exec("PRAGMA busy_timeout = 10000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")
+		if pragmaErr == nil {
+			break
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	// Automatically migrate schema on open

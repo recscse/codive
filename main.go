@@ -203,6 +203,16 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "status", "info-status":
+		targetDir := "."
+		if len(args) >= 2 {
+			targetDir = args[1]
+		}
+		if err := cmd.RunStatus(targetDir, asJSON); err != nil {
+			ui.Error(err.Error())
+			os.Exit(1)
+		}
+
 	case "stats", "savings":
 		targetDir := "."
 		if len(args) >= 2 {
