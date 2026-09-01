@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 )
@@ -90,4 +91,119 @@ func Divider() {
 // Bullet prints a structured list item.
 func Bullet(label string, desc string) {
 	fmt.Printf("  %s %s %s\n", Dim.Sprint("•"), Bold.Sprint(label), Dim.Sprint(desc))
+}
+
+// ProgressBar renders a clean, real-time terminal progress bar with items/s and ETA.
+type ProgressBar struct {
+	Total          int
+	Current        int
+	Title          string
+	Unit           string
+	BarLength      int
+	StartTime      time.Time
+	LastRenderTime time.Time
+}
+
+// NewProgressBar initializes a new terminal progress bar.
+func NewProgressBar(total int, title string, unit string) *ProgressBar {
+	if total <= 0 {
+		total = 1
+	}
+	return &ProgressBar{
+		Total:     total,
+		Title:     title,
+		Unit:      unit,
+		BarLength: 28,
+		StartTime: time.Now(),
+	}
+}
+
+// Update increments the progress bar count and refreshes terminal display.
+func (p *ProgressBar) Update(advance int, currentItem string) {
+	p.Current += advance
+	if p.Current > p.Total {
+		p.Current = p.Total
+	}
+	now := time.Now()
+	if now.Sub(p.LastRenderTime) < 30*time.Millisecond && p.Current < p.Total {
+		return
+	}
+	p.LastRenderTime = now
+	p.render(currentItem)
+}
+
+// SetCurrent sets the current progress count directly.
+func (p *ProgressBar) SetCurrent(current int, currentItem string) {
+	p.Current = current
+	if p.Current > p.Total {
+		p.Current = p.Total
+	}
+	p.render(currentItem)
+}
+
+func (p *ProgressBar) render(currentItem string) {
+	elapsed := time.Since(p.StartTime).Seconds()
+	if elapsed <= 0 {
+		elapsed = 0.001
+	}
+	frac := float64(p.Current) / float64(p.Total)
+	percent := int(frac * 100)
+	filled := int(frac * float64(p.BarLength))
+	if filled > p.BarLength {
+		filled = p.BarLength
+	}
+
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", p.BarLength-filled)
+	rate := float64(p.Current) / elapsed
+	
+	dispItem := currentItem
+	if len(dispItem) > 30 {
+		dispItem = "..." + dispItem[len(dispItem)-27:]
+	}
+
+	etaStr := ""
+	if rate > 0 && p.Current < p.Total {
+		eta := float64(p.Total-p.Current) / rate
+		etaStr = fmt.Sprintf(" | ETA: %.1fs", eta)
+	}
+
+	line := fmt.Sprintf("\r%s [%s] %3d%% (%d/%d %s | %.0f %s/s%s) %s",
+		WhiteBold.Sprint(p.Title),
+		Green.Sprint(bar),
+		percent,
+		p.Current,
+		p.Total,
+		p.Unit,
+		rate,
+		p.Unit,
+		etaStr,
+		Dim.Sprint(dispItem),
+	)
+	if len(line) < 100 {
+		line += strings.Repeat(" ", 100-len(line))
+	}
+	fmt.Print(line[:100])
+}
+
+// Finish marks the progress bar as 100% complete and moves to a new line.
+func (p *ProgressBar) Finish(message string) {
+	p.Current = p.Total
+	elapsed := time.Since(p.StartTime).Seconds()
+	if elapsed <= 0 {
+		elapsed = 0.001
+	}
+	bar := strings.Repeat("█", p.BarLength)
+	rate := float64(p.Total) / elapsed
+
+	fmt.Printf("\r%s [%s] 100%% (%d/%d %s in %.2fs | %.0f %s/s) - %s\n",
+		WhiteBold.Sprint(p.Title),
+		Green.Sprint(bar),
+		p.Total,
+		p.Total,
+		p.Unit,
+		elapsed,
+		rate,
+		p.Unit,
+		GreenBold.Sprint(message),
+	)
 }

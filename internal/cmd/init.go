@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/recscse/devctx/internal/db"
@@ -73,21 +75,74 @@ func RunInit(targetDir string) error {
 		return fmt.Errorf("failed to save file records: %w", err)
 	}
 
-	// Extract and save symbols & full-text content
-	var allSymbols []db.SymbolRecord
-	ftsFiles := make(map[string]string)
-	for _, f := range scanResult.Files {
-		fullPath := filepath.Join(absDir, filepath.FromSlash(f.Path))
-		content, err := os.ReadFile(fullPath)
-		if err != nil {
-			continue
+	totalFiles := len(scanResult.Files)
+	allSymbols := make([]db.SymbolRecord, 0, totalFiles*5)
+	ftsFiles := make(map[string]string, totalFiles)
+
+	if totalFiles > 0 {
+		bar := ui.NewProgressBar(totalFiles, "Indexing Codebase", "files")
+
+		numWorkers := runtime.NumCPU() * 2
+		if numWorkers < 4 {
+			numWorkers = 4
 		}
-		ftsFiles[f.Path] = string(content)
-		syms, err := symbols.ExtractSymbols(f.Path, f.Language, content)
-		if err != nil {
-			continue
+		if numWorkers > 32 {
+			numWorkers = 32
 		}
-		allSymbols = append(allSymbols, syms...)
+
+		type parseResult struct {
+			path    string
+			content string
+			symbols []db.SymbolRecord
+		}
+
+		fileChan := make(chan db.FileRecord, totalFiles)
+		resultChan := make(chan parseResult, totalFiles)
+
+		var wg sync.WaitGroup
+		for w := 0; w < numWorkers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for f := range fileChan {
+					fullPath := filepath.Join(absDir, filepath.FromSlash(f.Path))
+					content, err := os.ReadFile(fullPath)
+					if err != nil {
+						resultChan <- parseResult{path: f.Path}
+						continue
+					}
+					syms, _ := symbols.ExtractSymbols(f.Path, f.Language, content)
+					resultChan <- parseResult{
+						path:    f.Path,
+						content: string(content),
+						symbols: syms,
+					}
+				}
+			}()
+		}
+
+		for _, f := range scanResult.Files {
+			fileChan <- f
+		}
+		close(fileChan)
+
+		go func() {
+			wg.Wait()
+			close(resultChan)
+		}()
+
+		processed := 0
+		for res := range resultChan {
+			processed++
+			bar.Update(1, res.path)
+			if res.content != "" {
+				ftsFiles[res.path] = res.content
+			}
+			if len(res.symbols) > 0 {
+				allSymbols = append(allSymbols, res.symbols...)
+			}
+		}
+		bar.Finish("Symbols & AST extracted")
 	}
 
 	if len(allSymbols) > 0 {
