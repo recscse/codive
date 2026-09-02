@@ -708,13 +708,47 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}
 
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("Found %d symbol(s) matching '%s':\n\n", len(syms), query))
-		for i, sym := range syms {
-			// Line-Number Drift Protection: verify freshness of line number
-			s.ensureFreshSymbols(ctx, targetDB, targetDir, sym.FilePath)
-			sb.WriteString(fmt.Sprintf("%d. [%s] %s\n   Location:  %s:%d\n   Signature: %s\n\n",
-				i+1, sym.Kind, sym.Name, sym.FilePath, sym.LineNumber, sym.Signature))
+		sb.WriteString(fmt.Sprintf("### Symbol Matches for `%s` (Found: %d)\n\n", query, len(syms)))
+
+		// Auto-recall: inject matching architectural decisions before results
+		decisions, _ := db.GetDecisions(ctx, targetDB, query)
+		if len(decisions) > 0 {
+			sb.WriteString("**📌 Architectural Constraints (auto-recalled)**\n")
+			for _, d := range decisions {
+				sb.WriteString(fmt.Sprintf("- [%s] %s *(recorded %s)*\n",
+					d.Topic, d.Summary, d.CreatedAt.Format("2006-01-02")))
+			}
+			sb.WriteString("\n---\n\n")
 		}
+
+		rawTokenEstimate := 0
+		for i, sym := range syms {
+			s.ensureFreshSymbols(ctx, targetDB, targetDir, sym.FilePath)
+
+			// Semantic classification
+			role := classifySymbolRole(sym.FilePath, sym.Kind)
+
+			sb.WriteString(fmt.Sprintf("%d. **[%s]** `%s`\n", i+1, role, sym.Name))
+			sb.WriteString(fmt.Sprintf("   - **File:** `%s` (L%d)\n", sym.FilePath, sym.LineNumber))
+			if sym.Signature != "" && sym.Signature != sym.Name {
+				sig := sym.Signature
+				if len(sig) > 160 {
+					sig = sig[:157] + "..."
+				}
+				sb.WriteString(fmt.Sprintf("   - **Signature:** `%s`\n", sig))
+			}
+			// Extract annotations from signature
+			if anns := extractAnnotations(sym.Signature); len(anns) > 0 {
+				sb.WriteString(fmt.Sprintf("   - **Annotations:** %s\n", strings.Join(anns, ", ")))
+			}
+			sb.WriteString("\n")
+			rawTokenEstimate += 800 // rough: reading the file to find this symbol
+		}
+
+		used := estimateTokens(sb.String())
+		sb.WriteString(tokenFooter(used, rawTokenEstimate))
+		db.RecordTelemetry(ctx, targetDB, "find_symbol", rawTokenEstimate-used, 14)
+
 		return &ToolCallResult{
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
 		}, nil
@@ -741,10 +775,22 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}
 
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("Found %d caller(s)/reference(s) for '%s':\n\n", len(refs), symbol))
+		sb.WriteString(fmt.Sprintf("### Callers & References for `%s` (Found: %d)\n\n", symbol, len(refs)))
+
 		for i, ref := range refs {
-			sb.WriteString(fmt.Sprintf("%d. 📍 %s:%d\n   │ %s\n\n", i+1, ref.FilePath, ref.LineNumber, ref.Snippet))
+			role := classifyRefRole(ref.FilePath)
+			sb.WriteString(fmt.Sprintf("%d. **[%s]** `%s:%d`\n", i+1, role, ref.FilePath, ref.LineNumber))
+			if strings.TrimSpace(ref.Snippet) != "" {
+				sb.WriteString(fmt.Sprintf("   ```\n   %s\n   ```\n", strings.TrimSpace(ref.Snippet)))
+			}
+			sb.WriteString("\n")
 		}
+
+		used := estimateTokens(sb.String())
+		rawEst := len(refs) * 1200
+		sb.WriteString(tokenFooter(used, rawEst))
+		db.RecordTelemetry(ctx, targetDB, "find_references", rawEst-used, 5)
+
 		return &ToolCallResult{
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
 		}, nil
@@ -826,12 +872,37 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			contentBytes = []byte(ftsContent)
 		}
 
+		// Count real lines for header
+		rawLineCount := strings.Count(string(contentBytes), "\n") + 1
+		rawTokenEstimate := rawLineCount * 5 // ~5 tokens per line of code
+
 		syms, _ := db.FindSymbols(ctx, targetDB, relPath)
 		lang := scanner.DetectLanguage(relPath)
 		skel := symbols.GenerateSkeleton(relPath, lang, contentBytes, syms)
 
+		var sb strings.Builder
+
+		// Auto-recall: inject architectural decisions relevant to this file
+		basename := filepath.Base(relPath)
+		nameWithoutExt := strings.TrimSuffix(basename, filepath.Ext(basename))
+		decisions, _ := db.GetDecisions(ctx, targetDB, nameWithoutExt)
+		if len(decisions) > 0 {
+			sb.WriteString("**📌 Architectural Constraints (auto-recalled for this file)**\n")
+			for _, d := range decisions {
+				sb.WriteString(fmt.Sprintf("- **[%s]** %s *(recorded %s)*\n",
+					d.Topic, d.Summary, d.CreatedAt.Format("2006-01-02")))
+			}
+			sb.WriteString("\n---\n\n")
+		}
+
+		sb.WriteString(skel)
+
+		used := estimateTokens(sb.String())
+		sb.WriteString(tokenFooter(used, rawTokenEstimate))
+		db.RecordTelemetry(ctx, targetDB, "get_file_skeleton", rawTokenEstimate-used, 2)
+
 		return &ToolCallResult{
-			Content: []ContentItem{{Type: "text", Text: skel}},
+			Content: []ContentItem{{Type: "text", Text: sb.String()}},
 		}, nil
 
 	case "pack_feature_context":
@@ -1181,4 +1252,90 @@ func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootD
 			LastIndexed:  time.Now().UTC(),
 		},
 	})
+}
+
+// ── LLM-output helpers ─────────────────────────────────────────────────────
+
+// classifySymbolRole returns a human-readable semantic role for display in
+// find_symbol results. It distinguishes definitions, tests, and mocks.
+func classifySymbolRole(filePath, kind string) string {
+	lower := strings.ToLower(filepath.ToSlash(filePath))
+	isTest := strings.Contains(lower, "_test.") ||
+		strings.Contains(lower, "/test/") ||
+		strings.Contains(lower, "spec.") ||
+		strings.Contains(lower, "test.java") ||
+		strings.HasPrefix(filepath.Base(lower), "test")
+
+	switch {
+	case isTest && (kind == "function" || kind == "method"):
+		return "Test Case"
+	case isTest:
+		return "Test Helper"
+	case kind == "class" || kind == "struct" || kind == "interface":
+		return "Type Definition"
+	case kind == "function" || kind == "method":
+		return "Method Definition"
+	case kind == "annotation":
+		return "Annotation"
+	case kind == "dependency":
+		return "Dependency"
+	default:
+		return "Symbol Definition"
+	}
+}
+
+// classifyRefRole returns the semantic role for a reference/caller result.
+func classifyRefRole(filePath string) string {
+	lower := strings.ToLower(filepath.ToSlash(filePath))
+	switch {
+	case strings.Contains(lower, "_test.") || strings.Contains(lower, "/test/") ||
+		strings.HasPrefix(filepath.Base(lower), "test"):
+		return "Test Mock / Assertion"
+	case strings.Contains(lower, "mock") || strings.Contains(lower, "stub") || strings.Contains(lower, "fake"):
+		return "Mock / Stub"
+	case strings.Contains(lower, "config") || strings.Contains(lower, "configuration"):
+		return "Configuration"
+	default:
+		return "Caller / Reference"
+	}
+}
+
+// extractAnnotations extracts Java/Spring/Go annotation tags from a signature string.
+func extractAnnotations(sig string) []string {
+	var anns []string
+	parts := strings.Fields(sig)
+	for _, p := range parts {
+		if strings.HasPrefix(p, "@") {
+			// Clean trailing punctuation: @Slf4j, @Service, etc.
+			clean := strings.TrimRight(p, "({,")
+			if len(clean) > 1 && len(clean) < 40 {
+				anns = append(anns, clean)
+			}
+		}
+	}
+	return anns
+}
+
+// estimateTokens returns a rough token count using the GPT-4 approximation
+// of ~4 characters per token for English/code text.
+func estimateTokens(text string) int {
+	return (len(text) + 3) / 4
+}
+
+// tokenFooter produces the footer line appended to every MCP tool response.
+// It shows the token cost of this response vs. what raw file reads would cost.
+func tokenFooter(usedTokens, rawTokenEstimate int) string {
+	if rawTokenEstimate <= 0 {
+		rawTokenEstimate = usedTokens * 8
+	}
+	saved := rawTokenEstimate - usedTokens
+	if saved < 0 {
+		saved = 0
+	}
+	pct := 0
+	if rawTokenEstimate > 0 {
+		pct = (saved * 100) / rawTokenEstimate
+	}
+	return fmt.Sprintf("\n\n---\n*Context: ~%d tokens | Saved vs. raw read: ~%d tokens (%d%%)*\n",
+		usedTokens, saved, pct)
 }
