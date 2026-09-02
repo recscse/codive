@@ -80,15 +80,76 @@ func NewServer(rootDir string, database *sql.DB) *Server {
 }
 
 func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
-	if strings.TrimSpace(targetPath) == "" {
-		return s.database, s.rootDir, nil
+	searchDir := s.rootDir
+	if strings.TrimSpace(targetPath) != "" {
+		if abs, err := filepath.Abs(targetPath); err == nil {
+			searchDir = abs
+		}
+	} else {
+		// If no explicit path is passed, check current working directory first
+		if cwd, err := os.Getwd(); err == nil && cwd != "" {
+			if _, err := os.Stat(filepath.Join(cwd, ".devctx", "index.db")); err == nil {
+				searchDir = cwd
+			}
+		}
 	}
 
-	absPath, err := filepath.Abs(targetPath)
-	if err != nil {
-		return s.database, s.rootDir, nil
+	// Traverse upwards looking for nearest .devctx/index.db
+	curr := searchDir
+	var resolvedDir string
+	for {
+		dbPath := filepath.Join(curr, ".devctx", "index.db")
+		if _, err := os.Stat(dbPath); err == nil {
+			resolvedDir = curr
+			break
+		}
+		parent := filepath.Dir(curr)
+		if parent == curr || parent == "" {
+			break
+		}
+		curr = parent
 	}
 
+	// If no index exists anywhere, auto-index the target workspace on-the-fly!
+	if resolvedDir == "" {
+		resolvedDir = searchDir
+		dbPath := filepath.Join(resolvedDir, ".devctx", "index.db")
+		_ = os.MkdirAll(filepath.Dir(dbPath), 0755)
+
+		// Quick scan & index
+		scanRes, scanErr := scanner.Scan(resolvedDir)
+		if scanErr == nil && len(scanRes.Files) > 0 {
+			dbConn, openErr := db.Open(dbPath)
+			if openErr == nil {
+				_ = db.InitSchema(dbConn)
+				ctx := context.Background()
+				_ = db.SaveFiles(ctx, dbConn, scanRes.Files)
+				var syms []db.SymbolRecord
+				ftsMap := make(map[string]string)
+				for _, f := range scanRes.Files {
+					full := filepath.Join(resolvedDir, filepath.FromSlash(f.Path))
+					c, _ := os.ReadFile(full)
+					if len(c) > 0 {
+						ftsMap[f.Path] = string(c)
+						extracted, _ := symbols.ExtractSymbols(f.Path, f.Language, c)
+						syms = append(syms, extracted...)
+					}
+				}
+				if len(syms) > 0 {
+					_ = db.SaveSymbols(ctx, dbConn, syms)
+				}
+				if len(ftsMap) > 0 {
+					_ = db.SaveFTS(ctx, dbConn, ftsMap)
+				}
+				s.dbMutex.Lock()
+				s.dbCache[resolvedDir] = dbConn
+				s.dbMutex.Unlock()
+				return dbConn, resolvedDir, nil
+			}
+		}
+	}
+
+	absPath := resolvedDir
 	s.dbMutex.RLock()
 	cached, ok := s.dbCache[absPath]
 	s.dbMutex.RUnlock()
@@ -586,8 +647,8 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 		maxChars := tokenBudget * 4
 		var sb strings.Builder
-		sb.WriteString("# Repository Map\n")
-		sb.WriteString(fmt.Sprintf("Total Files: %d | Total Symbols: %d\n\n", len(filePaths), len(allSymbols)))
+		sb.WriteString(fmt.Sprintf("# Repository Map: `%s`\n", targetDir))
+		sb.WriteString(fmt.Sprintf("> 📍 **Workspace Root**: `%s` | **Indexed Files**: %d | **Total Symbols**: %d\n\n", targetDir, len(filePaths), len(allSymbols)))
 
 		truncatedFiles := 0
 

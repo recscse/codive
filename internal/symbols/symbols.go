@@ -4,11 +4,14 @@ package symbols
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -17,6 +20,17 @@ import (
 
 // ExtractSymbols parses source code based on its language and returns declared symbols.
 func ExtractSymbols(relPath string, language string, content []byte) ([]db.SymbolRecord, error) {
+	base := strings.ToLower(filepath.Base(relPath))
+	if base == "pom.xml" || strings.HasSuffix(base, "pom.xml") {
+		return extractPomXMLSymbols(relPath, content)
+	}
+	if base == "build.gradle" || base == "build.gradle.kts" {
+		return extractGradleSymbols(relPath, content)
+	}
+	if base == "package.json" {
+		return extractPackageJSONSymbols(relPath, content)
+	}
+
 	switch language {
 	case "Go":
 		return extractGoSymbols(relPath, content)
@@ -110,11 +124,13 @@ var (
 	jstsFuncRegex      = regexp.MustCompile(`^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*(?:<.*?>)?\s*(\(.*?\))`)
 	jstsArrowFuncRegex = regexp.MustCompile(`^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_]+)\s*(?::\s*[^=]+)?\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z0-9_]+)\s*=>`)
 
-	oopClassRegex     = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|abstract|final|sealed|\s)*\s*class\s+([A-Za-z0-9_]+)`)
-	oopInterfaceRegex = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|abstract|\s)*\s*interface\s+([A-Za-z0-9_]+)`)
-	oopRecordRegex    = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|\s)*\s*record\s+([A-Za-z0-9_]+)`)
-	oopEnumRegex      = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|\s)*\s*enum\s+([A-Za-z0-9_]+)`)
-	oopMethodRegex    = regexp.MustCompile(`^\s*(?:public|protected|private|static|async|virtual|override|abstract|final|\s)+\s+([A-Za-z0-9_<>[\],\s]+)\s+([A-Za-z0-9_]+)\s*\((.*?)\)`)
+	// Java, Spring Boot & C# regexes
+	oopAnnotationRegex = regexp.MustCompile(`^\s*@([A-Za-z0-9_]+)(?:\((.*?)\))?`)
+	oopClassRegex      = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|abstract|final|sealed|\s)*\s*class\s+([A-Za-z0-9_]+)`)
+	oopInterfaceRegex  = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|abstract|\s)*\s*interface\s+([A-Za-z0-9_]+)`)
+	oopRecordRegex     = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|\s)*\s*record\s+([A-Za-z0-9_]+)`)
+	oopEnumRegex       = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|\s)*\s*enum\s+([A-Za-z0-9_]+)`)
+	oopMethodRegex     = regexp.MustCompile(`^\s*(?:public|protected|private|static|async|virtual|override|abstract|final|\s)+\s+([A-Za-z0-9_<>[\],\s]+)\s+([A-Za-z0-9_]+)\s*\((.*?)\)`)
 
 	rustFnRegex     = regexp.MustCompile(`^\s*(?:pub(?:\(.*?\))?\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)\s*(?:<.*?>)?\s*(\(.*?\))`)
 	rustStructRegex = regexp.MustCompile(`^\s*(?:pub(?:\(.*?\))?\s+)?struct\s+([A-Za-z0-9_]+)`)
@@ -146,7 +162,8 @@ func extractPythonSymbols(relPath string, content []byte) ([]db.SymbolRecord, er
 		if m := pyClassRegex.FindStringSubmatch(line); len(m) > 1 {
 			sig := trimmed
 			if len(currentDecorators) > 0 {
-				sig = strings.Join(currentDecorators, " ") + " " + sig
+				sig = strings.Join(currentDecorators, " ") + " " + trimmed
+				currentDecorators = nil
 			}
 			symbols = append(symbols, db.SymbolRecord{
 				FilePath:   relPath,
@@ -155,27 +172,22 @@ func extractPythonSymbols(relPath string, content []byte) ([]db.SymbolRecord, er
 				Signature:  sig,
 				LineNumber: lineNum,
 			})
-			currentDecorators = nil
 			continue
 		}
 
 		if m := pyFuncRegex.FindStringSubmatch(line); len(m) > 1 {
-			kind := "function"
-			if strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t") {
-				kind = "method"
-			}
 			sig := trimmed
 			if len(currentDecorators) > 0 {
-				sig = strings.Join(currentDecorators, " ") + " " + sig
+				sig = strings.Join(currentDecorators, " ") + " " + trimmed
+				currentDecorators = nil
 			}
 			symbols = append(symbols, db.SymbolRecord{
 				FilePath:   relPath,
 				Name:       m[1],
-				Kind:       kind,
+				Kind:       "function",
 				Signature:  sig,
 				LineNumber: lineNum,
 			})
-			currentDecorators = nil
 			continue
 		}
 
@@ -266,6 +278,7 @@ func extractOOPCLikeSymbols(relPath string, content []byte) ([]db.SymbolRecord, 
 	var symbols []db.SymbolRecord
 	scanner := bufio.NewScanner(bytes.NewReader(content))
 	lineNum := 0
+	var currentAnnotations []string
 
 	for scanner.Scan() {
 		lineNum++
@@ -276,32 +289,66 @@ func extractOOPCLikeSymbols(relPath string, content []byte) ([]db.SymbolRecord, 
 			continue
 		}
 
+		// Collect annotations (Spring / Java / C#)
+		if oopAnnotationRegex.MatchString(trimmed) {
+			currentAnnotations = append(currentAnnotations, trimmed)
+			// Also register Spring framework annotations directly for instant discovery
+			if m := oopAnnotationRegex.FindStringSubmatch(trimmed); len(m) > 1 {
+				annName := m[1]
+				if isSignificantAnnotation(annName) {
+					symbols = append(symbols, db.SymbolRecord{
+						FilePath:   relPath,
+						Name:       "@" + annName,
+						Kind:       "annotation",
+						Signature:  trimmed,
+						LineNumber: lineNum,
+					})
+				}
+			}
+			continue
+		}
+
 		if m := oopClassRegex.FindStringSubmatch(line); len(m) > 1 {
+			sig := trimmed
+			if len(currentAnnotations) > 0 {
+				sig = strings.Join(currentAnnotations, " ") + " " + trimmed
+				currentAnnotations = nil
+			}
 			symbols = append(symbols, db.SymbolRecord{
 				FilePath:   relPath,
 				Name:       m[1],
 				Kind:       "class",
-				Signature:  trimmed,
+				Signature:  sig,
 				LineNumber: lineNum,
 			})
 			continue
 		}
 		if m := oopInterfaceRegex.FindStringSubmatch(line); len(m) > 1 {
+			sig := trimmed
+			if len(currentAnnotations) > 0 {
+				sig = strings.Join(currentAnnotations, " ") + " " + trimmed
+				currentAnnotations = nil
+			}
 			symbols = append(symbols, db.SymbolRecord{
 				FilePath:   relPath,
 				Name:       m[1],
 				Kind:       "interface",
-				Signature:  trimmed,
+				Signature:  sig,
 				LineNumber: lineNum,
 			})
 			continue
 		}
 		if m := oopRecordRegex.FindStringSubmatch(line); len(m) > 1 {
+			sig := trimmed
+			if len(currentAnnotations) > 0 {
+				sig = strings.Join(currentAnnotations, " ") + " " + trimmed
+				currentAnnotations = nil
+			}
 			symbols = append(symbols, db.SymbolRecord{
 				FilePath:   relPath,
 				Name:       m[1],
 				Kind:       "record",
-				Signature:  trimmed,
+				Signature:  sig,
 				LineNumber: lineNum,
 			})
 			continue
@@ -314,23 +361,42 @@ func extractOOPCLikeSymbols(relPath string, content []byte) ([]db.SymbolRecord, 
 				Signature:  trimmed,
 				LineNumber: lineNum,
 			})
+			currentAnnotations = nil
 			continue
 		}
 		if m := oopMethodRegex.FindStringSubmatch(line); len(m) > 2 {
 			methodName := m[2]
 			if methodName != "if" && methodName != "for" && methodName != "while" && methodName != "switch" {
+				sig := trimmed
+				if len(currentAnnotations) > 0 {
+					sig = strings.Join(currentAnnotations, " ") + " " + trimmed
+					currentAnnotations = nil
+				}
 				symbols = append(symbols, db.SymbolRecord{
 					FilePath:   relPath,
 					Name:       methodName,
 					Kind:       "method",
-					Signature:  trimmed,
+					Signature:  sig,
 					LineNumber: lineNum,
 				})
 			}
 			continue
 		}
+
+		currentAnnotations = nil
 	}
 	return symbols, scanner.Err()
+}
+
+func isSignificantAnnotation(name string) bool {
+	switch name {
+	case "RestController", "Controller", "Service", "Repository", "Component", "Configuration",
+		"Bean", "Scheduled", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping",
+		"PatchMapping", "RequestMapping", "Autowired", "Value", "EventListener":
+		return true
+	default:
+		return false
+	}
 }
 
 func extractRustSymbols(relPath string, content []byte) ([]db.SymbolRecord, error) {
@@ -403,6 +469,153 @@ func extractRustSymbols(relPath string, content []byte) ([]db.SymbolRecord, erro
 		}
 	}
 	return symbols, scanner.Err()
+}
+
+// Maven POM.xml XML structs
+type pomXML struct {
+	XMLName      xml.Name        `xml:"project"`
+	GroupId      string          `xml:"groupId"`
+	ArtifactId   string          `xml:"artifactId"`
+	Version      string          `xml:"version"`
+	Name         string          `xml:"name"`
+	Parent       *pomParent      `xml:"parent"`
+	Dependencies []pomDependency `xml:"dependencies>dependency"`
+	Properties   []pomProperty   `xml:"properties"`
+}
+
+type pomParent struct {
+	GroupId    string `xml:"groupId"`
+	ArtifactId string `xml:"artifactId"`
+	Version    string `xml:"version"`
+}
+
+type pomDependency struct {
+	GroupId    string `xml:"groupId"`
+	ArtifactId string `xml:"artifactId"`
+	Version    string `xml:"version"`
+	Scope      string `xml:"scope"`
+}
+
+type pomProperty struct {
+	XMLName xml.Name
+	Value   string `xml:",chardata"`
+}
+
+func extractPomXMLSymbols(relPath string, content []byte) ([]db.SymbolRecord, error) {
+	var symbols []db.SymbolRecord
+	var p pomXML
+	if err := xml.Unmarshal(content, &p); err != nil {
+		return extractGenericSymbols(relPath, content)
+	}
+
+	if p.ArtifactId != "" {
+		symbols = append(symbols, db.SymbolRecord{
+			FilePath:   relPath,
+			Name:       p.ArtifactId,
+			Kind:       "project",
+			Signature:  fmt.Sprintf("Maven Artifact: %s:%s (version: %s)", p.GroupId, p.ArtifactId, p.Version),
+			LineNumber: 1,
+		})
+	}
+
+	if p.Parent != nil {
+		symbols = append(symbols, db.SymbolRecord{
+			FilePath:   relPath,
+			Name:       p.Parent.ArtifactId,
+			Kind:       "parent_pom",
+			Signature:  fmt.Sprintf("Parent POM: %s:%s (version: %s)", p.Parent.GroupId, p.Parent.ArtifactId, p.Parent.Version),
+			LineNumber: 1,
+		})
+	}
+
+	for _, dep := range p.Dependencies {
+		symbols = append(symbols, db.SymbolRecord{
+			FilePath:   relPath,
+			Name:       dep.ArtifactId,
+			Kind:       "dependency",
+			Signature:  fmt.Sprintf("Dependency: %s:%s (version: %s, scope: %s)", dep.GroupId, dep.ArtifactId, dep.Version, dep.Scope),
+			LineNumber: 1,
+		})
+	}
+
+	return symbols, nil
+}
+
+func extractGradleSymbols(relPath string, content []byte) ([]db.SymbolRecord, error) {
+	var symbols []db.SymbolRecord
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	lineNum := 0
+
+	depRegex := regexp.MustCompile(`(implementation|api|testImplementation|compileOnly|runtimeOnly)\s*[\('"]+([^'"\)]+)[\)'"]+`)
+
+	for scanner.Scan() {
+		lineNum++
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+
+		if m := depRegex.FindStringSubmatch(line); len(m) > 2 {
+			depCoord := m[2]
+			parts := strings.Split(depCoord, ":")
+			depName := depCoord
+			if len(parts) >= 2 {
+				depName = parts[1]
+			}
+			symbols = append(symbols, db.SymbolRecord{
+				FilePath:   relPath,
+				Name:       depName,
+				Kind:       "dependency",
+				Signature:  trimmed,
+				LineNumber: lineNum,
+			})
+		}
+	}
+	return symbols, nil
+}
+
+type packageJSON struct {
+	Name            string            `json:"name"`
+	Version         string            `json:"version"`
+	Dependencies    map[string]string `json:"dependencies"`
+	DevDependencies map[string]string `json:"devDependencies"`
+}
+
+func extractPackageJSONSymbols(relPath string, content []byte) ([]db.SymbolRecord, error) {
+	var symbols []db.SymbolRecord
+	var pkg packageJSON
+	if err := json.Unmarshal(content, &pkg); err != nil {
+		return nil, nil
+	}
+
+	if pkg.Name != "" {
+		symbols = append(symbols, db.SymbolRecord{
+			FilePath:   relPath,
+			Name:       pkg.Name,
+			Kind:       "package",
+			Signature:  fmt.Sprintf("npm Package: %s (version: %s)", pkg.Name, pkg.Version),
+			LineNumber: 1,
+		})
+	}
+
+	for dep, ver := range pkg.Dependencies {
+		symbols = append(symbols, db.SymbolRecord{
+			FilePath:   relPath,
+			Name:       dep,
+			Kind:       "dependency",
+			Signature:  fmt.Sprintf("npm dep: %s@%s", dep, ver),
+			LineNumber: 1,
+		})
+	}
+	for dep, ver := range pkg.DevDependencies {
+		symbols = append(symbols, db.SymbolRecord{
+			FilePath:   relPath,
+			Name:       dep,
+			Kind:       "devDependency",
+			Signature:  fmt.Sprintf("npm devDep: %s@%s", dep, ver),
+			LineNumber: 1,
+		})
+	}
+
+	return symbols, nil
 }
 
 func extractGenericSymbols(relPath string, content []byte) ([]db.SymbolRecord, error) {
