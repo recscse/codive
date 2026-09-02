@@ -23,7 +23,7 @@ func RunFindSymbol(targetDir string, query string, asJSON bool) error {
 
 	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
+		return fmt.Errorf("repository not initialized — no index at %s\n  Run 'devctx init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -47,12 +47,34 @@ func RunFindSymbol(targetDir string, query string, asJSON bool) error {
 		return nil
 	}
 
-	ui.CyanBold.Printf("Found %d symbol(s) matching '%s':\n\n", len(results), query)
-	for i, s := range results {
-		fmt.Printf("%2d. [%s] %s\n", i+1, ui.Magenta.Sprint(s.Kind), ui.Bold.Sprint(s.Name))
-		fmt.Printf("    %s  %s:%d\n", ui.Dim.Sprint("Location:"), ui.Green.Sprint(s.FilePath), s.LineNumber)
-		fmt.Printf("    %s %s\n\n", ui.Dim.Sprint("Signature:"), s.Signature)
-	}
+	ui.SectionHeader(fmt.Sprintf("Symbol Results  (%d matches for '%s')", len(results), query))
 
+	for i, s := range results {
+		fmt.Println()
+		fmt.Printf("  %s  %s  %s\n",
+			ui.Dim.Sprintf("%2d.", i+1),
+			ui.GreenBold.Sprint(s.Name),
+			ui.Dim.Sprintf("[%s]", s.Kind),
+		)
+		fmt.Printf("     %s  %s:%d\n",
+			ui.Dim.Sprint("file"),
+			ui.Bold.Sprint(s.FilePath),
+			s.LineNumber,
+		)
+		if s.Signature != "" && s.Signature != s.Name {
+			fmt.Printf("     %s  %s\n",
+				ui.Dim.Sprint("sig "),
+				ui.Dim.Sprint(truncate(s.Signature, 90)),
+			)
+		}
+	}
+	fmt.Println()
 	return nil
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-3] + "..."
 }

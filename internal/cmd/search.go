@@ -24,7 +24,7 @@ func RunSearch(targetDir string, query string, limit int, asJSON bool) error {
 
 	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'devctx init' first", dbPath)
+		return fmt.Errorf("repository not initialized — no index at %s\n  Run 'devctx init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -44,26 +44,32 @@ func RunSearch(targetDir string, query string, limit int, asJSON bool) error {
 	}
 
 	if len(results) == 0 {
-		ui.Warning(fmt.Sprintf("No matches found for '%s'", query))
+		ui.Warning(fmt.Sprintf("No results for '%s'", query))
 		return nil
 	}
 
-	fmt.Println()
-	ui.Header(fmt.Sprintf("devctx — Search Results: '%s' (%d matches)", query, len(results)))
-	ui.Divider()
-	for i, res := range results {
-		fmt.Printf("  %s %s\n", ui.Dim.Sprintf("%2d.", i+1), ui.GreenBold.Sprint(res.Path))
-		cleanSnippet := strings.ReplaceAll(res.Snippet, ">>>", "")
-		cleanSnippet = strings.ReplaceAll(cleanSnippet, "<<<", "")
-		cleanSnippet = strings.TrimSpace(cleanSnippet)
-		lines := strings.Split(cleanSnippet, "\n")
-		for _, l := range lines {
-			fmt.Printf("      %s %s\n", ui.Dim.Sprint("│"), strings.TrimRight(l, "\r"))
-		}
-		fmt.Println()
-	}
-	ui.Divider()
-	fmt.Println()
+	ui.SectionHeader(fmt.Sprintf("Search Results  (%d matches for '%s')", len(results), query))
 
+	for i, res := range results {
+		fmt.Println()
+		fmt.Printf("  %s  %s\n",
+			ui.Dim.Sprintf("%2d.", i+1),
+			ui.GreenBold.Sprint(res.Path),
+		)
+		// Clean FTS5 snippet markers
+		snippet := strings.ReplaceAll(res.Snippet, ">>>", "")
+		snippet = strings.ReplaceAll(snippet, "<<<", "")
+		snippet = strings.TrimSpace(snippet)
+		for _, line := range strings.Split(snippet, "\n") {
+			trimmed := strings.TrimRight(line, "\r ")
+			if trimmed == "" {
+				continue
+			}
+			fmt.Printf("     %s  %s\n", ui.Dim.Sprint("│"), ui.Dim.Sprint(trimmed))
+		}
+	}
+	fmt.Println()
+	ui.Divider()
+	fmt.Println()
 	return nil
 }

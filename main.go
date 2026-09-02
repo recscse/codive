@@ -19,50 +19,93 @@ var (
 )
 
 func printUsage() {
-	ui.Header(fmt.Sprintf("devctx %s — Developer Context Engine for AI Coding Agents", Version))
-	ui.Divider()
 	fmt.Println()
-	fmt.Println("Usage:")
-	fmt.Println("  devctx <command> [arguments] [flags]")
-	fmt.Println("\nAvailable Commands:")
-	fmt.Println("  init          [path]      Scan and index a repository from scratch")
-	fmt.Println("  init-rules    [path]      Auto-generate customized AI architecture rules")
-	fmt.Println("  install-hooks [path]      Install Git post-commit & post-checkout hooks")
-	fmt.Println("  reindex       [path]      Clean wipe and rebuild index from scratch")
-	fmt.Println("  update        [path]      Incrementally synchronize repository index")
-	fmt.Println("  status        [path]      Display index status and language breakdown")
-	fmt.Println("  doctor        [path]      Diagnose index health and AI agent configurations")
-	fmt.Println("  diff          [path]      AST-aware summary of uncommitted git changes")
-	fmt.Println("  decisions     [topic]     View recorded architectural memory & decisions")
-	fmt.Println("  stats         [path]      Real-time token & cloud money savings counter")
-	fmt.Println("  blast         <name>      PR Blast Radius impact & regression analyzer")
-	fmt.Println("  web           [path]      Launch interactive web architecture network graph")
-	fmt.Println("  map           [path]      Generate a structural repository symbol map")
-	fmt.Println("  symbol        <name>      Find symbol definitions across the repository")
-	fmt.Println("  refs          <name>      Find call sites, imports, and usages of a symbol")
-	fmt.Println("  search        <query>     Fast full-text code search across indexed files")
-	fmt.Println("  pack          <query>     Build a token-optimized context pack for LLMs")
-	fmt.Println("  watch         [path]      Watch repository and auto-sync changes in real-time")
-	fmt.Println("  setup         [path]      Auto-configure devctx for installed AI agents")
-	fmt.Println("  upgrade                   Self-update devctx binary to latest release")
-	fmt.Println("  about                     Show project background, author, and license")
-	fmt.Println("  logs          [path]      Show recent log entries from .devctx/devctx.log")
-	fmt.Println("  serve         [path]      Run the Model Context Protocol (MCP) server")
-	fmt.Println("  version                   Show detailed version and build information")
-	fmt.Println("  help                      Show this help message")
-	fmt.Println("\nFlags:")
-	fmt.Println("  --json                    Output results in JSON format")
-	fmt.Println("  --no-color                Disable ANSI color styling")
-	fmt.Println("  --verbose                 Output structured logs to stderr in real-time")
-	fmt.Println("\nExamples:")
-	fmt.Println("  devctx setup")
-	fmt.Println("  devctx init")
-	fmt.Println("  devctx search \"PaymentProcessor\"")
-	fmt.Println("  devctx blast GenerateToken")
-	fmt.Println("  devctx pack auth")
-	fmt.Println("  devctx map --web")
-	fmt.Println("  devctx upgrade")
-	fmt.Println("  devctx about")
+	fmt.Printf("  %s  %s\n\n",
+		ui.GreenBold.Sprint("devctx"),
+		ui.Dim.Sprintf("%s  ·  Local-first context engine for AI coding agents", Version),
+	)
+
+	fmt.Printf("  %s\n\n", ui.Dim.Sprint("Usage:  devctx <command> [path] [flags]"))
+
+	sections := []struct {
+		heading  string
+		commands [][]string
+	}{
+		{
+			"Index Management",
+			[][]string{
+				{"init          ", "[path]  ", "Scan and index a repository from scratch"},
+				{"reindex       ", "[path]  ", "Clean wipe and rebuild the index"},
+				{"update        ", "[path]  ", "Incrementally sync changed files"},
+				{"watch         ", "[path]  ", "Auto-sync changes in real-time"},
+			},
+		},
+		{
+			"Code Intelligence",
+			[][]string{
+				{"symbol        ", "<name>  ", "Find symbol definitions across the repo"},
+				{"refs          ", "<name>  ", "Find call sites, imports, and usages"},
+				{"search        ", "<query> ", "Fast full-text search across indexed files"},
+				{"blast         ", "<name>  ", "Blast radius — PR impact & regression scope"},
+				{"pack          ", "<query> ", "Build a token-optimized context pack for LLMs"},
+				{"map           ", "[path]  ", "Print a structural repository symbol map"},
+				{"diff          ", "[path]  ", "AST-aware summary of uncommitted git changes"},
+			},
+		},
+		{
+			"Setup & Configuration",
+			[][]string{
+				{"setup         ", "[path]  ", "Auto-configure MCP for installed AI agents"},
+				{"install-hooks ", "[path]  ", "Install Git post-commit & post-checkout hooks"},
+				{"init-rules    ", "[path]  ", "Auto-generate AI architecture rules file"},
+			},
+		},
+		{
+			"Diagnostics & Info",
+			[][]string{
+				{"status        ", "[path]  ", "Display index status and language breakdown"},
+				{"doctor        ", "[path]  ", "Diagnose index health and agent configurations"},
+				{"stats         ", "[path]  ", "Token savings and efficiency metrics"},
+				{"decisions     ", "[topic] ", "View recorded architectural decisions"},
+				{"logs          ", "[path]  ", "Tail recent log entries"},
+			},
+		},
+		{
+			"Runtime",
+			[][]string{
+				{"web           ", "[path]  ", "Launch interactive architecture network graph"},
+				{"serve         ", "[path]  ", "Run the MCP (Model Context Protocol) server"},
+				{"upgrade       ", "        ", "Self-update devctx to the latest release"},
+				{"version       ", "        ", "Show version and build info"},
+				{"about         ", "        ", "Project background, author, and license"},
+			},
+		},
+	}
+
+	for _, sec := range sections {
+		fmt.Printf("  %s\n", ui.Dim.Sprint(sec.heading))
+		for _, c := range sec.commands {
+			fmt.Printf("    %s %s  %s\n",
+				ui.Bold.Sprint(c[0]),
+				ui.Dim.Sprint(c[1]),
+				c[2],
+			)
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("  %s\n", ui.Dim.Sprint("Flags"))
+	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--json     "), "Output results in machine-readable JSON")
+	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--no-color "), "Disable ANSI color output")
+	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--verbose  "), "Stream structured logs to stderr")
+	fmt.Println()
+	fmt.Printf("  %s\n", ui.Dim.Sprint("Examples"))
+	fmt.Printf("    %s\n", ui.Dim.Sprint("devctx setup"))
+	fmt.Printf("    %s\n", ui.Dim.Sprint("devctx init ./my-project"))
+	fmt.Printf("    %s\n", ui.Dim.Sprint(`devctx search "PaymentProcessor"`))
+	fmt.Printf("    %s\n", ui.Dim.Sprint("devctx blast GenerateToken"))
+	fmt.Printf("    %s\n", ui.Dim.Sprint("devctx pack auth"))
+	fmt.Println()
 }
 
 func main() {
@@ -104,7 +147,6 @@ func main() {
 	// Determine working dir for logger
 	logTargetDir := "."
 	if len(args) >= 2 && !strings.HasPrefix(args[1], "-") {
-		// If command is "symbol", "search", or "pack", directory is args[2] if present
 		if (command == "symbol" || command == "find-symbol" || command == "search" || command == "pack") && len(args) >= 3 {
 			logTargetDir = args[2]
 		} else if command != "symbol" && command != "find-symbol" && command != "search" && command != "pack" {
@@ -225,7 +267,7 @@ func main() {
 
 	case "blast", "blast-radius":
 		if len(args) < 2 {
-			ui.Error("Usage: ctxd blast <symbol> [path] [--json]")
+			ui.Error("usage: devctx blast <symbol> [path]")
 			os.Exit(1)
 		}
 		symbol := args[1]
@@ -267,7 +309,7 @@ func main() {
 
 	case "symbol", "find-symbol":
 		if len(args) < 2 {
-			ui.Error("Usage: ctxd symbol <name> [path] [--json]")
+			ui.Error("usage: devctx symbol <name> [path]")
 			os.Exit(1)
 		}
 		query := args[1]
@@ -282,7 +324,7 @@ func main() {
 
 	case "refs", "references", "find-references":
 		if len(args) < 2 {
-			ui.Error("Usage: ctxd refs <symbol> [path] [--json]")
+			ui.Error("usage: devctx refs <symbol> [path]")
 			os.Exit(1)
 		}
 		symbol := args[1]
@@ -297,7 +339,7 @@ func main() {
 
 	case "search":
 		if len(args) < 2 {
-			ui.Error("Usage: ctxd search <query> [path] [--json]")
+			ui.Error("usage: devctx search <query> [path]")
 			os.Exit(1)
 		}
 		query := args[1]
@@ -312,7 +354,7 @@ func main() {
 
 	case "pack":
 		if len(args) < 2 {
-			ui.Error("Usage: ctxd pack <query> [path]")
+			ui.Error("usage: devctx pack <query> [path]")
 			os.Exit(1)
 		}
 		query := args[1]
@@ -387,19 +429,22 @@ func main() {
 				"platform":   fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 			})
 		} else {
-			ui.Header(fmt.Sprintf("devctx %s", Version))
-			fmt.Printf("  %s   %s\n", ui.Dim.Sprint("Git Commit:"), GitCommit)
-			fmt.Printf("  %s   %s\n", ui.Dim.Sprint("Build Date:"), BuildDate)
-			fmt.Printf("  %s   %s\n", ui.Dim.Sprint("Go Version:"), runtime.Version())
-			fmt.Printf("  %s   %s/%s\n", ui.Dim.Sprint("Platform:  "), runtime.GOOS, runtime.GOARCH)
+			fmt.Println()
+			fmt.Printf("  %s  %s\n", ui.GreenBold.Sprint("devctx"), Version)
+			fmt.Printf("  %-20s  %s\n", ui.Dim.Sprint("Git Commit"), GitCommit)
+			fmt.Printf("  %-20s  %s\n", ui.Dim.Sprint("Build Date"), BuildDate)
+			fmt.Printf("  %-20s  %s\n", ui.Dim.Sprint("Go Version"), runtime.Version())
+			fmt.Printf("  %-20s  %s/%s\n", ui.Dim.Sprint("Platform"), runtime.GOOS, runtime.GOARCH)
+			fmt.Println()
 		}
 
 	case "help", "--help", "-h":
 		printUsage()
 
 	default:
-		ui.Error(fmt.Sprintf("Unknown command: %s\n", command))
-		printUsage()
+		fmt.Println()
+		fmt.Printf("  %s  unknown command: %s\n\n", ui.Red.Sprint("error:"), command)
+		fmt.Printf("  Run %s for available commands.\n\n", ui.Bold.Sprint("devctx help"))
 		os.Exit(1)
 	}
 }

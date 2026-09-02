@@ -12,7 +12,7 @@ import (
 	"github.com/recscse/devctx/internal/ui"
 )
 
-// StatusJSON represents the JSON output format for ctxd status.
+// StatusJSON represents the JSON output format for devctx status.
 type StatusJSON struct {
 	TotalFiles     int            `json:"total_files"`
 	TotalSizeBytes int64          `json:"total_size_bytes"`
@@ -21,7 +21,7 @@ type StatusJSON struct {
 	Languages      map[string]int `json:"languages"`
 }
 
-// RunStatus reads .devctx/index.db and prints the repository indexing status.
+// RunStatus reads .devctx/index.db and prints the repository index status.
 func RunStatus(targetDir string, asJSON bool) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
@@ -30,7 +30,7 @@ func RunStatus(targetDir string, asJSON bool) error {
 
 	dbPath := filepath.Join(absDir, ".devctx", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
+		return fmt.Errorf("repository not initialized — no index at %s\n  Run 'devctx init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -59,19 +59,19 @@ func RunStatus(targetDir string, asJSON bool) error {
 		})
 	}
 
-	ui.Header("📊 ctxd Repository Status")
-	fmt.Println()
-	fmt.Printf("  %s %s\n", ui.Dim.Sprint("Repository:"), ui.Bold.Sprint(absDir))
-	fmt.Printf("  %s %s\n", ui.Dim.Sprint("Total Files:"), ui.GreenBold.Sprintf("%d files", stats.TotalFiles))
-	fmt.Printf("  %s %s (%d bytes)\n", ui.Dim.Sprint("Total Size: "), ui.CyanBold.Sprint(formatBytes(stats.TotalSizeBytes)), stats.TotalSizeBytes)
+	ui.SectionHeader("Index Status")
+
+	ui.KeyValue("Repository", absDir)
+	ui.KeyValueAccent("Indexed Files", fmt.Sprintf("%d files", stats.TotalFiles))
+	ui.KeyValueAccent("Total Size", formatBytes(stats.TotalSizeBytes))
 	if stats.LastUpdated.IsZero() {
-		fmt.Printf("  %s %s\n", ui.Dim.Sprint("Last Updated:"), ui.Yellow.Sprint("N/A"))
+		ui.KeyValue("Last Updated", "never")
 	} else {
-		fmt.Printf("  %s %s\n", ui.Dim.Sprint("Last Updated:"), stats.LastUpdated.Local().Format(time.RFC1123))
+		ui.KeyValue("Last Updated", stats.LastUpdated.Local().Format("Mon, 02 Jan 2006 15:04:05 MST"))
 	}
 
 	fmt.Println()
-	ui.CyanBold.Println("Language Breakdown:")
+	ui.Label("Language Breakdown")
 
 	type langCount struct {
 		name  string
@@ -89,16 +89,33 @@ func RunStatus(targetDir string, asJSON bool) error {
 	})
 
 	if len(sortedLangs) == 0 {
-		ui.Dim.Println("  (no files indexed)")
+		ui.ListItem("(no files indexed)", "")
 	} else {
 		for _, item := range sortedLangs {
-			percentage := float64(item.count) / float64(stats.TotalFiles) * 100
-			fmt.Printf("  • %-14s %s (%s)\n",
-				ui.Bold.Sprint(item.name),
-				ui.Green.Sprintf("%4d files", item.count),
-				ui.Dim.Sprintf("%5.1f%%", percentage))
+			pct := float64(item.count) / float64(stats.TotalFiles) * 100
+			bar := renderMiniBar(pct, 16)
+			ui.ListItem(
+				fmt.Sprintf("%-16s  %s", item.name, bar),
+				fmt.Sprintf("%4d files  %5.1f%%", item.count, pct),
+			)
 		}
 	}
-
+	fmt.Println()
 	return nil
+}
+
+// renderMiniBar renders a compact proportional bar.
+func renderMiniBar(pct float64, width int) string {
+	filled := int(pct / 100 * float64(width))
+	if filled > width {
+		filled = width
+	}
+	bar := ""
+	for i := 0; i < filled; i++ {
+		bar += "█"
+	}
+	for i := filled; i < width; i++ {
+		bar += "░"
+	}
+	return ui.Green.Sprint(bar[:filled]) + ui.Dim.Sprint(bar[filled:])
 }

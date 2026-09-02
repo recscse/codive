@@ -1,4 +1,6 @@
-// Package ui provides a clean, modern, and rich terminal user interface inspired by modern developer tools.
+// Package ui provides a production-grade terminal UI for devctx.
+// Design language: clean monochrome structure with selective accent color,
+// aligned columns, no decorative emojis — inspired by Claude Code & Cargo.
 package ui
 
 import (
@@ -11,27 +13,46 @@ import (
 	"github.com/fatih/color"
 )
 
+// Terminal style primitives
 var (
-	// Terminal Colors & Styles
-	Green     = color.New(color.FgGreen)
-	GreenBold = color.New(color.FgGreen, color.Bold)
-	Cyan      = color.New(color.FgCyan)
-	CyanBold  = color.New(color.FgCyan, color.Bold)
-	Yellow    = color.New(color.FgYellow)
-	Red       = color.New(color.FgRed, color.Bold)
-	Magenta   = color.New(color.FgMagenta)
+	// Accent — used sparingly for primary value, success, or brand identity
+	accent    = color.New(color.FgHiGreen)
+	accentB   = color.New(color.FgHiGreen, color.Bold)
+
+	// Muted — secondary text, labels, dividers
+	muted     = color.New(color.Faint)
+	mutedB    = color.New(color.Faint, color.Bold)
+
+	// Primary — command/section titles, symbol names
+	primary   = color.New(color.Bold)
+	secondary = color.New(color.FgWhite)
+
+	// Semantic
+	errorC   = color.New(color.FgRed, color.Bold)
+	warnC    = color.New(color.FgYellow)
+	infoC    = color.New(color.FgCyan)
+	kindC    = color.New(color.FgHiBlue)
+
+	// Exported aliases used by other packages
+	Dim      = muted
+	Bold     = primary
+	Green    = accent
+	GreenBold = accentB
+	Cyan     = infoC
+	CyanBold = color.New(color.FgCyan, color.Bold)
+	Yellow   = warnC
+	Red      = errorC
+	Magenta  = color.New(color.FgMagenta)
 	MagentaBold = color.New(color.FgMagenta, color.Bold)
-	Dim       = color.New(color.Faint)
-	Bold      = color.New(color.Bold)
-	WhiteBold = color.New(color.FgWhite, color.Bold)
+	WhiteBold   = color.New(color.FgHiWhite, color.Bold)
 )
 
-// SetNoColor manually enables or disables colorized terminal output.
+// SetNoColor enables or disables ANSI color output.
 func SetNoColor(noColor bool) {
 	color.NoColor = noColor
 }
 
-// PrintJSON marshals data with indentation and prints to stdout.
+// PrintJSON marshals data with indentation and writes to stdout.
 func PrintJSON(data any) error {
 	bytes, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
@@ -41,59 +62,122 @@ func PrintJSON(data any) error {
 	return nil
 }
 
-// Header prints a crisp, modern section title.
-func Header(title string) {
+// ─── Layout primitives ────────────────────────────────────────────────────────
+
+// SectionHeader prints a top-level section title.
+// Visually: a blank line, then "  devctx · <title>" with a rule beneath.
+//
+//	  devctx  Search Results
+//	  ──────────────────────
+func SectionHeader(title string) {
 	fmt.Println()
-	fmt.Printf("%s %s\n", GreenBold.Sprint("●"), WhiteBold.Sprint(title))
+	fmt.Printf("  %s  %s\n", muted.Sprint("devctx"), primary.Sprint(title))
+	fmt.Printf("  %s\n", muted.Sprint(strings.Repeat("─", 56)))
 }
 
-// SubHeader prints a category or stage header.
+// SubHeader prints a secondary indented section title.
 func SubHeader(title string) {
 	fmt.Println()
-	fmt.Printf("%s %s\n", Dim.Sprint("❯"), Bold.Sprint(title))
+	fmt.Printf("  %s\n", primary.Sprint(title))
 }
 
-// Success prints a clean success indicator.
-func Success(msg string) {
-	fmt.Printf("%s %s\n", GreenBold.Sprint("✔"), WhiteBold.Sprint(msg))
-}
-
-// Info prints a clean informational notice.
-func Info(msg string) {
-	fmt.Printf("%s %s\n", CyanBold.Sprint("ℹ"), msg)
-}
-
-// Warning prints a clean warning notice.
-func Warning(msg string) {
-	fmt.Printf("%s %s\n", Yellow.Sprint("!"), msg)
-}
-
-// Error prints an error message to stderr.
-func Error(msg string) {
-	fmt.Fprintf(os.Stderr, "%s %s\n", Red.Sprint("✖"), msg)
-}
-
-// KeyValue prints a neatly formatted key-value line.
-func KeyValue(key string, value string) {
-	fmt.Printf("  %s %s\n", Dim.Sprintf("%-18s", key+":"), value)
-}
-
-// KeyValueHighlight prints a key-value line with high-contrast highlighted value.
-func KeyValueHighlight(key string, value string) {
-	fmt.Printf("  %s %s\n", Dim.Sprintf("%-18s", key+":"), GreenBold.Sprint(value))
-}
-
-// Divider prints a subtle, clean hairline divider.
+// Divider prints a full-width muted rule.
 func Divider() {
-	Dim.Println(strings.Repeat("─", 60))
+	fmt.Printf("  %s\n", muted.Sprint(strings.Repeat("─", 56)))
 }
 
-// Bullet prints a structured list item.
-func Bullet(label string, desc string) {
-	fmt.Printf("  %s %s %s\n", Dim.Sprint("•"), Bold.Sprint(label), Dim.Sprint(desc))
+// BlankLine prints a newline.
+func BlankLine() { fmt.Println() }
+
+// ─── Status indicators ────────────────────────────────────────────────────────
+
+// Success prints a check-mark success line.
+func Success(msg string) {
+	fmt.Printf("  %s  %s\n", accentB.Sprint("✓"), secondary.Sprint(msg))
 }
 
-// ProgressBar renders a clean, real-time terminal progress bar with items/s and ETA.
+// Info prints an informational line.
+func Info(msg string) {
+	fmt.Printf("  %s  %s\n", infoC.Sprint("i"), msg)
+}
+
+// Warning prints a warning line.
+func Warning(msg string) {
+	fmt.Fprintf(os.Stderr, "  %s  %s\n", warnC.Sprint("!"), msg)
+}
+
+// Error prints an error line to stderr.
+func Error(msg string) {
+	fmt.Fprintf(os.Stderr, "\n  %s  %s\n\n", errorC.Sprint("error:"), msg)
+}
+
+// CheckPass prints a passing diagnostic check.
+func CheckPass(msg string) {
+	fmt.Printf("  %s  %s\n", accentB.Sprint("✓"), msg)
+}
+
+// CheckWarn prints a warning diagnostic check.
+func CheckWarn(msg string) {
+	fmt.Printf("  %s  %s\n", warnC.Sprint("–"), msg)
+}
+
+// CheckFail prints a failing diagnostic check.
+func CheckFail(msg string) {
+	fmt.Printf("  %s  %s\n", errorC.Sprint("✗"), msg)
+}
+
+// ─── Data display ─────────────────────────────────────────────────────────────
+
+// KeyValue prints a left-aligned label with a right-side value.
+// Both columns are aligned to a fixed label width.
+func KeyValue(key, value string) {
+	fmt.Printf("  %-20s  %s\n", muted.Sprint(key), value)
+}
+
+// KeyValueAccent prints a key-value row where the value is highlighted.
+func KeyValueAccent(key, value string) {
+	fmt.Printf("  %-20s  %s\n", muted.Sprint(key), accentB.Sprint(value))
+}
+
+// KeyValueHighlight is an alias for KeyValueAccent (backward-compatible).
+func KeyValueHighlight(key, value string) { KeyValueAccent(key, value) }
+
+// Label renders a standalone dimmed label (for group headings in output).
+func Label(text string) {
+	fmt.Printf("  %s\n", mutedB.Sprint(text))
+}
+
+// ListItem renders an indented bullet row with an optional dim annotation.
+func ListItem(text, annotation string) {
+	if annotation != "" {
+		fmt.Printf("    %s  %-36s  %s\n", muted.Sprint("·"), text, muted.Sprint(annotation))
+	} else {
+		fmt.Printf("    %s  %s\n", muted.Sprint("·"), text)
+	}
+}
+
+// NumberedItem renders a numbered list entry for search/symbol results.
+func NumberedItem(n int, primary_, secondary_ string) {
+	fmt.Printf("  %s  %s\n", muted.Sprintf("%3d.", n), accentB.Sprint(primary_))
+	if secondary_ != "" {
+		fmt.Printf("       %s\n", muted.Sprint(secondary_))
+	}
+}
+
+// CodeLine renders an indented source code snippet line with a gutter bar.
+func CodeLine(line string) {
+	fmt.Printf("       %s  %s\n", muted.Sprint("│"), line)
+}
+
+// Kind renders a symbol kind badge — short, bracketed, colored.
+func Kind(k string) string {
+	return kindC.Sprintf("[%s]", k)
+}
+
+// ─── Progress bar ─────────────────────────────────────────────────────────────
+
+// ProgressBar renders a minimal, real-time terminal progress bar.
+// Design: "  Scanning    [████░░░░░░]  47%  (1,234/2,600 files · 8,200/s)"
 type ProgressBar struct {
 	Total          int
 	Current        int
@@ -104,7 +188,7 @@ type ProgressBar struct {
 	LastRenderTime time.Time
 }
 
-// NewProgressBar initializes a new terminal progress bar.
+// NewProgressBar initializes a new ProgressBar.
 func NewProgressBar(total int, title string, unit string) *ProgressBar {
 	if total <= 0 {
 		total = 1
@@ -113,97 +197,139 @@ func NewProgressBar(total int, title string, unit string) *ProgressBar {
 		Total:     total,
 		Title:     title,
 		Unit:      unit,
-		BarLength: 28,
+		BarLength: 22,
 		StartTime: time.Now(),
 	}
 }
 
-// Update increments the progress bar count and refreshes terminal display.
-func (p *ProgressBar) Update(advance int, currentItem string) {
+// Update increments the progress by advance and re-renders (throttled to 40 ms).
+func (p *ProgressBar) Update(advance int, _ string) {
 	p.Current += advance
 	if p.Current > p.Total {
 		p.Current = p.Total
 	}
 	now := time.Now()
-	if now.Sub(p.LastRenderTime) < 30*time.Millisecond && p.Current < p.Total {
+	if now.Sub(p.LastRenderTime) < 40*time.Millisecond && p.Current < p.Total {
 		return
 	}
 	p.LastRenderTime = now
-	p.render(currentItem)
+	p.render()
 }
 
-// SetCurrent sets the current progress count directly.
-func (p *ProgressBar) SetCurrent(current int, currentItem string) {
+// SetCurrent sets the current count directly and re-renders.
+func (p *ProgressBar) SetCurrent(current int, _ string) {
 	p.Current = current
 	if p.Current > p.Total {
 		p.Current = p.Total
 	}
-	p.render(currentItem)
+	p.render()
 }
 
-func (p *ProgressBar) render(currentItem string) {
+func (p *ProgressBar) render() {
 	elapsed := time.Since(p.StartTime).Seconds()
 	if elapsed <= 0 {
 		elapsed = 0.001
 	}
 	frac := float64(p.Current) / float64(p.Total)
-	percent := int(frac * 100)
+	pct := int(frac * 100)
 	filled := int(frac * float64(p.BarLength))
 	if filled > p.BarLength {
 		filled = p.BarLength
 	}
 
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", p.BarLength-filled)
+	bar := accent.Sprint(strings.Repeat("█", filled)) +
+		muted.Sprint(strings.Repeat("░", p.BarLength-filled))
+
 	rate := float64(p.Current) / elapsed
-	
-	dispItem := currentItem
-	if len(dispItem) > 30 {
-		dispItem = "..." + dispItem[len(dispItem)-27:]
-	}
 
-	etaStr := ""
-	if rate > 0 && p.Current < p.Total {
-		eta := float64(p.Total-p.Current) / rate
-		etaStr = fmt.Sprintf(" | ETA: %.1fs", eta)
-	}
-
-	line := fmt.Sprintf("\r%s [%s] %3d%% (%d/%d %s | %.0f %s/s%s) %s",
-		WhiteBold.Sprint(p.Title),
-		Green.Sprint(bar),
-		percent,
-		p.Current,
-		p.Total,
+	// Right side: count and throughput
+	right := muted.Sprintf("(%s/%s %s · %s/s)",
+		commaSep(p.Current),
+		commaSep(p.Total),
 		p.Unit,
-		rate,
-		p.Unit,
-		etaStr,
-		Dim.Sprint(dispItem),
+		commaSep(int(rate)),
 	)
-	if len(line) < 100 {
-		line += strings.Repeat(" ", 100-len(line))
-	}
-	fmt.Print(line[:100])
+
+	line := fmt.Sprintf("\r  %-14s  [%s]  %3d%%  %s",
+		primary.Sprint(p.Title),
+		bar,
+		pct,
+		right,
+	)
+	// Pad to clear previous output then clip
+	padded := line + strings.Repeat(" ", max(0, 100-len(stripANSI(line))))
+	fmt.Print(padded)
 }
 
-// Finish marks the progress bar as 100% complete and moves to a new line.
+// Finish renders the completed bar and moves to the next line.
 func (p *ProgressBar) Finish(message string) {
 	p.Current = p.Total
 	elapsed := time.Since(p.StartTime).Seconds()
 	if elapsed <= 0 {
 		elapsed = 0.001
 	}
-	bar := strings.Repeat("█", p.BarLength)
+	bar := accent.Sprint(strings.Repeat("█", p.BarLength))
 	rate := float64(p.Total) / elapsed
 
-	fmt.Printf("\r%s [%s] 100%% (%d/%d %s in %.2fs | %.0f %s/s) - %s\n",
-		WhiteBold.Sprint(p.Title),
-		Green.Sprint(bar),
-		p.Total,
-		p.Total,
+	right := muted.Sprintf("(%s %s in %.2fs · %s/s)",
+		commaSep(p.Total),
 		p.Unit,
 		elapsed,
-		rate,
-		p.Unit,
-		GreenBold.Sprint(message),
+		commaSep(int(rate)),
+	)
+
+	fmt.Printf("\r  %-14s  [%s]  100%%  %s  %s\n",
+		primary.Sprint(p.Title),
+		bar,
+		right,
+		accentB.Sprint(message),
 	)
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// commaSep formats an integer with comma thousands separators.
+func commaSep(n int) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	var out []byte
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, byte(c))
+	}
+	return string(out)
+}
+
+// stripANSI removes ANSI escape codes for length calculation.
+func stripANSI(s string) string {
+	var out []byte
+	inEsc := false
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if s[i] == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		out = append(out, s[i])
+	}
+	return string(out)
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// Header is an alias for SectionHeader, kept for backward compatibility.
+func Header(title string) { SectionHeader(title) }
