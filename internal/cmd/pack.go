@@ -15,6 +15,26 @@ import (
 	"github.com/recscse/codive/internal/ui"
 )
 
+// enclosingFunctionName finds the nearest function/method declared before the
+// given line within fileSymbols (a single file's symbols), i.e. which function
+// a caller reference line falls inside. Returns "" if none is found.
+func enclosingFunctionName(fileSymbols []db.SymbolRecord, line int) string {
+	var best db.SymbolRecord
+	found := false
+	for _, s := range fileSymbols {
+		if (s.Kind == "function" || s.Kind == "method") && s.LineNumber <= line {
+			if !found || s.LineNumber > best.LineNumber {
+				best = s
+				found = true
+			}
+		}
+	}
+	if !found {
+		return ""
+	}
+	return best.Name
+}
+
 // isASTCapableLanguage reports whether symbols.ExtractSymbols has a real parser
 // for this language. Anything else always falls through to extractGenericSymbols,
 // which returns no symbols, so a skeleton for it is always the empty fallback.
@@ -99,6 +119,65 @@ func PackFeatureContext(ctx context.Context, database *sql.DB, rootDir string, t
 			}
 			sb.WriteString(fmt.Sprintf("- `[%s]` **%s** (`%s:%d`)\n  `%s`\n",
 				s.Kind, s.Name, s.FilePath, s.LineNumber, s.Signature))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Section B.5: Call relationships for the top callable matches — who calls
+	// them and what they call, in this same response, instead of requiring
+	// separate refs/find_callees follow-up commands to build the same picture.
+	var relSyms []db.SymbolRecord
+	for _, s := range syms {
+		if s.Kind == "function" || s.Kind == "method" {
+			relSyms = append(relSyms, s)
+			if len(relSyms) >= 5 {
+				break
+			}
+		}
+	}
+	if len(relSyms) > 0 {
+		allSymbolsForRel, _ := db.GetAllSymbols(ctx, database)
+		symbolsByFile := make(map[string][]db.SymbolRecord)
+		for _, s := range allSymbolsForRel {
+			symbolsByFile[s.FilePath] = append(symbolsByFile[s.FilePath], s)
+		}
+
+		sb.WriteString("## Call Relationships\n")
+		for _, s := range relSyms {
+			callers, _ := db.FindCallers(ctx, database, s.Name, 6)
+			callees, _ := db.FindCallees(ctx, database, s.Name)
+
+			sb.WriteString(fmt.Sprintf("- **%s** (`%s:%d`)\n", s.Name, s.FilePath, s.LineNumber))
+
+			if len(callers) > 0 {
+				seen := make(map[string]bool)
+				var names []string
+				for _, c := range callers {
+					label := enclosingFunctionName(symbolsByFile[c.FilePath], c.LineNumber)
+					if label == "" {
+						label = fmt.Sprintf("%s:%d", c.FilePath, c.LineNumber)
+					}
+					if !seen[label] {
+						seen[label] = true
+						names = append(names, label)
+					}
+				}
+				sb.WriteString(fmt.Sprintf("  - Called from: %s\n", strings.Join(names, ", ")))
+			} else {
+				sb.WriteString("  - Called from: (no callers found in indexed code — may be an entry point or unused)\n")
+			}
+
+			if len(callees) > 0 {
+				names := make([]string, 0, len(callees))
+				for i, c := range callees {
+					if i >= 8 {
+						names = append(names, fmt.Sprintf("+%d more", len(callees)-8))
+						break
+					}
+					names = append(names, c.Name)
+				}
+				sb.WriteString(fmt.Sprintf("  - Calls: %s\n", strings.Join(names, ", ")))
+			}
 		}
 		sb.WriteString("\n")
 	}

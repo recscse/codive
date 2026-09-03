@@ -699,6 +699,56 @@ type ReferenceResult struct {
 	Snippet    string `json:"snippet"`
 }
 
+// FindCallers narrows FindReferences down to genuine call sites: it excludes the
+// symbol's own declaration (using the exact AST-derived location from the symbols
+// table, not a text-pattern guess, so this is precise across every supported
+// language), excludes comment lines, and keeps only lines that look like an actual
+// call expression (`symbol(`, optionally qualified by a receiver/package prefix).
+func FindCallers(ctx context.Context, database *sql.DB, symbol string, limit int) ([]ReferenceResult, error) {
+	if limit <= 0 {
+		limit = 30
+	}
+
+	declSyms, err := FindSymbols(ctx, database, symbol)
+	if err != nil {
+		return nil, err
+	}
+	declSites := make(map[string]bool)
+	for _, s := range declSyms {
+		if s.Name == symbol {
+			declSites[fmt.Sprintf("%s:%d", s.FilePath, s.LineNumber)] = true
+		}
+	}
+
+	// Over-fetch from the broader reference search since most of what it finds
+	// (imports, comments, type references, the declaration itself) isn't a call.
+	refs, err := FindReferences(ctx, database, symbol, limit*4)
+	if err != nil {
+		return nil, err
+	}
+
+	callPattern := symbol + "("
+	var callers []ReferenceResult
+	for _, r := range refs {
+		if declSites[fmt.Sprintf("%s:%d", r.FilePath, r.LineNumber)] {
+			continue
+		}
+		trimmed := strings.TrimSpace(r.Snippet)
+		if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") ||
+			strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "/*") {
+			continue
+		}
+		if !strings.Contains(r.Snippet, callPattern) {
+			continue
+		}
+		callers = append(callers, r)
+		if len(callers) >= limit {
+			break
+		}
+	}
+	return callers, nil
+}
+
 // FindReferences scans indexed file contents to locate call sites, imports, and usages of a symbol.
 func FindReferences(ctx context.Context, database *sql.DB, symbol string, limit int) ([]ReferenceResult, error) {
 	if limit <= 0 {
