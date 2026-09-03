@@ -1,4 +1,4 @@
-name: Release devctx Binaries
+name: Release codive Binaries
 
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.27'
           check-latest: true
 
       - name: Build Binary
@@ -53,7 +53,7 @@ jobs:
           CGO_ENABLED: 0
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          OUTPUT_NAME="devctx${{ matrix.ext }}"
+          OUTPUT_NAME="codive${{ matrix.ext }}"
           go build -ldflags="-s -w -X main.Version=${TAG_NAME} -X main.GitCommit=${{ github.sha }} -X main.BuildDate=$(date -u +%Y-%m-%d)" -o dist/${OUTPUT_NAME} .
 
       - name: Package Binary (Windows Zip)
@@ -61,7 +61,7 @@ jobs:
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
           cd dist
-          zip -j "devctx_${TAG_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}.zip" devctx.exe
+          zip -j "codive_${TAG_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}.zip" codive.exe
           cd ..
 
       - name: Package Binary (Unix Tar.gz)
@@ -69,7 +69,7 @@ jobs:
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
           cd dist
-          tar -czvf "devctx_${TAG_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz" devctx
+          tar -czvf "codive_${TAG_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz" codive
           cd ..
 
       - name: Upload Release Assets

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Durable AI Agent Memory: Recording Architectural Decisions in SQLite | codive Blog</title>
+  <meta name="description" content="How codive's save_decision and get_decisions tools give AI coding agents persistent memory across sessions, and how decisions get auto-recalled into other tool responses.">
+  <meta name="keywords" content="AI agent memory, architectural decisions, SQLite, MCP tool, save_decision, codive">
+  <meta name="author" content="Brijesh Yadav">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://recscse.github.io/codive/blog/durable-ai-agent-memory.html">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://recscse.github.io/codive/blog/durable-ai-agent-memory.html">
+  <meta property="og:title" content="Durable AI Agent Memory: Recording Architectural Decisions in SQLite">
+  <meta property="og:description" content="How codive's save_decision and get_decisions tools give AI coding agents persistent memory across sessions.">
+  <meta property="og:image" content="https://recscse.github.io/codive/favicon.svg">
+  <meta property="article:published_time" content="2026-09-01">
+  <meta property="article:author" content="Brijesh Yadav">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Durable AI Agent Memory: Recording Architectural Decisions in SQLite">
+  <meta name="twitter:description" content="How codive's save_decision and get_decisions tools give AI coding agents persistent memory across sessions.">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org", "@type": "BlogPosting",
+    "headline": "Durable AI Agent Memory: Recording Architectural Decisions in SQLite",
+    "datePublished": "2026-09-01",
+    "author": { "@type": "Person", "name": "Brijesh Yadav", "url": "https://recscse.github.io" },
+    "publisher": { "@type": "Organization", "name": "codive" },
+    "mainEntityOfPage": "https://recscse.github.io/codive/blog/durable-ai-agent-memory.html"
+  }
+  </script>
+
+  <link rel="icon" type="image/svg+xml" href="../favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <style>
+    :root { --bg: #06070b; --surface: #0b0e17; --surface-border: rgba(255,255,255,0.08); --accent: #20c20e; --accent-glow: rgba(32,194,14,0.25); --accent-dim: rgba(32,194,14,0.08); --text: #94a3b8; --text-muted: #64748b; --text-bright: #ffffff; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { background: var(--bg); color: var(--text); font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; min-height: 100vh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+    .glow-aura-1 { position: absolute; top: -200px; left: 50%; transform: translateX(-50%); width: 900px; height: 700px; background: radial-gradient(circle, rgba(32,194,14,0.1) 0%, transparent 70%); pointer-events: none; z-index: 0; }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; border-bottom: 1px solid var(--surface-border); background: rgba(6,7,11,0.85); backdrop-filter: blur(20px); }
+    .nav-container { max-width: 1240px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; position: relative; }
+    .logo-brand { font-family: 'Fira Code', monospace; font-size: 22px; font-weight: 800; color: var(--text-bright); text-decoration: none; }
+    .logo-brand span { color: var(--accent); }
+    .nav-center-links { position: absolute; left: 50%; transform: translateX(-50%); display: flex; gap: 32px; }
+    @media (max-width: 860px) { .nav-center-links { display: none; } }
+    .nav-link { font-size: 14px; font-weight: 600; color: var(--text); text-decoration: none; }
+    .nav-link:hover, .nav-link.active { color: var(--text-bright); }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+    .btn-gh-badge { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--surface-border); background: rgba(255,255,255,0.03); color: #cbd5e1; font-size: 13px; font-family: 'Fira Code', monospace; text-decoration: none; transition: all 0.2s; }
+    .btn-gh-badge:hover { border-color: rgba(32,194,14,0.4); background: var(--accent-dim); color: var(--text-bright); }
+    .btn-nav-cta { background: var(--accent); color: #000; font-weight: 800; font-size: 13px; padding: 8px 18px; border-radius: 6px; text-decoration: none; }
+    .article-page { max-width: 760px; margin: 128px auto 60px; padding: 0 24px; position: relative; z-index: 1; flex: 1; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); text-decoration: none; font-size: 13.5px; font-weight: 600; margin-bottom: 32px; }
+    .back-link:hover { color: var(--accent); }
+    .tag-badge { font-family: 'Fira Code', monospace; font-size: 11.5px; color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(32,194,14,0.25); padding: 4px 10px; border-radius: 20px; display: inline-block; margin-bottom: 18px; letter-spacing: 0.06em; text-transform: uppercase; }
+    .prose { font-size: 16px; line-height: 1.8; color: #cbd5e1; }
+    .prose h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 900; color: var(--text-bright); margin-bottom: 14px; line-height: 1.15; letter-spacing: -0.02em; }
+    .byline { font-size: 13.5px; color: var(--text-muted); margin-bottom: 36px; padding-bottom: 24px; border-bottom: 1px solid var(--surface-border); }
+    .prose h2 { font-size: 22px; font-weight: 800; color: var(--text-bright); margin: 40px 0 16px; border-bottom: 1px solid var(--surface-border); padding-bottom: 8px; }
+    .prose h3 { font-size: 17px; font-weight: 700; color: var(--accent); margin: 28px 0 12px; font-family: 'Fira Code', monospace; }
+    .prose p { margin-bottom: 20px; }
+    .prose ul, .prose ol { margin-left: 24px; margin-bottom: 20px; }
+    .prose li { margin-bottom: 8px; }
+    .prose code { font-family: 'Fira Code', monospace; font-size: 0.88em; color: #7dd3fc; background: rgba(125,211,252,0.08); padding: 1px 5px; border-radius: 4px; }
+    .prose pre { background: #06080d; border: 1px solid var(--surface-border); border-radius: 8px; padding: 16px 20px; font-family: 'Fira Code', monospace; font-size: 12.5px; color: #38bdf8; overflow-x: auto; margin: 20px 0 24px; line-height: 1.6; }
+    .prose pre code { background: none; padding: 0; color: inherit; }
+    .callout { background: var(--accent-dim); border: 1px solid rgba(32,194,14,0.3); border-left: 3px solid var(--accent); border-radius: 8px; padding: 16px 20px; margin: 24px 0; font-size: 14.5px; color: #d1fae5; }
+    .article-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--surface-border); }
+    .article-nav a { display: block; background: var(--surface); border: 1px solid var(--surface-border); border-radius: 10px; padding: 16px 18px; text-decoration: none; color: var(--text); transition: border-color 0.2s; }
+    .article-nav a:hover { border-color: rgba(32,194,14,0.4); }
+    .article-nav .dir { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 4px; }
+    .article-nav .title { font-size: 14px; font-weight: 700; color: var(--text-bright); }
+    .article-nav .right { text-align: right; }
+    footer { border-top: 1px solid var(--surface-border); padding: 56px 24px; text-align: center; font-size: 14px; color: var(--text-muted); margin-top: auto; }
+    footer a { color: var(--text-bright); text-decoration: none; font-weight: 600; }
+    footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="glow-aura-1"></div>
+  <nav>
+    <div class="nav-container">
+      <a href="../index.html" class="logo-brand">codive<span>_</span></a>
+      <div class="nav-center-links">
+        <a href="../index.html" class="nav-link">Home</a>
+        <a href="../docs.html" class="nav-link">Docs</a>
+        <a href="../blog.html" class="nav-link active">Blog</a>
+      </div>
+      <div class="nav-actions">
+        <a href="https://github.com/recscse/codive" target="_blank" class="btn-gh-badge">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span>codive</span>
+        </a>
+        <a href="../index.html#install" class="btn-nav-cta">Get started</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="article-page">
+    <a href="../blog.html" class="back-link">&larr; Back to Blog</a>
+    <article class="prose">
+      <div class="tag-badge">Agent Memory</div>
+      <h1>Durable AI Agent Memory: Recording Architectural Decisions in SQLite</h1>
+      <div class="byline">Published September 1, 2026 &middot; By Brijesh Yadav &middot; 5 min read</div>
+
+      <p>Every new AI coding session starts from zero. An agent that spent an hour last week establishing "this service uses PgBouncer in transaction mode, so prepared statements must stay disabled" has no memory of that fact today &mdash; unless something outside the model's own context window recorded it. That's what <code>save_decision</code> and <code>get_decisions</code> are for.</p>
+
+      <h2>The Mechanism Is Deliberately Simple</h2>
+      <p>A decision is just two required fields &mdash; a <code>topic</code> and a <code>summary</code> &mdash; written into a <code>decisions</code> table in the same <code>.codive/index.db</code> SQLite file everything else lives in:</p>
+      <pre>codive:save_decision(
+    topic="database",
+    summary="PgBouncer runs in transaction pool mode; prepared statements must stay disabled."
+)
+&rarr; ✓ Recorded architectural decision for [database]: PgBouncer runs in
+   transaction pool mode; prepared statements must stay disabled. (ID: 14)</pre>
+      <p>No categorization scheme, no required schema beyond a topic label &mdash; the tool description is intentionally aimed at "tricky bug root causes and design invariants," and it's the agent (or the developer) that decides what's worth writing down. Retrieval is the same shape in reverse: <code>get_decisions(topic="database")</code> returns every stored decision whose topic matches, newest information available to any session that queries it, indexed since it's a normal SQLite row.</p>
+
+      <h2>Auto-Recall: Decisions Show Up Without Being Asked For</h2>
+      <p>The more interesting behavior is that an agent doesn't have to remember to call <code>get_decisions</code> at all. <code>find_symbol</code> and <code>get_file_skeleton</code> both auto-recall any decision whose topic matches the current query or filename, and inject it directly into their response before the actual results:</p>
+      <pre>### Symbol Matches for `PaymentService` (Found: 3)
+
+📌 Architectural Constraints (auto-recalled)
+- [database] PgBouncer runs in transaction pool mode; prepared
+  statements must stay disabled. (recorded 2026-08-14)
+
+---
+
+1. [Type Definition] `PaymentService`
+   - File: internal/payment/service.go (L22)
+   ...</pre>
+      <p>For <code>find_symbol</code>, the match is against the search query itself. For <code>get_file_skeleton</code>, it's matched against the filename with its extension stripped &mdash; so opening <code>service.go</code> after a decision was recorded under topic <code>service</code> surfaces it automatically. <code>pack_feature_context</code> does the same thing for whatever topic keyword it was given, meaning a single feature-discovery call can return both the code <em>and</em> the constraints a previous session already worked out about that code.</p>
+
+      <h2>Why This Beats Putting It in a Comment</h2>
+      <p>A code comment documenting an invariant only surfaces to an agent that happens to read that exact file. A decision recorded via <code>save_decision</code> surfaces proactively, attached to every symbol search, file skeleton, and feature pack that touches the matching topic &mdash; without the agent needing to know in advance that the constraint exists.</p>
+
+      <div class="callout"><strong>Practical use:</strong> <code>codive decisions [topic]</code> from the CLI lets a human audit what an AI agent has recorded during a session &mdash; useful both to catch a wrong assumption early and to see, in one place, every invariant your agents have independently discovered about the codebase over time.</div>
+    </article>
+
+    <div class="article-nav">
+      <a href="parallel-goroutine-indexing.html">
+        <div class="dir">Previous</div>
+        <div class="title">&larr; Parallel Goroutine Indexing</div>
+      </a>
+      <div></div>
+    </div>
+  </main>
+
+  <footer>
+    <p>codive is open-source under the MIT License &middot; Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a> &middot; <a href="https://github.com/recscse/codive" target="_blank">GitHub</a> &middot; <a href="../docs.html">Docs</a> &middot; <a href="../blog.html">Blog</a></p>
+  </footer>
+</body>
+</html>

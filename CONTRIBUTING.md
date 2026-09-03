@@ -1,26 +1,26 @@
-# Contributing to `devctx`
+# Contributing to `codive`
 
-Thank you for your interest in contributing to `devctx`! We welcome contributions of all kinds: new language AST parsers, MCP tools, bug reports, performance optimizations, and documentation improvements.
+Thank you for your interest in contributing to `codive`! We welcome contributions of all kinds: new language AST parsers, MCP tools, bug reports, performance optimizations, and documentation improvements.
 
 ---
 
 ## 🛠️ Development Setup
 
 ### Prerequisites
-- **Go 1.21+**: [golang.org/dl](https://golang.org/dl)
+- **Go 1.27+**: [golang.org/dl](https://golang.org/dl)
 - **Git**: [git-scm.com](https://git-scm.com)
 
 ### 1. Clone & Build
 ```bash
 # Clone the repository
-git clone https://github.com/recscse/devctx.git
-cd devctx
+git clone https://github.com/recscse/codive.git
+cd codive
 
 # Download dependencies
 go mod download
 
 # Build the local binary
-go build -o devctx .
+go build -o codive .
 ```
 
 ### 2. Run Tests
@@ -37,7 +37,7 @@ go vet ./...
 
 ## 🧩 Adding a New Language AST Parser
 
-`devctx` is designed to be easily extensible to new programming languages:
+`codive` is designed to be easily extensible to new programming languages:
 1. Navigate to `internal/symbols/`.
 2. Implement your language symbol extractor (e.g. `ExtractJavaSymbols` or `ExtractCSharpSymbols`).
 3. Add the language mapping to `internal/scanner/scanner.go` in `DetectLanguage()`.
@@ -73,4 +73,4 @@ To expose a new MCP tool to AI agents:
 ---
 
 ## 📄 License
-By contributing to `devctx`, you agree that your contributions will be licensed under the project's [MIT License](LICENSE).
+By contributing to `codive`, you agree that your contributions will be licensed under the project's [MIT License](LICENSE).

@@ -3,35 +3,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>devctx — Developer Context Engine for AI Coding Agents</title>
-  <meta name="description" content="Stop letting AI coding agents burn millions of tokens on raw grep. devctx indexes AST symbols into local SQLite (WAL mode) and delivers exact code context in <2ms via MCP, CLI, and API.">
-  <meta name="keywords" content="devctx, AST context engine, MCP server, model context protocol, AI coding assistant, Claude Code, Cursor IDE, Antigravity, SQLite WAL, token optimizer">
+  <title>codive — Developer Context Engine for AI Coding Agents</title>
+  <meta name="description" content="Stop letting AI coding agents burn millions of tokens on raw grep. codive indexes AST symbols into local SQLite (WAL mode) and delivers exact code context in <2ms via MCP or the CLI.">
+  <meta name="keywords" content="codive, AST context engine, MCP server, model context protocol, AI coding assistant, Claude Code, Cursor IDE, Antigravity, SQLite WAL, token optimizer">
   <meta name="author" content="Brijesh Yadav">
   <meta name="robots" content="index, follow">
   <meta name="theme-color" content="#06070b">
-  <link rel="canonical" href="https://recscse.github.io/devctx/">
+  <link rel="canonical" href="https://recscse.github.io/codive/">
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://recscse.github.io/devctx/">
-  <meta property="og:title" content="devctx — Developer Context Engine for AI Coding Agents">
+  <meta property="og:url" content="https://recscse.github.io/codive/">
+  <meta property="og:title" content="codive — Developer Context Engine for AI Coding Agents">
   <meta property="og:description" content="Stop letting AI coding agents burn millions of tokens on raw grep. 95% token reduction with sub-millisecond AST symbol search and MCP integration.">
-  <meta property="og:image" content="https://recscse.github.io/devctx/favicon.svg">
-  <meta property="og:site_name" content="devctx">
+  <meta property="og:image" content="https://recscse.github.io/codive/favicon.svg">
+  <meta property="og:site_name" content="codive">
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="https://recscse.github.io/devctx/">
-  <meta name="twitter:title" content="devctx — Developer Context Engine for AI Coding Agents">
+  <meta name="twitter:url" content="https://recscse.github.io/codive/">
+  <meta name="twitter:title" content="codive — Developer Context Engine for AI Coding Agents">
   <meta name="twitter:description" content="Stop letting AI coding agents burn millions of tokens on raw grep. 95% token reduction with sub-millisecond AST symbol search and MCP integration.">
-  <meta name="twitter:image" content="https://recscse.github.io/devctx/favicon.svg">
+  <meta name="twitter:image" content="https://recscse.github.io/codive/favicon.svg">
 
   <!-- JSON-LD Structured Data -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    "name": "devctx",
+    "name": "codive",
     "headline": "Developer Context Engine for AI Coding Agents",
     "description": "Local-first AST code context engine for AI coding assistants via MCP.",
     "applicationCategory": "DeveloperApplication",
@@ -46,8 +46,8 @@
       "price": "0",
       "priceCurrency": "USD"
     },
-    "url": "https://recscse.github.io/devctx/",
-    "downloadUrl": "https://github.com/recscse/devctx/releases",
+    "url": "https://recscse.github.io/codive/",
+    "downloadUrl": "https://github.com/recscse/codive/releases",
     "softwareVersion": "1.0.0"
   }
   </script>
@@ -394,6 +394,7 @@
     }
     .section-tag {
       font-family: 'Fira Code', monospace;
+      font-weight: 500;
       font-size: 13px;
       color: var(--accent);
       letter-spacing: 0.15em;
@@ -525,7 +526,7 @@
   <nav>
     <div class="nav-container">
       <a href="index.html" class="logo-brand">
-        devctx<span>_</span>
+        codive<span>_</span>
       </a>
 
       <div class="nav-center-links">
@@ -535,12 +536,13 @@
         <a href="#how-it-works" class="nav-link">How it Works</a>
         <a href="#features" class="nav-link">Features</a>
         <a href="#calculator" class="nav-link">Calculator</a>
+        <a href="#about" class="nav-link">About</a>
       </div>
 
       <div class="nav-actions">
-        <a href="https://github.com/recscse/devctx" target="_blank" class="btn-gh-badge">
+        <a href="https://github.com/recscse/codive" target="_blank" class="btn-gh-badge">
           <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-          <span>devctx</span>
+          <span>codive</span>
         </a>
         <a href="#install" class="btn-nav-cta">Get started</a>
       </div>
@@ -551,15 +553,15 @@
   <header class="hero-section">
     <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
       <div class="hero-tag" style="margin-bottom: 0;">⚡ Developer Context Engine for AI Agents</div>
-      <a href="https://github.com/recscse/devctx/releases" target="_blank" style="text-decoration: none;">
-        <img src="https://img.shields.io/github/downloads/recscse/devctx/total?style=flat-square&color=20c20e&label=Downloads" alt="Release Downloads" height="26" style="vertical-align: middle; border-radius: 4px;" />
+      <a href="https://github.com/recscse/codive/releases" target="_blank" style="text-decoration: none;">
+        <img src="https://img.shields.io/github/downloads/recscse/codive/total?style=flat-square&color=20c20e&label=Downloads" alt="Release Downloads" height="26" style="vertical-align: middle; border-radius: 4px;" />
       </a>
     </div>
     <h1 class="hero-title">
       Your code,<br>any AI agent
     </h1>
     <p class="hero-subtitle">
-      Stop letting AI coding agents burn millions of tokens on raw grep. <code>devctx</code> indexes AST symbols into local SQLite and makes it searchable in &lt;2ms via MCP, CLI, or API.
+      Stop letting AI coding agents burn millions of tokens on raw grep. <code>codive</code> indexes AST symbols into local SQLite and makes it searchable in &lt;2ms via MCP or the CLI.
     </p>
 
     <div class="hero-buttons">
@@ -584,18 +586,18 @@
       <!-- Tab 0: 1-Liner -->
       <div class="tab-panel" id="panel-0">
 <span style="color: #64748b;"># macOS & Linux (curl)</span>
-<span style="color: #20c20e;">curl</span> -fsSL https://recscse.github.io/devctx/install.sh | bash && devctx setup
+<span style="color: #20c20e;">curl</span> -fsSL https://recscse.github.io/codive/install.sh | bash && codive setup
 
 <span style="color: #64748b;"># Windows (PowerShell)</span>
-<span style="color: #20c20e;">irm</span> https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
+<span style="color: #20c20e;">irm</span> https://recscse.github.io/codive/install.ps1 | iex; codive setup
 
 <span style="color: #64748b;"># Windows (Command Prompt / CMD via curl)</span>
-<span style="color: #20c20e;">curl</span> -fsSL https://recscse.github.io/devctx/install.cmd -o install.cmd && install.cmd && del install.cmd
+<span style="color: #20c20e;">curl</span> -fsSL https://recscse.github.io/codive/install.cmd -o install.cmd && install.cmd && del install.cmd
       </div>
 
       <!-- Tab 1: CLI -->
       <div class="tab-panel hidden" id="panel-1">
-<span style="color: #64748b;">$</span> devctx search "PaymentProcessor"
+<span style="color: #64748b;">$</span> codive search "PaymentProcessor"
 <span style="color: #20c20e;">✓ Found 4 symbols in 1.4ms:</span>
   1. PaymentProcessor <span style="color: #64748b;">(struct, internal/payment/processor.go:L14)</span>
   2. NewProcessor <span style="color: #64748b;">(func, internal/payment/processor.go:L28)</span>
@@ -606,8 +608,8 @@
       <div class="tab-panel hidden" id="panel-2">
 {
   <span style="color: #38bdf8;">"mcpServers"</span>: {
-    <span style="color: #38bdf8;">"devctx"</span>: {
-      <span style="color: #38bdf8;">"command"</span>: <span style="color: #20c20e;">"devctx"</span>,
+    <span style="color: #38bdf8;">"codive"</span>: {
+      <span style="color: #38bdf8;">"command"</span>: <span style="color: #20c20e;">"codive"</span>,
       <span style="color: #38bdf8;">"args"</span>: [<span style="color: #20c20e;">"serve"</span>]
     }
   }
@@ -617,11 +619,11 @@
       <!-- Tab 3: Feature Packing -->
       <div class="tab-panel hidden" id="panel-3">
 <span style="color: #64748b;"># Pack complete feature context in 1 single turn (240 tokens vs 8,000)</span>
-<span style="color: #20c20e;">devctx</span> pack auth --json
+<span style="color: #20c20e;">codive</span> pack auth --json
       </div>
 
       <div class="code-tabs-footer">
-        ⚡ Works autonomously with Claude Code, Cursor, Windsurf, & Google Antigravity.
+        ⚡ Works autonomously with Claude Code, Cursor, Windsurf, Google Antigravity, & VS Code.
       </div>
     </div>
   </header>
@@ -640,12 +642,12 @@
 
   <!-- How It Works Flow -->
   <section class="section-container" id="how-it-works">
-    <div class="section-tag">how it works</div>
+    <h2 class="section-tag">how it works</h2>
 
     <div class="flow-diagram">
       <div class="flow-card">
         <h4>Your Codebase</h4>
-        <p>Go, TypeScript, Python, Rust</p>
+        <p>Go, TS/JS, Python, Java, C#, Rust</p>
         <div style="margin-top: 10px; font-size: 12px; color: #64748b;">Files & AST definitions</div>
       </div>
 
@@ -654,7 +656,7 @@
       </div>
 
       <div class="flow-card accent-card">
-        <h4 style="color: var(--accent); font-family: 'Fira Code', monospace; font-size: 20px;">devctx_</h4>
+        <h4 style="color: var(--accent); font-family: 'Fira Code', monospace; font-size: 20px;">codive_</h4>
         <p>Parse. Skeletonize. Graph. Index.</p>
         <div style="margin-top: 8px; font-size: 12px; color: #20c20e;">Local SQLite WAL • &lt;2ms</div>
       </div>
@@ -673,18 +675,18 @@
 
   <!-- Four Core Capabilities Bento Grid -->
   <section class="section-container" id="features">
-    <div class="section-tag">four core capabilities</div>
+    <h2 class="section-tag">six core capabilities</h2>
 
     <div class="bento-grid">
       <!-- 1. MCP -->
       <div class="bento-card">
         <div>
           <h3 class="bento-title"><span>mcp</span> / for agents</h3>
-          <p class="bento-desc">Any MCP-compatible assistant calls devctx natively to discover symbols, call graphs, and test suites in 1 turn.</p>
+          <p class="bento-desc">Any MCP-compatible assistant calls codive natively to discover symbols, call graphs, and test suites in 1 turn.</p>
         </div>
         <div class="bento-mock">
           <span style="color: #64748b;">// 1-turn feature context bundle</span><br>
-          mcp:pack_feature_context("billing") ➔ 240 tokens
+          codive:pack_feature_context(topic="billing") ➔ 240 tokens
         </div>
       </div>
 
@@ -692,7 +694,7 @@
       <div class="bento-card">
         <div>
           <h3 class="bento-title"><span>ast</span> / skeletonizer</h3>
-          <p class="bento-desc">Strips function bodies into line stubs, compressing 2,000-line files (5,000 tokens) into 50-token outlines.</p>
+          <p class="bento-desc">Strips function bodies into line stubs, compressing a 1,200-line file (~6,500 tokens) into a ~120-token outline.</p>
         </div>
         <div class="bento-mock">
           func ProcessPayment(...) { <span style="color: #38bdf8;">/* L45-L92 */</span> }
@@ -706,7 +708,7 @@
           <p class="bento-desc">Answers "If I refactor this symbol, what will break?" by tracing upstream callers and test suites.</p>
         </div>
         <div class="bento-mock">
-          ⚠️ HIGH IMPACT: 14 callers across 5 files
+          💥 Risk Level: HIGH (14 direct callers across 5 files)
         </div>
       </div>
 
@@ -717,7 +719,7 @@
           <p class="bento-desc">Allows AI agents to store architectural invariants in SQLite so future sessions never repeat mistakes.</p>
         </div>
         <div class="bento-mock">
-          ✓ Stored: "PgBouncer transaction mode; prepared statements disabled"
+          ✓ Recorded [database]: PgBouncer transaction mode; prepared statements disabled.
         </div>
       </div>
 
@@ -725,7 +727,7 @@
       <div class="bento-card">
         <div>
           <h3 class="bento-title"><span>sync</span> / zero maintenance</h3>
-          <p class="bento-desc">Micro-parses dirty files on-the-fly in &lt;1ms on every AI tool call. Auto-syncs on git commit/pull.</p>
+          <p class="bento-desc">Micro-parses dirty files on-the-fly in milliseconds on every AI tool call. Auto-syncs on every commit &amp; branch switch via git hooks.</p>
         </div>
         <div class="bento-mock">
           ⚡ Auto-synced modified file in 0.8ms
@@ -736,10 +738,10 @@
       <div class="bento-card">
         <div>
           <h3 class="bento-title"><span>wipe</span> / instant reset</h3>
-          <p class="bento-desc">Wipe and rebuild the entire SQLite index anytime with <code>devctx reindex</code>. 100% local, zero cloud telemetry.</p>
+          <p class="bento-desc">Wipe and rebuild the entire SQLite index anytime with <code>codive reindex</code>. 100% local, zero cloud telemetry.</p>
         </div>
         <div class="bento-mock">
-          $ devctx reindex ➔ Clean SQLite rebuilt
+          $ codive reindex ➔ Clean SQLite rebuilt
         </div>
       </div>
     </div>
@@ -747,12 +749,12 @@
 
   <!-- ROI Calculator -->
   <section class="section-container" id="calculator">
-    <div class="section-tag">token & cost savings calculator</div>
+    <h2 class="section-tag">token & cost savings calculator</h2>
 
     <div class="calc-card">
       <div>
         <h3 style="font-size: 22px; color: var(--text-bright); margin-bottom: 8px;">Estimate Your Team's Monthly Savings</h3>
-        <p style="font-size: 14.5px; color: var(--text-muted); margin-bottom: 24px;">Based on Claude 3.5 Sonnet / GPT-4o input pricing ($3.00 per 1M tokens).</p>
+        <p style="font-size: 14.5px; color: var(--text-muted); margin-bottom: 24px;">Based on typical frontier-model input pricing (~$3.00 per 1M tokens).</p>
 
         <div class="slider-row">
           <div class="slider-label">
@@ -773,31 +775,32 @@
 
       <div class="stat-box">
         <div style="font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">ANNUAL CLOUD AI SAVINGS</div>
-        <div class="stat-val" id="savingsDollars">$3,456</div>
-        <div style="font-size: 14px; font-weight: 600; color: var(--accent);">⚡ ~1.15 Billion Tokens Saved / Year</div>
+        <div class="stat-val" id="savingsDollars">$0</div>
+        <div style="font-size: 14px; font-weight: 600; color: var(--accent);">⚡ <span id="savingsTokens">0</span> Tokens Saved / Year</div>
+        <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 10px; line-height: 1.5;">Assumes ~6,380 tokens saved per AI turn (6,500 raw file read vs. 120 via <code>get_file_skeleton</code>) across 250 working days/year.</div>
       </div>
     </div>
   </section>
 
   <!-- About Section -->
   <section class="section-container" id="about">
-    <div class="section-tag">about devctx</div>
+    <h2 class="section-tag">about codive</h2>
     <div style="background: var(--surface); border: 1px solid var(--surface-border); border-radius: 16px; padding: 40px; text-align: left; max-width: 840px; margin: 0 auto;">
       <h3 style="font-size: 22px; color: var(--text-bright); margin-bottom: 12px;">Local-First Code Context for the AI Era</h3>
       <p style="font-size: 15px; color: var(--text); line-height: 1.7; margin-bottom: 20px;">
-        <code>devctx</code> was built to solve the compound token explosion problem in modern AI coding agents. By indexing your local AST into embedded SQLite (WAL mode), it eliminates noisy grep sweeps and delivers sub-millisecond symbol lookups, function skeletons, and PR blast radius protection.
+        <code>codive</code> was built to solve the compound token explosion problem in modern AI coding agents. By indexing your local AST into embedded SQLite (WAL mode), it eliminates noisy grep sweeps and delivers sub-millisecond symbol lookups, function skeletons, and PR blast radius protection.
       </p>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; font-family: 'Fira Code', monospace; font-size: 13px; color: #7dd3fc; border-top: 1px solid var(--surface-border); padding-top: 20px;">
         <div>👤 Author: <a href="https://recscse.github.io" target="_blank" style="color: var(--accent); text-decoration: none;">Brijesh Yadav</a></div>
         <div>📜 License: <span style="color: var(--text-bright);">MIT License</span></div>
-        <div>📦 Upgrade: <code style="color: var(--accent);">devctx upgrade</code></div>
+        <div>📦 Upgrade: <code style="color: var(--accent);">codive upgrade</code></div>
       </div>
     </div>
   </section>
 
   <!-- Footer -->
   <footer>
-    <p>devctx is open-source under the MIT License • Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a> • <a href="https://github.com/recscse/devctx" target="_blank">GitHub</a> • <a href="docs.html">Docs</a> • <a href="blog.html">Blog</a></p>
+    <p>codive is open-source under the MIT License • Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a> • <a href="https://github.com/recscse/codive" target="_blank">GitHub</a> • <a href="docs.html">Docs</a> • <a href="blog.html">Blog</a></p>
   </footer>
 
   <script>
@@ -818,16 +821,26 @@
       });
     }
 
+    // Grounded in the benchmark quoted throughout this site: reading a 1,200-line
+    // file costs ~6,500 tokens raw vs. ~120 tokens via get_file_skeleton (~6,380 saved/turn).
+    const TOKENS_SAVED_PER_TURN = 6380;
+    const WORKING_DAYS_PER_YEAR = 250;
+    const PRICE_PER_MILLION_TOKENS = 3.00; // Claude Sonnet / GPT-4o-class input pricing
+
     function calculateSavings() {
       const devs = parseInt(document.getElementById('devs').value);
       const turns = parseInt(document.getElementById('turns').value);
       document.getElementById('devVal').textContent = devs + (devs === 1 ? ' dev' : ' devs');
       document.getElementById('turnsVal').textContent = turns + ' turns';
 
-      const totalTokens = devs * turns * 3200 * 240;
-      const dollars = (totalTokens / 1000000) * 3.00;
+      const totalTokens = devs * turns * WORKING_DAYS_PER_YEAR * TOKENS_SAVED_PER_TURN;
+      const dollars = (totalTokens / 1000000) * PRICE_PER_MILLION_TOKENS;
       document.getElementById('savingsDollars').textContent = '$' + Math.round(dollars).toLocaleString();
+      document.getElementById('savingsTokens').textContent =
+        (totalTokens / 1000000000).toFixed(2) + 'B';
     }
+
+    calculateSavings();
   </script>
 </body>
 </html>

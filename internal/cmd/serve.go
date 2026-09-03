@@ -1,4 +1,4 @@
-// Package cmd implements the command line actions and subcommands for ctxd.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
@@ -10,20 +10,20 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/mcp"
-	"github.com/recscse/devctx/internal/scanner"
-	"github.com/recscse/devctx/internal/symbols"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/mcp"
+	"github.com/recscse/codive/internal/scanner"
+	"github.com/recscse/codive/internal/symbols"
 )
 
 // RunServe starts the MCP (Model Context Protocol) JSON-RPC server over standard I/O with background auto-sync.
-func RunServe(targetDir string) error {
+func RunServe(targetDir string, version string) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".devctx", "index.db")
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		// Auto-initialize if not initialized yet
 		_ = RunInit(absDir)
@@ -40,7 +40,7 @@ func RunServe(targetDir string) error {
 	defer cancel()
 	go startBackgroundWatcher(ctx, absDir, database)
 
-	server := mcp.NewServer(absDir, database)
+	server := mcp.NewServer(absDir, database, version)
 	return server.Serve(os.Stdin, os.Stdout)
 }
 

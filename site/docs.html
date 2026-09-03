@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>devctx Documentation — Local-First Context Engine for AI Coding Agents</title>
-  <meta name="description" content="Complete reference for devctx: installation, CLI commands, MCP tool schema, editor integrations, architecture internals, and build guide.">
-  <meta name="keywords" content="devctx docs, MCP server, model context protocol, AI coding agent, Claude Code, Cursor, Antigravity, SQLite WAL, AST indexing, Go CLI">
+  <title>codive Documentation — Local-First Context Engine for AI Coding Agents</title>
+  <meta name="description" content="Complete reference for codive: installation, CLI commands, MCP tool schema, editor integrations, architecture internals, and build guide.">
+  <meta name="keywords" content="codive docs, MCP server, model context protocol, AI coding agent, Claude Code, Cursor, Antigravity, SQLite WAL, AST indexing, Go CLI">
   <meta name="author" content="Brijesh Yadav">
   <meta name="robots" content="index, follow">
-  <link rel="canonical" href="https://recscse.github.io/devctx/docs.html">
+  <link rel="canonical" href="https://recscse.github.io/codive/docs.html">
   <meta property="og:type" content="article">
-  <meta property="og:url" content="https://recscse.github.io/devctx/docs.html">
-  <meta property="og:title" content="devctx Docs — Local-First Context Engine for AI Agents">
-  <meta property="og:description" content="Installation, CLI reference, MCP tool schema, and architecture internals for devctx.">
+  <meta property="og:url" content="https://recscse.github.io/codive/docs.html">
+  <meta property="og:title" content="codive Docs — Local-First Context Engine for AI Agents">
+  <meta property="og:description" content="Installation, CLI reference, MCP tool schema, and architecture internals for codive.">
   <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -359,24 +359,35 @@
     .pg-dir { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
     .pg-title { font-size: 14px; font-weight: 600; color: var(--text-bright); }
     .pg-card.right { text-align: right; }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 24px;
+      text-align: center;
+      font-size: 13.5px;
+      color: var(--text-muted);
+    }
+    footer a { color: var(--text-bright); text-decoration: none; font-weight: 600; }
+    footer a:hover { color: var(--accent); }
   </style>
 </head>
 <body>
 
   <!-- Top bar -->
   <header class="topbar">
-    <a href="index.html" class="topbar-brand">devctx<span>_</span></a>
+    <a href="index.html" class="topbar-brand">codive<span>_</span></a>
     <nav class="topbar-nav">
       <a href="index.html">Home</a>
       <a href="docs.html" class="active">Docs</a>
       <a href="blog.html">Blog</a>
     </nav>
     <div class="topbar-right">
-      <a href="https://github.com/recscse/devctx" target="_blank" class="topbar-gh">
+      <a href="https://github.com/recscse/codive" target="_blank" class="topbar-gh">
         <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
         GitHub
       </a>
-      <a href="index.html#install" class="topbar-cta">Install</a>
+      <a href="index.html#install" class="topbar-cta">Get started</a>
     </div>
   </header>
 
@@ -452,49 +463,49 @@
 
       <!-- ── Overview ── -->
       <div class="page-meta">docs / reference / v1.0.0</div>
-      <h1 id="overview">devctx Documentation</h1>
+      <h1 id="overview">codive Documentation</h1>
       <p class="lead">
-        <code>devctx</code> is a local-first code context engine and MCP (Model Context Protocol) server written in Go. It indexes your repository's AST symbols, full-text content, and git state into an embedded SQLite database — giving AI coding agents sub-millisecond access to exact code context without reading entire files.
+        <code>codive</code> is a local-first code context engine and MCP (Model Context Protocol) server written in Go. It indexes your repository's AST symbols, full-text content, and git state into an embedded SQLite database — giving AI coding agents sub-millisecond access to exact code context without reading entire files.
       </p>
 
       <div class="badge-row">
         <span class="badge green">v1.0.0</span>
-        <span class="badge blue">Go 1.22+</span>
+        <span class="badge blue">Go 1.27+</span>
         <span class="badge">Windows · macOS · Linux</span>
         <span class="badge">MIT License</span>
         <span class="badge gray">Zero cloud dependencies</span>
       </div>
 
       <div class="callout">
-        <strong>Why devctx?</strong> Without a context engine, an AI agent reading a 1,200-line controller file costs ~6,500 tokens per turn. With <code>devctx get_file_skeleton</code>, the same file costs ~120 tokens — a 98% reduction. On large codebases this saves tens of dollars per coding session.
+        <strong>Why codive?</strong> Without a context engine, an AI agent reading a 1,200-line controller file costs ~6,500 tokens per turn. With <code>codive get_file_skeleton</code>, the same file costs ~120 tokens — a 98% reduction. On large codebases this saves tens of dollars per coding session.
       </div>
 
       <!-- ── How It Works ── -->
       <h2 id="how-it-works">How It Works</h2>
-      <p>devctx runs in two modes that complement each other:</p>
+      <p>codive runs in two modes that complement each other:</p>
 
       <div class="feature-grid">
         <div class="feature-card">
           <h4>CLI Mode</h4>
-          <p>Direct terminal commands for developers: <code>devctx search</code>, <code>devctx symbol</code>, <code>devctx blast</code>. Results print to stdout in clean, readable format.</p>
+          <p>Direct terminal commands for developers: <code>codive search</code>, <code>codive symbol</code>, <code>codive blast</code>. Results print to stdout in clean, readable format.</p>
         </div>
         <div class="feature-card">
           <h4>MCP Server Mode</h4>
-          <p>Run <code>devctx serve</code> to start a JSON-RPC 2.0 server over stdio. AI coding agents (Claude, Antigravity, Cursor) call its 14 typed tools directly via the Model Context Protocol.</p>
+          <p>Run <code>codive serve</code> to start a JSON-RPC 2.0 server over stdio. AI coding agents (Claude, Antigravity, Cursor) call its 14 typed tools directly via the Model Context Protocol.</p>
         </div>
         <div class="feature-card">
           <h4>Index Layer</h4>
-          <p>A multi-threaded scanner walks the repository, extracts AST symbols using per-language parsers, and writes everything to a single <code>.devctx/index.db</code> SQLite WAL file. Index time: ~1.2s for 1,500 files.</p>
+          <p>A multi-threaded scanner walks the repository, extracts AST symbols using per-language parsers, and writes everything to a single <code>.codive/index.db</code> SQLite WAL file. Index time: ~1.2s for 1,500 files.</p>
         </div>
         <div class="feature-card">
           <h4>Auto Sync</h4>
-          <p><code>devctx watch</code> monitors the filesystem and incrementally re-indexes changed files in &lt;100ms. Git hooks (<code>post-commit</code>, <code>post-checkout</code>) keep the index current automatically.</p>
+          <p><code>codive watch</code> monitors the filesystem and incrementally re-indexes changed files in &lt;100ms. Git hooks (<code>post-commit</code>, <code>post-checkout</code>) keep the index current automatically.</p>
         </div>
       </div>
 
       <!-- ── Installation ── -->
       <h2 id="installation">Installation</h2>
-      <p>devctx ships as a single self-contained binary. No runtime, no dependencies.</p>
+      <p>codive ships as a single self-contained binary. No runtime, no dependencies.</p>
 
       <h3>macOS &amp; Linux</h3>
       <div class="codeblock">
@@ -502,9 +513,9 @@
           <span class="codeblock-lang">bash</span>
           <button class="codeblock-copy" onclick="copyCode(this)">copy</button>
         </div>
-        <pre>curl -fsSL https://recscse.github.io/devctx/install.sh | bash</pre>
+        <pre>curl -fsSL https://recscse.github.io/codive/install.sh | bash</pre>
       </div>
-      <p>The script downloads the correct binary for your OS/arch, installs it to <code>/usr/local/bin/devctx</code>, and verifies the checksum.</p>
+      <p>The script downloads the correct binary for your OS/arch, installs it to <code>/usr/local/bin/codive</code>, and verifies the checksum.</p>
 
       <h3>Windows (PowerShell)</h3>
       <div class="codeblock">
@@ -512,9 +523,9 @@
           <span class="codeblock-lang">powershell</span>
           <button class="codeblock-copy" onclick="copyCode(this)">copy</button>
         </div>
-        <pre>irm https://recscse.github.io/devctx/install.ps1 | iex</pre>
+        <pre>irm https://recscse.github.io/codive/install.ps1 | iex</pre>
       </div>
-      <p>Installs to <code>%LOCALAPPDATA%\devctx\bin\devctx.exe</code> and adds it to the user PATH.</p>
+      <p>Installs to <code>%LOCALAPPDATA%\codive\bin\codive.exe</code> and adds it to the user PATH.</p>
 
       <h3>Windows (CMD / curl)</h3>
       <div class="codeblock">
@@ -522,7 +533,7 @@
           <span class="codeblock-lang">cmd</span>
           <button class="codeblock-copy" onclick="copyCode(this)">copy</button>
         </div>
-        <pre>curl -fsSL https://recscse.github.io/devctx/install.cmd -o install.cmd && install.cmd && del install.cmd</pre>
+        <pre>curl -fsSL https://recscse.github.io/codive/install.cmd -o install.cmd && install.cmd && del install.cmd</pre>
       </div>
 
       <h3>Build from source</h3>
@@ -531,9 +542,9 @@
           <span class="codeblock-lang">bash</span>
           <button class="codeblock-copy" onclick="copyCode(this)">copy</button>
         </div>
-        <pre>git clone https://github.com/recscse/devctx
-cd devctx
-go build -o devctx .
+        <pre>git clone https://github.com/recscse/codive
+cd codive
+go build -o codive .
 # Or use the Makefile:
 make build          # local binary
 make build-all      # cross-compile all platforms to dist/</pre>
@@ -543,15 +554,15 @@ make build-all      # cross-compile all platforms to dist/</pre>
       <h2 id="quickstart">Quickstart</h2>
       <ol class="steps">
         <li>
-          <h4>Install devctx</h4>
+          <h4>Install codive</h4>
           <p>Follow the installation instructions above for your OS.</p>
         </li>
         <li>
           <h4>Configure AI agent integrations</h4>
-          <p>Run once to auto-detect and register devctx as an MCP server in all installed AI coding tools:</p>
+          <p>Run once to auto-detect and register codive as an MCP server in all installed AI coding tools:</p>
           <div class="codeblock">
             <div class="codeblock-header"><span class="codeblock-lang">bash</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
-            <pre>devctx setup</pre>
+            <pre>codive setup</pre>
           </div>
         </li>
         <li>
@@ -560,7 +571,7 @@ make build-all      # cross-compile all platforms to dist/</pre>
           <div class="codeblock">
             <div class="codeblock-header"><span class="codeblock-lang">bash</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
             <pre>cd /path/to/my-repo
-devctx init</pre>
+codive init</pre>
           </div>
         </li>
         <li>
@@ -568,42 +579,42 @@ devctx init</pre>
           <p>Keeps the index synchronized automatically after every commit and branch switch:</p>
           <div class="codeblock">
             <div class="codeblock-header"><span class="codeblock-lang">bash</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
-            <pre>devctx install-hooks</pre>
+            <pre>codive install-hooks</pre>
           </div>
         </li>
         <li>
           <h4>Done — open your AI coding tool</h4>
-          <p>Claude Code, Cursor, Antigravity, or VS Code will now call devctx's MCP tools automatically when working in this repository.</p>
+          <p>Claude Code, Cursor, Antigravity, or VS Code will now call codive's MCP tools automatically when working in this repository.</p>
         </li>
       </ol>
 
       <!-- ── CLI Reference ── -->
       <h2 id="cli-index">CLI: Index Management</h2>
 
-      <h3><code>devctx init [path]</code></h3>
+      <h3><code>codive init [path]</code></h3>
       <p>Scan a repository and build the SQLite index from scratch. Uses a parallel goroutine pool (2× CPU cores) for concurrent file reading and AST extraction.</p>
       <div class="codeblock">
         <div class="codeblock-header"><span class="codeblock-lang">bash</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
-        <pre>devctx init                    # current directory
-devctx init /path/to/repo      # explicit path
-devctx init . --json           # JSON output for CI/scripting</pre>
+        <pre>codive init                    # current directory
+codive init /path/to/repo      # explicit path
+codive init . --json           # JSON output for CI/scripting</pre>
       </div>
       <p><strong>Output:</strong> live progress bar with file count and throughput, then a summary table with indexed file count, symbol count, primary language, and total latency.</p>
 
-      <h3><code>devctx update [path]</code></h3>
+      <h3><code>codive update [path]</code></h3>
       <p>Incrementally re-index only files that have changed since the last index. Reads git status to identify modified files. Typical latency: &lt;100ms.</p>
 
-      <h3><code>devctx reindex [path]</code></h3>
+      <h3><code>codive reindex [path]</code></h3>
       <p>Drop the existing index and rebuild from scratch. Use when the schema has changed after an upgrade, or when the index is corrupted.</p>
 
-      <h3><code>devctx watch [path]</code></h3>
+      <h3><code>codive watch [path]</code></h3>
       <p>Start a background filesystem watcher that automatically calls <code>update</code> whenever source files are saved. Uses OS-native file events (inotify / FSEvents / ReadDirectoryChangesW).</p>
 
-      <h3><code>devctx status [path]</code></h3>
+      <h3><code>codive status [path]</code></h3>
       <p>Display the current index state: total files, size on disk, last sync timestamp, and a language breakdown table.</p>
       <div class="codeblock">
         <div class="codeblock-header"><span class="codeblock-lang">output</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
-        <pre>  devctx  Status
+        <pre>  codive  Status
 
   Repository            /work/my-repo
   Indexed Files         176 files
@@ -618,21 +629,21 @@ devctx init . --json           # JSON output for CI/scripting</pre>
       </div>
 
       <h2 id="cli-search">CLI: Code Search</h2>
-      <h3><code>devctx search &lt;query&gt; [path]</code></h3>
+      <h3><code>codive search &lt;query&gt; [path]</code></h3>
       <p>Full-text search across all indexed files using SQLite FTS5. Returns file paths and snippet context. Typical latency: &lt;2ms.</p>
       <div class="codeblock">
         <div class="codeblock-header"><span class="codeblock-lang">bash</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
-        <pre>devctx search "PaymentProcessor"
-devctx search "@Scheduled"
-devctx search "spring-boot-starter-web"   # searches pom.xml dependencies</pre>
+        <pre>codive search "PaymentProcessor"
+codive search "@Scheduled"
+codive search "spring-boot-starter-web"   # searches pom.xml dependencies</pre>
       </div>
 
       <h2 id="cli-symbol">CLI: Symbol Lookup</h2>
-      <h3><code>devctx symbol &lt;name&gt; [path]</code></h3>
+      <h3><code>codive symbol &lt;name&gt; [path]</code></h3>
       <p>Find class, function, method, interface, or annotation definitions matching a name pattern. Returns exact file path, line number, and full signature.</p>
       <div class="codeblock">
         <div class="codeblock-header"><span class="codeblock-lang">output</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
-        <pre>  devctx  Symbol Results
+        <pre>  codive  Symbol Results
 
   1.  EventController                     [class]
        src/main/java/.../EventController.java:41
@@ -642,56 +653,56 @@ devctx search "spring-boot-starter-web"   # searches pom.xml dependencies</pre>
        src/main/java/.../EventController.java:37</pre>
       </div>
 
-      <h3><code>devctx refs &lt;symbol&gt; [path]</code></h3>
+      <h3><code>codive refs &lt;symbol&gt; [path]</code></h3>
       <p>Find all call sites, import statements, and usages of a given symbol across the entire repository.</p>
 
       <h2 id="cli-blast">CLI: Blast Radius</h2>
-      <h3><code>devctx blast &lt;symbol&gt; [path]</code></h3>
+      <h3><code>codive blast &lt;symbol&gt; [path]</code></h3>
       <p>Before modifying a function or class, calculate its blast radius: all upstream callers, affected files, and linked test suites. Prevents unexpected CI breakage.</p>
       <div class="codeblock">
         <div class="codeblock-header"><span class="codeblock-lang">bash</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
-        <pre>devctx blast GenerateToken
-devctx blast PaymentProcessor --json</pre>
+        <pre>codive blast GenerateToken
+codive blast PaymentProcessor --json</pre>
       </div>
 
       <h2 id="cli-diff">CLI: Git Diff</h2>
-      <h3><code>devctx diff [path]</code></h3>
+      <h3><code>codive diff [path]</code></h3>
       <p>Show uncommitted changes mapped to enclosing AST symbols. Unlike <code>git diff</code>, this shows <em>which functions</em> changed — not just which lines — making it far more useful as context for an AI agent.</p>
 
       <h2 id="cli-pack">CLI: Feature Pack</h2>
-      <h3><code>devctx pack &lt;topic&gt; [path]</code></h3>
+      <h3><code>codive pack &lt;topic&gt; [path]</code></h3>
       <p>Build a token-optimized context bundle for a feature area. Combines: relevant symbol definitions, file skeletons, related test suites, and stored architectural decisions — all in one compact output ready to paste into an LLM prompt.</p>
 
       <h2 id="cli-map">CLI: Repo Map</h2>
-      <h3><code>devctx map [path]</code></h3>
+      <h3><code>codive map [path]</code></h3>
       <p>Print a directory-organized, symbol-annotated structural map of the repository. Supports <code>--web</code> to launch an interactive D3 network graph in the browser.</p>
       <div class="codeblock">
         <div class="codeblock-header"><span class="codeblock-lang">bash</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
-        <pre>devctx map             # print to terminal
-devctx map --web       # open interactive browser graph on :7890</pre>
+        <pre>codive map             # print to terminal
+codive map --web       # open interactive browser graph on :7890</pre>
       </div>
 
       <h2 id="cli-decisions">CLI: Architectural Decisions</h2>
-      <h3><code>devctx decisions [topic]</code></h3>
+      <h3><code>codive decisions [topic]</code></h3>
       <p>View architectural decisions recorded by AI agents during previous sessions. Decisions are stored in the local SQLite index and persist across IDE restarts, so agents don't re-debate the same design choices.</p>
 
       <h2 id="cli-setup">CLI: Setup &amp; Hooks</h2>
-      <h3><code>devctx setup [path]</code></h3>
-      <p>Auto-detect all installed AI coding tools and register devctx as an MCP server. Supports: Google Antigravity, Claude Desktop, Claude Code, Cursor IDE, VS Code (Continue, Cline), Windsurf.</p>
+      <h3><code>codive setup [path]</code></h3>
+      <p>Auto-detect all installed AI coding tools and register codive as an MCP server. Supports: Google Antigravity, Claude Desktop, Claude Code, Cursor IDE, VS Code (Continue, Cline), Windsurf.</p>
 
-      <h3><code>devctx install-hooks [path]</code></h3>
-      <p>Install <code>post-commit</code> and <code>post-checkout</code> git hooks that call <code>devctx update</code> automatically. This keeps the index continuously synchronized without any developer effort.</p>
+      <h3><code>codive install-hooks [path]</code></h3>
+      <p>Install <code>post-commit</code> and <code>post-checkout</code> git hooks that call <code>codive update</code> automatically. This keeps the index continuously synchronized without any developer effort.</p>
 
-      <h3><code>devctx init-rules [path]</code></h3>
+      <h3><code>codive init-rules [path]</code></h3>
       <p>Auto-generate a <code>.cursorrules</code> / <code>AGENTS.md</code> / <code>.windsurfrules</code> file tailored to the detected language, framework, and project structure. Gives AI agents upfront architectural context.</p>
 
       <h2 id="cli-serve">CLI: MCP Server</h2>
-      <h3><code>devctx serve [path]</code></h3>
-      <p>Start the Model Context Protocol server over stdio. This is called automatically by your AI coding tool based on the configuration written by <code>devctx setup</code>. You do not normally run this manually.</p>
+      <h3><code>codive serve [path]</code></h3>
+      <p>Start the Model Context Protocol server over stdio. This is called automatically by your AI coding tool based on the configuration written by <code>codive setup</code>. You do not normally run this manually.</p>
       <div class="codeblock">
         <div class="codeblock-header"><span class="codeblock-lang">bash</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
         <pre># Only if configuring manually:
-devctx serve /path/to/repo</pre>
+codive serve /path/to/repo</pre>
       </div>
 
       <div class="callout info">
@@ -700,7 +711,7 @@ devctx serve /path/to/repo</pre>
 
       <!-- ── MCP Tools ── -->
       <h2 id="mcp-overview">MCP Tools Reference</h2>
-      <p>When running as an MCP server, devctx exposes 14 deterministic tools. All tools accept an optional <code>workspace_path</code> string argument to target a specific repository if multiple are indexed.</p>
+      <p>When running as an MCP server, codive exposes 14 deterministic tools. All tools accept an optional <code>workspace_path</code> string argument to target a specific repository if multiple are indexed.</p>
 
       <div class="table-wrap">
         <table>
@@ -764,8 +775,12 @@ devctx serve /path/to/repo</pre>
       <p>Find all usages, call sites, and import statements for a given symbol across the entire indexed repository.</p>
       <div class="param-list">
         <div class="param">
-          <div class="param-name">name <span class="param-required">required</span></div>
+          <div class="param-name">symbol <span class="param-required">required</span></div>
           <div>The symbol name to find references for.</div>
+        </div>
+        <div class="param">
+          <div class="param-name">limit <span class="param-optional">optional</span></div>
+          <div>Integer. Maximum number of call sites to return (default: 30).</div>
         </div>
       </div>
 
@@ -809,19 +824,15 @@ devctx serve /path/to/repo</pre>
       </div>
 
       <h3 id="mcp-read-context"><code>read_file_context</code></h3>
-      <p>Read a targeted line range from a file with automatic line-drift verification. If the file has changed since the last index, devctx re-syncs the symbol table before returning content — preventing the agent from reading stale line numbers.</p>
+      <p>Read a file's full content along with its declared symbol outline, with automatic line-drift verification. If the file has changed since the last index, codive re-syncs the symbol table before returning content — preventing the agent from reading stale line numbers.</p>
       <div class="param-list">
         <div class="param">
           <div class="param-name">path <span class="param-required">required</span></div>
           <div>Relative file path from the repository root.</div>
         </div>
         <div class="param">
-          <div class="param-name">start_line <span class="param-optional">optional</span></div>
-          <div>Integer. First line to read (1-indexed). Defaults to 1.</div>
-        </div>
-        <div class="param">
-          <div class="param-name">end_line <span class="param-optional">optional</span></div>
-          <div>Integer. Last line to read (inclusive). Defaults to end of file.</div>
+          <div class="param-name">workspace_path <span class="param-optional">optional</span></div>
+          <div>Absolute path to the repository root. Defaults to the workspace the agent is running in.</div>
         </div>
       </div>
 
@@ -875,13 +886,13 @@ devctx serve /path/to/repo</pre>
 
       <!-- ── Integrations ── -->
       <h2 id="int-antigravity">Google Antigravity Integration</h2>
-      <p>Run <code>devctx setup</code> to register automatically, or add manually to <code>~/.gemini/config/mcp_config.json</code>:</p>
+      <p>Run <code>codive setup</code> to register automatically, or add manually to <code>~/.gemini/config/mcp_config.json</code>:</p>
       <div class="codeblock">
         <div class="codeblock-header"><span class="codeblock-lang">json — ~/.gemini/config/mcp_config.json</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
         <pre>{
   "mcpServers": {
-    "devctx": {
-      "command": "devctx",
+    "codive": {
+      "command": "codive",
       "args": ["serve"]
     }
   }
@@ -894,8 +905,8 @@ devctx serve /path/to/repo</pre>
         <div class="codeblock-header"><span class="codeblock-lang">json — claude_desktop_config.json</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
         <pre>{
   "mcpServers": {
-    "devctx": {
-      "command": "devctx",
+    "codive": {
+      "command": "codive",
       "args": ["serve"]
     }
   }
@@ -908,8 +919,8 @@ devctx serve /path/to/repo</pre>
         <div class="codeblock-header"><span class="codeblock-lang">json — ~/.cursor/mcp.json</span><button class="codeblock-copy" onclick="copyCode(this)">copy</button></div>
         <pre>{
   "mcpServers": {
-    "devctx": {
-      "command": "devctx",
+    "codive": {
+      "command": "codive",
       "args": ["serve"]
     }
   }
@@ -917,11 +928,11 @@ devctx serve /path/to/repo</pre>
       </div>
 
       <h2 id="int-vscode">VS Code — Continue / Cline</h2>
-      <p>Add to <code>~/.continue/config.json</code> under the <code>experimental.modelContextProtocolServers</code> key, or use Cline's MCP server settings UI to add a new server with command <code>devctx</code> and args <code>["serve"]</code>.</p>
+      <p>Add to <code>~/.continue/config.json</code> under the <code>experimental.modelContextProtocolServers</code> key, or use Cline's MCP server settings UI to add a new server with command <code>codive</code> and args <code>["serve"]</code>.</p>
 
       <!-- ── Architecture ── -->
       <h2 id="arch-index">Index Architecture</h2>
-      <p>The <code>.devctx/index.db</code> SQLite database contains four tables:</p>
+      <p>The <code>.codive/index.db</code> SQLite database contains four tables:</p>
 
       <div class="table-wrap">
         <table>
@@ -993,23 +1004,18 @@ devctx serve /path/to/repo</pre>
               <td>structs, enums, traits, impl blocks, functions</td>
               <td><code>Cargo.toml</code></td>
             </tr>
-            <tr>
-              <td>C / C++</td>
-              <td>functions, structs, classes, enums, typedefs</td>
-              <td>—</td>
-            </tr>
           </tbody>
         </table>
       </div>
-      <p>All other file types are indexed for full-text search but not AST-parsed. Binary files, build artifacts, and vendor directories are automatically excluded.</p>
+      <p>All other file types — including C/C++ — are indexed for full-text search (<code>search_code</code>) but have no AST symbol extractor yet, so <code>find_symbol</code> and call-graph tools won't see declarations in them. Binary files, build artifacts, and vendor directories are automatically excluded. Want to add a parser for your language? See <a href="https://github.com/recscse/codive/blob/main/CONTRIBUTING.md" target="_blank" style="color: var(--accent);">CONTRIBUTING.md</a>.</p>
 
       <!-- ── Build from source ── -->
       <h2 id="build">Building from Source</h2>
-      <p>devctx uses a standard Go module build. No CGO, no external runtime libraries required (SQLite is compiled in via <code>modernc.org/sqlite</code>).</p>
+      <p>codive uses a standard Go module build. No CGO, no external runtime libraries required (SQLite is compiled in via <code>modernc.org/sqlite</code>).</p>
 
       <h3>Prerequisites</h3>
       <ul>
-        <li>Go 1.22 or later</li>
+        <li>Go 1.27 or later</li>
         <li>Git (for version injection via ldflags)</li>
       </ul>
 
@@ -1031,7 +1037,7 @@ go build \
     -X main.Version=v1.0.0 \
     -X main.GitCommit=$(git rev-parse --short HEAD) \
     -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  -o devctx .</pre>
+  -o codive .</pre>
       </div>
 
       <h3>Release targets</h3>
@@ -1079,6 +1085,10 @@ go build \
     </aside>
 
   </div>
+
+  <footer>
+    <p>codive is open-source under the MIT License &middot; Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a> &middot; <a href="https://github.com/recscse/codive" target="_blank">GitHub</a> &middot; <a href="index.html">Home</a> &middot; <a href="blog.html">Blog</a></p>
+  </footer>
 
   <script>
     function copyCode(btn) {

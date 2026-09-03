@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/git"
-	"github.com/recscse/devctx/internal/scanner"
-	"github.com/recscse/devctx/internal/symbols"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/git"
+	"github.com/recscse/codive/internal/scanner"
+	"github.com/recscse/codive/internal/symbols"
 )
 
 // JSONRPCRequest represents an incoming JSON-RPC 2.0 message.
@@ -65,15 +65,23 @@ type ToolCallResult struct {
 // Server handles MCP JSON-RPC protocol messages over reader/writer streams.
 type Server struct {
 	rootDir  string
+	version  string
 	database *sql.DB
 	dbMutex  sync.RWMutex
 	dbCache  map[string]*sql.DB
 }
 
-// NewServer creates a new MCP Server instance.
-func NewServer(rootDir string, database *sql.DB) *Server {
+// NewServer creates a new MCP Server instance. version is reported to MCP
+// clients in the "initialize" response and should be the same build-time
+// version string embedded in the CLI binary (main.Version), so the server's
+// self-reported version never drifts from the binary that's actually running.
+func NewServer(rootDir string, database *sql.DB, version string) *Server {
+	if strings.TrimSpace(version) == "" {
+		version = "dev"
+	}
 	return &Server{
 		rootDir:  rootDir,
+		version:  version,
 		database: database,
 		dbCache:  make(map[string]*sql.DB),
 	}
@@ -88,17 +96,17 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 	} else {
 		// If no explicit path is passed, check current working directory first
 		if cwd, err := os.Getwd(); err == nil && cwd != "" {
-			if _, err := os.Stat(filepath.Join(cwd, ".devctx", "index.db")); err == nil {
+			if _, err := os.Stat(filepath.Join(cwd, ".codive", "index.db")); err == nil {
 				searchDir = cwd
 			}
 		}
 	}
 
-	// Traverse upwards looking for nearest .devctx/index.db
+	// Traverse upwards looking for nearest .codive/index.db
 	curr := searchDir
 	var resolvedDir string
 	for {
-		dbPath := filepath.Join(curr, ".devctx", "index.db")
+		dbPath := filepath.Join(curr, ".codive", "index.db")
 		if _, err := os.Stat(dbPath); err == nil {
 			resolvedDir = curr
 			break
@@ -113,7 +121,7 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 	// If no index exists anywhere, auto-index the target workspace on-the-fly!
 	if resolvedDir == "" {
 		resolvedDir = searchDir
-		dbPath := filepath.Join(resolvedDir, ".devctx", "index.db")
+		dbPath := filepath.Join(resolvedDir, ".codive", "index.db")
 		_ = os.MkdirAll(filepath.Dir(dbPath), 0755)
 
 		// Quick scan & index
@@ -157,7 +165,7 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 		return cached, absPath, nil
 	}
 
-	dbPath := filepath.Join(absPath, ".devctx", "index.db")
+	dbPath := filepath.Join(absPath, ".codive", "index.db")
 	dbConn, err := db.Open(dbPath)
 	if err != nil {
 		return nil, absPath, fmt.Errorf("failed to open database for %s: %w", absPath, err)
@@ -224,8 +232,8 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 					"tools": map[string]any{},
 				},
 				"serverInfo": map[string]any{
-					"name":    "devctx",
-					"version": "1.3.0",
+					"name":    "codive",
+					"version": s.version,
 				},
 			},
 		}
@@ -950,21 +958,46 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			sb.WriteString("\n")
 		}
 
-		fileSet := make(map[string]bool)
+		// Rank candidate files by relevance rather than alphabetically: a file whose
+		// declared symbols matched the topic is a far stronger signal than a file that
+		// merely mentions the topic word in prose (e.g. a CHANGELOG entry), and among
+		// FTS-only matches we keep SearchFTS's own bm25 rank order (best match first)
+		// instead of discarding it. Otherwise a doc file that happens to sort before
+		// the actually-relevant source file (alphabetically) could crowd it out of the
+		// limited skeleton slots below.
+		seenFile := make(map[string]bool)
+		var candidateFiles []string
+		addCandidate := func(f string) {
+			if seenFile[f] {
+				return
+			}
+			if strings.Contains(f, "_test.") || strings.Contains(f, ".spec.") || strings.Contains(f, ".test.") {
+				return
+			}
+			seenFile[f] = true
+			candidateFiles = append(candidateFiles, f)
+		}
 		for _, s := range syms {
-			fileSet[s.FilePath] = true
+			addCandidate(s.FilePath)
 		}
 		for _, m := range ftsMatches {
-			fileSet[m.Path] = true
+			addCandidate(m.Path)
 		}
 
-		var candidateFiles []string
-		for f := range fileSet {
-			if !strings.Contains(f, "_test.") && !strings.Contains(f, ".spec.") && !strings.Contains(f, ".test.") {
-				candidateFiles = append(candidateFiles, f)
+		// A skeleton is inherently useless for a file with no AST extractor (it can
+		// only ever render the "no AST symbols" fallback), so prefer AST-capable
+		// source files for the limited skeleton slots below over docs/markup that
+		// merely mention the topic word more densely and out-rank the real source
+		// file in FTS's bm25 score. Order is preserved within each group.
+		var codeFiles, otherFiles []string
+		for _, f := range candidateFiles {
+			if isASTCapableLanguage(scanner.DetectLanguage(f)) {
+				codeFiles = append(codeFiles, f)
+			} else {
+				otherFiles = append(otherFiles, f)
 			}
 		}
-		sort.Strings(candidateFiles)
+		candidateFiles = append(codeFiles, otherFiles...)
 
 		if len(candidateFiles) > 0 {
 			sb.WriteString("## 📄 Structural File Skeletons\n\n")
@@ -977,8 +1010,13 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 				if err != nil {
 					continue
 				}
-				fileSyms, _ := db.FindSymbols(ctx, targetDB, f)
-				skel := symbols.GenerateSkeleton(f, "auto", content, fileSyms)
+				// Deliberately pass nil symbols with the real detected language (not the
+				// literal string "auto", which matched no case in ExtractSymbols' switch
+				// and silently produced an empty skeleton for every file, always). This
+				// lets GenerateSkeleton's own fallback re-extract symbols correctly, the
+				// same working pattern get_file_skeleton uses.
+				lang := scanner.DetectLanguage(f)
+				skel := symbols.GenerateSkeleton(f, lang, content, nil)
 				sb.WriteString(fmt.Sprintf("```\n%s\n```\n\n", skel))
 			}
 		}
@@ -1256,6 +1294,18 @@ func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootD
 
 // ── LLM-output helpers ─────────────────────────────────────────────────────
 
+// isASTCapableLanguage reports whether symbols.ExtractSymbols has a real parser
+// for this language (mirrors its switch cases exactly). Anything else always
+// falls through to extractGenericSymbols, which returns no symbols.
+func isASTCapableLanguage(lang string) bool {
+	switch lang {
+	case "Go", "Python", "TypeScript", "JavaScript", "Java", "C#", "Rust":
+		return true
+	default:
+		return false
+	}
+}
+
 // classifySymbolRole returns a human-readable semantic role for display in
 // find_symbol results. It distinguishes definitions, tests, and mocks.
 func classifySymbolRole(filePath, kind string) string {
@@ -1273,8 +1323,10 @@ func classifySymbolRole(filePath, kind string) string {
 		return "Test Helper"
 	case kind == "class" || kind == "struct" || kind == "interface":
 		return "Type Definition"
-	case kind == "function" || kind == "method":
+	case kind == "method":
 		return "Method Definition"
+	case kind == "function":
+		return "Function Definition"
 	case kind == "annotation":
 		return "Annotation"
 	case kind == "dependency":

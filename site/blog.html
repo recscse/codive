@@ -3,27 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Engineering Blog & Architecture Case Studies | devctx</title>
+  <title>Engineering Blog & Architecture Case Studies | codive</title>
   <meta name="description" content="Technical deep-dives, benchmarks, and architecture articles on local AST indexing, SQLite WAL concurrency, token optimization, and Model Context Protocol (MCP) tooling.">
-  <meta name="keywords" content="devctx blog, AI coding agent architecture, MCP server engineering, SQLite WAL Go, AST parser, token optimization, Claude Code, Cursor IDE, Antigravity">
+  <meta name="keywords" content="codive blog, AI coding agent architecture, MCP server engineering, SQLite WAL Go, AST parser, token optimization, Claude Code, Cursor IDE, Antigravity">
   <meta name="author" content="Brijesh Yadav">
   <meta name="robots" content="index, follow">
-  <link rel="canonical" href="https://recscse.github.io/devctx/blog.html">
+  <link rel="canonical" href="https://recscse.github.io/codive/blog.html">
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://recscse.github.io/devctx/blog.html">
-  <meta property="og:title" content="devctx Engineering Blog & Technical Insights">
+  <meta property="og:url" content="https://recscse.github.io/codive/blog.html">
+  <meta property="og:title" content="codive Engineering Blog & Technical Insights">
   <meta property="og:description" content="Deep-dives into local AST indexing, sub-millisecond SQLite WAL queries, and token-compressed MCP tools for autonomous coding agents.">
-  <meta property="og:image" content="https://recscse.github.io/devctx/favicon.svg">
-  <meta property="og:site_name" content="devctx">
+  <meta property="og:image" content="https://recscse.github.io/codive/favicon.svg">
+  <meta property="og:site_name" content="codive">
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="https://recscse.github.io/devctx/blog.html">
-  <meta name="twitter:title" content="devctx Engineering Blog & Technical Insights">
+  <meta name="twitter:url" content="https://recscse.github.io/codive/blog.html">
+  <meta name="twitter:title" content="codive Engineering Blog & Technical Insights">
   <meta name="twitter:description" content="Deep-dives into local AST indexing, sub-millisecond SQLite WAL queries, and token-compressed MCP tools for autonomous coding agents.">
-  <meta name="twitter:image" content="https://recscse.github.io/devctx/favicon.svg">
+  <meta name="twitter:image" content="https://recscse.github.io/codive/favicon.svg">
 
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -125,6 +125,26 @@
       padding-bottom: 4px;
       margin-bottom: -6px;
     }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+    .btn-gh-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--surface-border);
+      background: rgba(255, 255, 255, 0.03);
+      color: #cbd5e1;
+      font-size: 13px;
+      font-family: 'Fira Code', monospace;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-gh-badge:hover {
+      border-color: rgba(32, 194, 14, 0.4);
+      background: var(--accent-dim);
+      color: var(--text-bright);
+    }
     .btn-nav-cta {
       background: var(--accent);
       color: #000;
@@ -198,7 +218,7 @@
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      cursor: pointer;
+      text-decoration: none;
       transition: all 0.25s ease;
       position: relative;
       overflow: hidden;
@@ -252,82 +272,6 @@
       font-size: 13px;
     }
 
-    /* Modal / Detailed Article Reader Overlay */
-    .article-modal {
-      display: none;
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(4, 5, 8, 0.88);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      z-index: 1000;
-      overflow-y: auto;
-      padding: 40px 20px;
-    }
-    .article-modal.active { display: flex; justify-content: center; align-items: flex-start; }
-    .modal-content {
-      background: #0b0e17;
-      border: 1px solid var(--surface-border);
-      border-radius: 16px;
-      max-width: 860px;
-      width: 100%;
-      padding: 48px;
-      position: relative;
-      box-shadow: 0 32px 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(32, 194, 14, 0.2);
-      margin: 40px 0;
-    }
-    @media (max-width: 640px) { .modal-content { padding: 24px; } }
-    .modal-close {
-      position: absolute;
-      top: 24px; right: 24px;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid var(--surface-border);
-      color: var(--text-bright);
-      width: 36px; height: 36px;
-      border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer;
-      font-size: 18px;
-      transition: all 0.2s;
-    }
-    .modal-close:hover { background: var(--accent); color: #000; }
-
-    /* Prose inside Modal */
-    .prose { font-size: 16px; line-height: 1.8; color: #cbd5e1; }
-    .prose h1 { font-size: 34px; font-weight: 900; color: var(--text-bright); margin-bottom: 16px; line-height: 1.2; }
-    .prose h2 { font-size: 22px; font-weight: 800; color: var(--text-bright); margin: 36px 0 16px; border-bottom: 1px solid var(--surface-border); padding-bottom: 8px; }
-    .prose h3 { font-size: 17px; font-weight: 700; color: var(--accent); margin: 24px 0 12px; font-family: 'Fira Code', monospace; }
-    .prose p { margin-bottom: 20px; }
-    .prose ul, .prose ol { margin-left: 24px; margin-bottom: 20px; }
-    .prose li { margin-bottom: 8px; }
-    .prose pre {
-      background: #06080d;
-      border: 1px solid var(--surface-border);
-      border-radius: 8px;
-      padding: 16px 20px;
-      font-family: 'Fira Code', monospace;
-      font-size: 13px;
-      color: #38bdf8;
-      overflow-x: auto;
-      margin: 20px 0 24px;
-      line-height: 1.6;
-    }
-
-    /* Comparison Table in Article */
-    table.art-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 24px 0;
-      font-size: 13.5px;
-    }
-    table.art-table th, table.art-table td {
-      border: 1px solid var(--surface-border);
-      padding: 12px 16px;
-      text-align: left;
-    }
-    table.art-table th { background: #111522; color: var(--text-bright); font-family: 'Fira Code', monospace; font-size: 12px; }
-    table.art-table td { background: var(--surface); color: #cbd5e1; }
-
     /* Footer */
     footer {
       border-top: 1px solid var(--surface-border);
@@ -348,17 +292,19 @@
   <!-- Navigation -->
   <nav>
     <div class="nav-container">
-      <a href="index.html" class="logo-brand">devctx<span>_</span></a>
+      <a href="index.html" class="logo-brand">codive<span>_</span></a>
 
       <div class="nav-center-links">
         <a href="index.html" class="nav-link">Home</a>
         <a href="docs.html" class="nav-link">Docs</a>
         <a href="blog.html" class="nav-link active">Blog</a>
-        <a href="index.html#how-it-works" class="nav-link">Architecture</a>
-        <a href="index.html#features" class="nav-link">Features</a>
       </div>
 
       <div class="nav-actions">
+        <a href="https://github.com/recscse/codive" target="_blank" class="btn-gh-badge">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span>codive</span>
+        </a>
         <a href="index.html#install" class="btn-nav-cta">Get started</a>
       </div>
     </div>
@@ -376,242 +322,89 @@
     <div class="blog-grid">
 
       <!-- Card 1 -->
-      <div class="blog-card" onclick="openArticle('article-1')">
+      <a class="blog-card" href="blog/why-grep-fails-for-ai-agents.html">
         <div>
           <span class="blog-card-badge">ARCHITECTURE • CASE STUDY</span>
           <h3>Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go</h3>
-          <p>A deep-dive into how brute-force regex searches waste context windows, and how devctx reduces token consumption by 95% with sub-millisecond SQLite WAL queries.</p>
+          <p>A deep-dive into how brute-force regex searches waste context windows, and how codive replaces them with a local AST index in SQLite WAL mode.</p>
         </div>
         <div class="blog-card-meta">
-          <span>Aug 26, 2026 • 8 min read</span>
+          <span>Aug 26, 2026 • 9 min read</span>
           <span class="read-more-btn">Read Article →</span>
         </div>
-      </div>
+      </a>
 
       <!-- Card 2 -->
-      <div class="blog-card" onclick="openArticle('article-2')">
+      <a class="blog-card" href="blog/zero-lock-sqlite-wal-concurrency.html">
         <div>
           <span class="blog-card-badge">PERFORMANCE • BENCHMARK</span>
           <h3>Zero-Lock SQLite WAL Concurrency: Hardening MCP Servers for Multi-Agent Restarts</h3>
-          <p>How we eliminated 'database is locked (261)' errors across Claude Code and Google Antigravity reloads using DSN-level busy timeouts and connection pools.</p>
+          <p>How codive avoids "database is locked" errors across IDE restarts using DSN-level busy timeouts and a bounded connection pool.</p>
         </div>
         <div class="blog-card-meta">
           <span>Aug 29, 2026 • 6 min read</span>
           <span class="read-more-btn">Read Article →</span>
         </div>
-      </div>
+      </a>
 
       <!-- Card 3 -->
-      <div class="blog-card" onclick="openArticle('article-3')">
+      <a class="blog-card" href="blog/code-skeletonizer-token-compression.html">
         <div>
           <span class="blog-card-badge">TOKEN OPTIMIZATION</span>
-          <h3>The Skeletonizer: Compressing 2,000-Line Code Files into 120 Tokens</h3>
-          <p>Why dumping full implementation bodies destroys LLM reasoning, and how AST line stubs preserve architectural understanding while saving $100s per repository.</p>
+          <h3>The Skeletonizer: Compressing Files into Token-Efficient Outlines</h3>
+          <p>How get_file_skeleton collapses function bodies into line-range markers while preserving full type signatures — and the line-estimation algorithm behind it.</p>
         </div>
         <div class="blog-card-meta">
           <span>Sep 01, 2026 • 5 min read</span>
           <span class="read-more-btn">Read Article →</span>
         </div>
-      </div>
+      </a>
 
       <!-- Card 4 -->
-      <div class="blog-card" onclick="openArticle('article-4')">
+      <a class="blog-card" href="blog/blast-radius-refactoring-safety.html">
         <div>
           <span class="blog-card-badge">DEVELOPER TOOLS</span>
-          <h3>Pre-Refactoring Blast Radius: Preventing AI Breaking Changes in Monorepos</h3>
-          <p>Traces direct and transitive callers, impacted services, and linked test suites before an autonomous agent edits a shared API contract.</p>
+          <h3>Blast Radius: Preventing Breaking Changes Before an AI Agent Refactors</h3>
+          <p>How blast_radius traces callers, affected files, and linked test suites — and the exact LOW/MEDIUM/HIGH risk thresholds it uses.</p>
         </div>
         <div class="blog-card-meta">
           <span>Sep 01, 2026 • 7 min read</span>
           <span class="read-more-btn">Read Article →</span>
         </div>
-      </div>
+      </a>
 
       <!-- Card 5 -->
-      <div class="blog-card" onclick="openArticle('article-5')">
+      <a class="blog-card" href="blog/parallel-goroutine-indexing.html">
         <div>
           <span class="blog-card-badge">PARALLEL GO ENGINE</span>
-          <h3>Sub-Second Monorepo Indexing: Scaling Go Goroutines across 100k+ Lines</h3>
-          <p>How parallel worker pools and smart ignore pruning reduced repository cold indexing time from 30+ minutes down to 1.2 seconds.</p>
+          <h3>Parallel Goroutine Indexing: Scanning Large Monorepos Fast</h3>
+          <p>Why codive splits a serial directory walk from a clamped goroutine worker pool for parsing — and how that split drives cold-index speed.</p>
         </div>
         <div class="blog-card-meta">
           <span>Sep 01, 2026 • 6 min read</span>
           <span class="read-more-btn">Read Article →</span>
         </div>
-      </div>
+      </a>
 
       <!-- Card 6 -->
-      <div class="blog-card" onclick="openArticle('article-6')">
+      <a class="blog-card" href="blog/durable-ai-agent-memory.html">
         <div>
           <span class="blog-card-badge">AGENT MEMORY</span>
-          <h3>Durable AI Memory: Storing Architectural Invariants with SQLite FTS5</h3>
-          <p>Never let your AI coding agent repeat the same mistake twice. Storing durable design decisions and database constraints across IDE restarts.</p>
+          <h3>Durable AI Agent Memory: Recording Architectural Decisions in SQLite</h3>
+          <p>How save_decision and get_decisions give agents persistent memory across sessions, and how decisions get auto-recalled into other tool responses.</p>
         </div>
         <div class="blog-card-meta">
           <span>Sep 01, 2026 • 5 min read</span>
           <span class="read-more-btn">Read Article →</span>
         </div>
-      </div>
+      </a>
 
     </div>
   </main>
 
-  <!-- Detailed Article Modal Reader -->
-  <div id="articleModal" class="article-modal" onclick="closeModalOnBackdrop(event)">
-    <div class="modal-content">
-      <button class="modal-close" onclick="closeArticle()">✕</button>
-      <div id="modalArticleBody" class="prose">
-        <!-- Injected via JavaScript -->
-      </div>
-    </div>
-  </div>
-
-  <!-- Articles Database -->
-  <script>
-    const articles = {
-      'article-1': `
-        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">ARCHITECTURE • CASE STUDY</div>
-        <h1>Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go</h1>
-        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on August 26, 2026 • By Brijesh Yadav • 8 min read</div>
-        
-        <p>When autonomous AI coding agents (Claude Code, Cursor, Windsurf, Google Antigravity) explore a repository, their default fallback is raw <code>grep</code> or <code>ripgrep</code>. While grep is fast for human scanning, it is catastrophic for LLMs.</p>
-
-        <h2>The Math Behind Token Incineration</h2>
-        <p>A simple refactor of an authentication function illustrates why grep fails:</p>
-        <ul>
-          <li><strong>Turn 1:</strong> Agent greps for <code>GenerateToken</code>. The disk search returns 380 lines of mocks, fixtures, and comments (≈ 3,800 tokens).</li>
-          <li><strong>Turn 2:</strong> The agent reads 3 full candidate files (≈ 7,500 tokens).</li>
-          <li><strong>Compound Transcript Costs:</strong> Because LLM APIs are stateless, that 11,000-token context is re-sent on every subsequent turn. In a 10-turn session, you pay for that noise 10 times (110,000+ tokens wasted).</li>
-        </ul>
-
-        <h2>The devctx Local AST Solution</h2>
-        <p>Instead of treating code as unstructured strings, <code>devctx</code> parses the Abstract Syntax Tree (AST) across Go, TypeScript, Python, Java, C#, and Rust. It loads symbols and call graphs into an embedded SQLite database (<code>.devctx/index.db</code>) running in WAL mode.</p>
-        
-        <pre><code>// 1-Turn Feature Discovery with 95% Token Savings
-devctx:pack_feature_context(query="auth")
-➔ Returns routes, data models, skeletons, and test suites in 240 tokens.</code></pre>
-      `,
-
-      'article-2': `
-        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">PERFORMANCE • BENCHMARK</div>
-        <h1>Zero-Lock SQLite WAL Concurrency: Hardening MCP Servers for Multi-Agent Restarts</h1>
-        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on August 29, 2026 • By Brijesh Yadav • 6 min read</div>
-        
-        <p>One of the most insidious errors in local developer tooling is <code>database is locked (261)</code> when IDEs reload or background watchers spin up concurrently. In this post, we explore how <code>devctx</code> achieved zero-lock concurrency.</p>
-
-        <h2>The Root Cause of SQLite Lock Collisions</h2>
-        <p>When opening SQLite without explicit connection URI parameters, executing <code>PRAGMA journal_mode = WAL;</code> on an active connection fails immediately if another process holds a momentary read lock.</p>
-
-        <h2>The Production DSN Pattern</h2>
-        <p>We hardened our database connection driver by embedding pragmas directly into the SQLite DSN:</p>
-        <pre><code>dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-64000)", dbPath)
-database, err := sql.Open("sqlite", dsn)
-database.SetMaxOpenConns(4)
-database.SetMaxIdleConns(2)</code></pre>
-
-        <p>By guaranteeing a 10,000ms busy timeout at the DSN level, all MCP worker processes wait seamlessly for momentary locks to clear, preventing crashes during IDE restarts.</p>
-      `,
-
-      'article-3': `
-        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">TOKEN OPTIMIZATION</div>
-        <h1>The Skeletonizer: Compressing 2,000-Line Code Files into 120 Tokens</h1>
-        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on September 01, 2026 • By Brijesh Yadav • 5 min read</div>
-        
-        <p>When an AI agent needs to understand a massive controller or service file, dumping the full file fills the context window with implementation details that degrade LLM reasoning.</p>
-
-        <h2>AST-Driven Skeleton Extraction</h2>
-        <p><code>devctx get_file_skeleton</code> strips function bodies into line-annotated comments while preserving full interface declarations, method receivers, and type definitions:</p>
-        
-        <pre><code>type PaymentProcessor struct {
-    client *StripeClient
-    logger *Logger
-}
-
-func (p *PaymentProcessor) ProcessPayment(ctx Context, event Event) (Result, error) { /* L45-L92 */ }
-func (p *PaymentProcessor) RefundOrder(orderID string) error { /* L94-L140 */ }</code></pre>
-        
-        <p>This allows the AI agent to understand the entire architecture in <strong>120 tokens instead of 6,500 tokens</strong>.</p>
-      `,
-
-      'article-4': `
-        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">DEVELOPER TOOLS</div>
-        <h1>Pre-Refactoring Blast Radius: Preventing AI Breaking Changes in Monorepos</h1>
-        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on September 01, 2026 • By Brijesh Yadav • 7 min read</div>
-        
-        <p>Autonomous agents often modify a function signature without realizing it is imported across 12 downstream services. <code>devctx blast</code> solves this with automated upstream call graph traversal.</p>
-
-        <h2>Instant Call Graph Tracing</h2>
-        <p>Before an agent applies an edit, calling <code>blast_radius</code> returns all direct callers, affected files, and unit test suites:</p>
-        <pre><code>$ devctx blast GenerateToken
-💥 Blast Radius Analysis:
-  • Risk Level: HIGH (5 direct callers across 3 files)
-  • Impacted Files:
-     - internal/symbols/skeleton.go (L42)
-     - internal/cmd/pack.go (L88)
-  • Unit Tests to Run:
-     - internal/symbols/symbols_test.go</code></pre>
-      `,
-
-      'article-5': `
-        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">PARALLEL GO ENGINE</div>
-        <h1>Sub-Second Monorepo Indexing: Scaling Go Goroutines across 100k+ Lines</h1>
-        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on September 01, 2026 • By Brijesh Yadav • 6 min read</div>
-        
-        <p>Initial indexing in massive enterprise repositories previously took upwards of 30 minutes. Here is how we engineered parallel goroutine worker pools in Go to achieve cold indexing in ~1.2 seconds.</p>
-
-        <h2>1. Smart BFS Directory Exclusion</h2>
-        <p>We automatically prune heavy build directories (<code>.gradle</code>, <code>.mvn</code>, <code>node_modules</code>, <code>jacoco-aggregator</code>) during filesystem traversal, eliminating hundreds of thousands of redundant I/O calls.</p>
-
-        <h2>2. Dynamic Goroutine Worker Pools</h2>
-        <pre><code>numWorkers := runtime.NumCPU() * 2
-fileChan := make(chan db.FileRecord, totalFiles)
-resultChan := make(chan parseResult, totalFiles)
-
-for w := 0; w < numWorkers; w++ {
-    go worker(fileChan, resultChan)
-}</code></pre>
-        <p>Parsing 170+ files and 720 symbols now takes <strong>0.11s of AST compute time</strong>.</p>
-      `,
-
-      'article-6': `
-        <div style="font-family: 'Fira Code', monospace; color: var(--accent); font-size: 12px; margin-bottom: 12px;">AGENT MEMORY</div>
-        <h1>Durable AI Memory: Storing Architectural Invariants with SQLite FTS5</h1>
-        <div style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 28px;">Published on September 01, 2026 • By Brijesh Yadav • 5 min read</div>
-        
-        <p>Every time you start a new conversation with an AI agent, it forgets previous decisions and architectural constraints. <code>devctx</code> provides durable memory via <code>save_decision</code> and <code>get_decisions</code>.</p>
-
-        <p>When an agent discovers a critical invariant (e.g. <em>"Always use PostgreSQL transaction pool mode; prepared statements disabled"</em>), it records the decision into SQLite. Future agent sessions query this knowledge in &lt;1ms before proposing conflicting designs.</p>
-      `
-    };
-
-    function openArticle(articleId) {
-      const content = articles[articleId];
-      if (content) {
-        document.getElementById('modalArticleBody').innerHTML = content;
-        document.getElementById('articleModal').classList.add('active');
-        document.body.style.overflow = 'hidden';
-      }
-    }
-
-    function closeArticle() {
-      document.getElementById('articleModal').classList.remove('active');
-      document.body.style.overflow = 'auto';
-    }
-
-    function closeModalOnBackdrop(e) {
-      if (e.target.id === 'articleModal') {
-        closeArticle();
-      }
-    }
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeArticle();
-    });
-  </script>
-
   <!-- Footer -->
   <footer>
-    <p>devctx is open-source under the MIT License • Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a></p>
+    <p>codive is open-source under the MIT License • Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a> • <a href="https://github.com/recscse/codive" target="_blank">GitHub</a> • <a href="docs.html">Docs</a> • <a href="index.html">Home</a></p>
   </footer>
 
 </body>

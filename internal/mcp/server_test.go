@@ -10,16 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/codive/internal/db"
 )
 
 func setupTestDB(t *testing.T) (string, func()) {
-	tempDir, err := os.MkdirTemp("", "ctxd_mcp_test_*")
+	tempDir, err := os.MkdirTemp("", "codive_mcp_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 
-	dbPath := filepath.Join(tempDir, ".devctx", "index.db")
+	dbPath := filepath.Join(tempDir, ".codive", "index.db")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
@@ -84,14 +84,14 @@ func TestMCPServer(t *testing.T) {
 	tempDir, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	dbPath := filepath.Join(tempDir, ".devctx", "index.db")
+	dbPath := filepath.Join(tempDir, ".codive", "index.db")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
 	defer database.Close()
 
-	server := NewServer(tempDir, database)
+	server := NewServer(tempDir, database, "v1.1.0-test")
 
 	// 1. Test initialize
 	initReq := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"
@@ -152,7 +152,7 @@ func TestMCPServer(t *testing.T) {
 	if err := server.Serve(strings.NewReader(skelReq), &out); err != nil {
 		t.Fatalf("serve failed: %v", err)
 	}
-	if !strings.Contains(out.String(), "File Skeleton") {
+	if !strings.Contains(out.String(), "// File: main.go") {
 		t.Errorf("expected get_file_skeleton output, got %s", out.String())
 	}
 

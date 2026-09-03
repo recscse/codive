@@ -6,9 +6,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/recscse/devctx/internal/cmd"
-	"github.com/recscse/devctx/internal/logger"
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/cmd"
+	"github.com/recscse/codive/internal/logger"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // Build metadata injected via -ldflags during build
@@ -21,11 +21,11 @@ var (
 func printUsage() {
 	fmt.Println()
 	fmt.Printf("  %s  %s\n\n",
-		ui.GreenBold.Sprint("devctx"),
+		ui.GreenBold.Sprint("codive"),
 		ui.Dim.Sprintf("%s  ·  Local-first context engine for AI coding agents", Version),
 	)
 
-	fmt.Printf("  %s\n\n", ui.Dim.Sprint("Usage:  devctx <command> [path] [flags]"))
+	fmt.Printf("  %s\n\n", ui.Dim.Sprint("Usage:  codive <command> [path] [flags]"))
 
 	sections := []struct {
 		heading  string
@@ -75,7 +75,7 @@ func printUsage() {
 			[][]string{
 				{"web           ", "[path]  ", "Launch interactive architecture network graph"},
 				{"serve         ", "[path]  ", "Run the MCP (Model Context Protocol) server"},
-				{"upgrade       ", "        ", "Self-update devctx to the latest release"},
+				{"upgrade       ", "        ", "Self-update codive to the latest release"},
 				{"version       ", "        ", "Show version and build info"},
 				{"about         ", "        ", "Project background, author, and license"},
 			},
@@ -100,11 +100,11 @@ func printUsage() {
 	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--verbose  "), "Stream structured logs to stderr")
 	fmt.Println()
 	fmt.Printf("  %s\n", ui.Dim.Sprint("Examples"))
-	fmt.Printf("    %s\n", ui.Dim.Sprint("devctx setup"))
-	fmt.Printf("    %s\n", ui.Dim.Sprint("devctx init ./my-project"))
-	fmt.Printf("    %s\n", ui.Dim.Sprint(`devctx search "PaymentProcessor"`))
-	fmt.Printf("    %s\n", ui.Dim.Sprint("devctx blast GenerateToken"))
-	fmt.Printf("    %s\n", ui.Dim.Sprint("devctx pack auth"))
+	fmt.Printf("    %s\n", ui.Dim.Sprint("codive setup"))
+	fmt.Printf("    %s\n", ui.Dim.Sprint("codive init ./my-project"))
+	fmt.Printf("    %s\n", ui.Dim.Sprint(`codive search "PaymentProcessor"`))
+	fmt.Printf("    %s\n", ui.Dim.Sprint("codive blast GenerateToken"))
+	fmt.Printf("    %s\n", ui.Dim.Sprint("codive pack auth"))
 	fmt.Println()
 }
 
@@ -267,7 +267,7 @@ func main() {
 
 	case "blast", "blast-radius":
 		if len(args) < 2 {
-			ui.Error("usage: devctx blast <symbol> [path]")
+			ui.Error("usage: codive blast <symbol> [path]")
 			os.Exit(1)
 		}
 		symbol := args[1]
@@ -309,7 +309,7 @@ func main() {
 
 	case "symbol", "find-symbol":
 		if len(args) < 2 {
-			ui.Error("usage: devctx symbol <name> [path]")
+			ui.Error("usage: codive symbol <name> [path]")
 			os.Exit(1)
 		}
 		query := args[1]
@@ -324,7 +324,7 @@ func main() {
 
 	case "refs", "references", "find-references":
 		if len(args) < 2 {
-			ui.Error("usage: devctx refs <symbol> [path]")
+			ui.Error("usage: codive refs <symbol> [path]")
 			os.Exit(1)
 		}
 		symbol := args[1]
@@ -339,7 +339,7 @@ func main() {
 
 	case "search":
 		if len(args) < 2 {
-			ui.Error("usage: devctx search <query> [path]")
+			ui.Error("usage: codive search <query> [path]")
 			os.Exit(1)
 		}
 		query := args[1]
@@ -354,7 +354,7 @@ func main() {
 
 	case "pack":
 		if len(args) < 2 {
-			ui.Error("usage: devctx pack <query> [path]")
+			ui.Error("usage: codive pack <query> [path]")
 			os.Exit(1)
 		}
 		query := args[1]
@@ -402,7 +402,7 @@ func main() {
 		if len(args) >= 2 {
 			targetDir = args[1]
 		}
-		if err := cmd.RunServe(targetDir); err != nil {
+		if err := cmd.RunServe(targetDir, Version); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}
@@ -430,7 +430,7 @@ func main() {
 			})
 		} else {
 			fmt.Println()
-			fmt.Printf("  %s  %s\n", ui.GreenBold.Sprint("devctx"), Version)
+			fmt.Printf("  %s  %s\n", ui.GreenBold.Sprint("codive"), Version)
 			fmt.Printf("  %-20s  %s\n", ui.Dim.Sprint("Git Commit"), GitCommit)
 			fmt.Printf("  %-20s  %s\n", ui.Dim.Sprint("Build Date"), BuildDate)
 			fmt.Printf("  %-20s  %s\n", ui.Dim.Sprint("Go Version"), runtime.Version())
@@ -444,7 +444,7 @@ func main() {
 	default:
 		fmt.Println()
 		fmt.Printf("  %s  unknown command: %s\n\n", ui.Red.Sprint("error:"), command)
-		fmt.Printf("  Run %s for available commands.\n\n", ui.Bold.Sprint("devctx help"))
+		fmt.Printf("  Run %s for available commands.\n\n", ui.Bold.Sprint("codive help"))
 		os.Exit(1)
 	}
 }

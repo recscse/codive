@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zero-Lock SQLite WAL Concurrency | codive Blog</title>
+  <meta name="description" content="How codive avoids 'database is locked' errors when multiple AI agent processes and IDE restarts hit the same SQLite index concurrently, using DSN-level pragmas and a bounded connection pool.">
+  <meta name="keywords" content="SQLite WAL, database is locked, Go sql.Open, connection pool, MCP server, codive">
+  <meta name="author" content="Brijesh Yadav">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://recscse.github.io/codive/blog/zero-lock-sqlite-wal-concurrency.html">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://recscse.github.io/codive/blog/zero-lock-sqlite-wal-concurrency.html">
+  <meta property="og:title" content="Zero-Lock SQLite WAL Concurrency">
+  <meta property="og:description" content="How codive avoids 'database is locked' errors under concurrent MCP clients using DSN-level pragmas and a bounded connection pool.">
+  <meta property="og:image" content="https://recscse.github.io/codive/favicon.svg">
+  <meta property="article:published_time" content="2026-08-29">
+  <meta property="article:author" content="Brijesh Yadav">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Zero-Lock SQLite WAL Concurrency">
+  <meta name="twitter:description" content="How codive avoids 'database is locked' errors under concurrent MCP clients using DSN-level pragmas and a bounded connection pool.">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org", "@type": "BlogPosting",
+    "headline": "Zero-Lock SQLite WAL Concurrency",
+    "datePublished": "2026-08-29",
+    "author": { "@type": "Person", "name": "Brijesh Yadav", "url": "https://recscse.github.io" },
+    "publisher": { "@type": "Organization", "name": "codive" },
+    "mainEntityOfPage": "https://recscse.github.io/codive/blog/zero-lock-sqlite-wal-concurrency.html"
+  }
+  </script>
+
+  <link rel="icon" type="image/svg+xml" href="../favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <style>
+    :root { --bg: #06070b; --surface: #0b0e17; --surface-border: rgba(255,255,255,0.08); --accent: #20c20e; --accent-glow: rgba(32,194,14,0.25); --accent-dim: rgba(32,194,14,0.08); --text: #94a3b8; --text-muted: #64748b; --text-bright: #ffffff; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { background: var(--bg); color: var(--text); font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; min-height: 100vh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+    .glow-aura-1 { position: absolute; top: -200px; left: 50%; transform: translateX(-50%); width: 900px; height: 700px; background: radial-gradient(circle, rgba(32,194,14,0.1) 0%, transparent 70%); pointer-events: none; z-index: 0; }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; border-bottom: 1px solid var(--surface-border); background: rgba(6,7,11,0.85); backdrop-filter: blur(20px); }
+    .nav-container { max-width: 1240px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; position: relative; }
+    .logo-brand { font-family: 'Fira Code', monospace; font-size: 22px; font-weight: 800; color: var(--text-bright); text-decoration: none; }
+    .logo-brand span { color: var(--accent); }
+    .nav-center-links { position: absolute; left: 50%; transform: translateX(-50%); display: flex; gap: 32px; }
+    @media (max-width: 860px) { .nav-center-links { display: none; } }
+    .nav-link { font-size: 14px; font-weight: 600; color: var(--text); text-decoration: none; }
+    .nav-link:hover, .nav-link.active { color: var(--text-bright); }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+    .btn-gh-badge { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--surface-border); background: rgba(255,255,255,0.03); color: #cbd5e1; font-size: 13px; font-family: 'Fira Code', monospace; text-decoration: none; transition: all 0.2s; }
+    .btn-gh-badge:hover { border-color: rgba(32,194,14,0.4); background: var(--accent-dim); color: var(--text-bright); }
+    .btn-nav-cta { background: var(--accent); color: #000; font-weight: 800; font-size: 13px; padding: 8px 18px; border-radius: 6px; text-decoration: none; }
+    .article-page { max-width: 760px; margin: 128px auto 60px; padding: 0 24px; position: relative; z-index: 1; flex: 1; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); text-decoration: none; font-size: 13.5px; font-weight: 600; margin-bottom: 32px; }
+    .back-link:hover { color: var(--accent); }
+    .tag-badge { font-family: 'Fira Code', monospace; font-size: 11.5px; color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(32,194,14,0.25); padding: 4px 10px; border-radius: 20px; display: inline-block; margin-bottom: 18px; letter-spacing: 0.06em; text-transform: uppercase; }
+    .prose { font-size: 16px; line-height: 1.8; color: #cbd5e1; }
+    .prose h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 900; color: var(--text-bright); margin-bottom: 14px; line-height: 1.15; letter-spacing: -0.02em; }
+    .byline { font-size: 13.5px; color: var(--text-muted); margin-bottom: 36px; padding-bottom: 24px; border-bottom: 1px solid var(--surface-border); }
+    .prose h2 { font-size: 22px; font-weight: 800; color: var(--text-bright); margin: 40px 0 16px; border-bottom: 1px solid var(--surface-border); padding-bottom: 8px; }
+    .prose h3 { font-size: 17px; font-weight: 700; color: var(--accent); margin: 28px 0 12px; font-family: 'Fira Code', monospace; }
+    .prose p { margin-bottom: 20px; }
+    .prose ul, .prose ol { margin-left: 24px; margin-bottom: 20px; }
+    .prose li { margin-bottom: 8px; }
+    .prose code { font-family: 'Fira Code', monospace; font-size: 0.88em; color: #7dd3fc; background: rgba(125,211,252,0.08); padding: 1px 5px; border-radius: 4px; }
+    .prose pre { background: #06080d; border: 1px solid var(--surface-border); border-radius: 8px; padding: 16px 20px; font-family: 'Fira Code', monospace; font-size: 12.5px; color: #38bdf8; overflow-x: auto; margin: 20px 0 24px; line-height: 1.6; }
+    .prose pre code { background: none; padding: 0; color: inherit; }
+    table.art-table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 13.5px; }
+    table.art-table th, table.art-table td { border: 1px solid var(--surface-border); padding: 12px 16px; text-align: left; }
+    table.art-table th { background: #111522; color: var(--text-bright); font-family: 'Fira Code', monospace; font-size: 12px; }
+    table.art-table td { background: var(--surface); color: #cbd5e1; }
+    .callout { background: var(--accent-dim); border: 1px solid rgba(32,194,14,0.3); border-left: 3px solid var(--accent); border-radius: 8px; padding: 16px 20px; margin: 24px 0; font-size: 14.5px; color: #d1fae5; }
+    .article-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--surface-border); }
+    .article-nav a { display: block; background: var(--surface); border: 1px solid var(--surface-border); border-radius: 10px; padding: 16px 18px; text-decoration: none; color: var(--text); transition: border-color 0.2s; }
+    .article-nav a:hover { border-color: rgba(32,194,14,0.4); }
+    .article-nav .dir { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 4px; }
+    .article-nav .title { font-size: 14px; font-weight: 700; color: var(--text-bright); }
+    .article-nav .right { text-align: right; }
+    footer { border-top: 1px solid var(--surface-border); padding: 56px 24px; text-align: center; font-size: 14px; color: var(--text-muted); margin-top: auto; }
+    footer a { color: var(--text-bright); text-decoration: none; font-weight: 600; }
+    footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="glow-aura-1"></div>
+  <nav>
+    <div class="nav-container">
+      <a href="../index.html" class="logo-brand">codive<span>_</span></a>
+      <div class="nav-center-links">
+        <a href="../index.html" class="nav-link">Home</a>
+        <a href="../docs.html" class="nav-link">Docs</a>
+        <a href="../blog.html" class="nav-link active">Blog</a>
+      </div>
+      <div class="nav-actions">
+        <a href="https://github.com/recscse/codive" target="_blank" class="btn-gh-badge">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span>codive</span>
+        </a>
+        <a href="../index.html#install" class="btn-nav-cta">Get started</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="article-page">
+    <a href="../blog.html" class="back-link">&larr; Back to Blog</a>
+    <article class="prose">
+      <div class="tag-badge">Performance &middot; Benchmark</div>
+      <h1>Zero-Lock SQLite WAL Concurrency: Hardening the MCP Server for Multi-Agent Restarts</h1>
+      <div class="byline">Published August 29, 2026 &middot; By Brijesh Yadav &middot; 6 min read</div>
+
+      <p>One of the most common failure modes in local developer tooling built on SQLite is <code>database is locked</code> &mdash; usually SQLite error code 5, or its extended form <code>261</code> under Go's <code>modernc.org/sqlite</code> driver. It tends to show up at the worst possible time: when an IDE restarts, a background watcher and an MCP tool call hit the index at the same instant.</p>
+
+      <h2>Why This Happens</h2>
+      <p>SQLite's default journal mode serializes writers and can briefly block readers during a write. codive's MCP server, its <code>codive watch</code> background sync, and any concurrently running CLI command can all open the same <code>.codive/index.db</code> file at once &mdash; and a naive <code>sql.Open</code> call with no pragmas will surface a lock error instead of just waiting.</p>
+
+      <h2>The Production DSN Pattern</h2>
+      <p>Rather than issuing <code>PRAGMA</code> statements after connecting (which race against other connections), codive encodes them directly in the SQLite DSN, so every connection in the pool gets them atomically on open:</p>
+
+      <pre>dsn := fmt.Sprintf(
+    "file:%s?_pragma=busy_timeout(10000)"+
+        "&_pragma=journal_mode(WAL)"+
+        "&_pragma=synchronous(NORMAL)"+
+        "&_pragma=cache_size(-64000)",
+    filepath.ToSlash(dbPath),
+)
+database, err := sql.Open("sqlite", dsn)</pre>
+
+      <table class="art-table">
+        <thead><tr><th>Pragma</th><th>Value</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><code>busy_timeout</code></td><td>10000ms</td><td>A connection that hits a lock waits up to 10s instead of failing immediately &mdash; long enough to ride out an IDE restart or a concurrent write.</td></tr>
+          <tr><td><code>journal_mode</code></td><td>WAL</td><td>Readers no longer block writers (or vice versa) &mdash; the classic single-writer/no-reader SQLite bottleneck goes away.</td></tr>
+          <tr><td><code>synchronous</code></td><td>NORMAL</td><td>Safe under WAL (durable across app crashes, not OS crashes) while avoiding the fsync cost of <code>FULL</code> on every commit.</td></tr>
+          <tr><td><code>cache_size</code></td><td>-64000</td><td>Negative value = KiB, not pages &mdash; a 64MB page cache, since <code>find_symbol</code>/<code>search_code</code> re-read the same hot pages constantly.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Bounding the Connection Pool</h2>
+      <p>A busy-timeout alone isn't enough if the pool itself keeps too many idle connections open across restarts. codive caps the standard <code>database/sql</code> pool tightly:</p>
+      <pre>database.SetMaxOpenConns(4)
+database.SetMaxIdleConns(2)
+database.SetConnMaxLifetime(10 * time.Minute)</pre>
+      <p>Four open connections is deliberately small: codive's MCP server is typically driven by a single AI agent process at a time, plus the background auto-sync watcher. Limiting idle connections means a stale connection from a previous <code>codive serve</code> process doesn't sit holding a lock during the window where an IDE is restarting the MCP subprocess.</p>
+
+      <div class="callout"><strong>Result:</strong> across Claude Code, Cursor, and Google Antigravity restarts &mdash; all of which can spin up a fresh <code>codive serve</code> subprocess while a previous one is still tearing down &mdash; the bounded pool plus the 10-second busy timeout absorbs the handoff instead of surfacing a "database is locked" error to the agent.</p>
+
+      <h2>What This Doesn't Solve</h2>
+      <p>WAL mode still requires the database directory to be writable and to not sit on a network filesystem with poor <code>fcntl</code> locking support (some network drives are known-bad for SQLite WAL). If you index a repository over a network mount and see intermittent lock errors despite this configuration, that's the first thing to check &mdash; it's a filesystem limitation, not something a busier timeout can paper over.</p>
+    </article>
+
+    <div class="article-nav">
+      <a href="why-grep-fails-for-ai-agents.html">
+        <div class="dir">Previous</div>
+        <div class="title">&larr; Why Grep Fails for AI Coding Agents</div>
+      </a>
+      <a href="code-skeletonizer-token-compression.html" class="right">
+        <div class="dir">Next</div>
+        <div class="title">The Skeletonizer &rarr;</div>
+      </a>
+    </div>
+  </main>
+
+  <footer>
+    <p>codive is open-source under the MIT License &middot; Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a> &middot; <a href="https://github.com/recscse/codive" target="_blank">GitHub</a> &middot; <a href="../docs.html">Docs</a> &middot; <a href="../blog.html">Blog</a></p>
+  </footer>
+</body>
+</html>
