@@ -1,4 +1,4 @@
-// Package db manages the SQLite database, schema migrations, and queries for ctxd.
+// Package db manages the SQLite database, schema migrations, and queries for codive.
 package db
 
 import (
@@ -76,7 +76,7 @@ func Open(dbPath string) (*sql.DB, error) {
 	// Automatically migrate schema on open
 	if err := Migrate(database); err != nil {
 		database.Close()
-		return nil, fmt.Errorf("database schema migration failed: %w\nSuggestion: run 'ctxd init' to rebuild the index from scratch", err)
+		return nil, fmt.Errorf("database schema migration failed: %w\nSuggestion: run 'codive init' to rebuild the index from scratch", err)
 	}
 
 	return database, nil
@@ -821,17 +821,32 @@ func FindCallees(ctx context.Context, database *sql.DB, symbol string) ([]Symbol
 	if startLine < 0 {
 		startLine = 0
 	}
-	endLine := startLine + 60
-	if endLine > len(lines) {
-		endLine = len(lines)
-	}
-
-	funcBody := strings.Join(lines[startLine:endLine], "\n")
 
 	allSymbols, err := GetAllSymbols(ctx, database)
 	if err != nil {
 		return nil, err
 	}
+
+	// Determine the real end of the function body: the line just before the next
+	// declared symbol in the same file, instead of a fixed line-count window that
+	// silently truncated analysis of any function longer than that window (and
+	// could pick up unrelated symbols from whatever code happened to follow it).
+	// This mirrors the same conservative next-declaration boundary heuristic
+	// GenerateSkeleton already uses.
+	endLine := len(lines)
+	for _, s := range allSymbols {
+		if s.FilePath == targetSym.FilePath && s.LineNumber > targetSym.LineNumber && s.LineNumber-1 < endLine {
+			endLine = s.LineNumber - 1
+		}
+	}
+	if endLine > len(lines) {
+		endLine = len(lines)
+	}
+	if endLine <= startLine {
+		endLine = len(lines)
+	}
+
+	funcBody := strings.Join(lines[startLine:endLine], "\n")
 
 	var callees []SymbolRecord
 	seen := make(map[string]bool)
