@@ -15,7 +15,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/codive/internal/db"
 )
 
 // ExtractSymbols parses source code based on its language and returns declared symbols.
@@ -122,7 +122,14 @@ var (
 	jstsTypeRegex      = regexp.MustCompile(`^\s*(?:export\s+)?type\s+([A-Za-z0-9_]+)`)
 	jstsEnumRegex      = regexp.MustCompile(`^\s*(?:export\s+)?enum\s+([A-Za-z0-9_]+)`)
 	jstsFuncRegex      = regexp.MustCompile(`^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*(?:<.*?>)?\s*(\(.*?\))`)
-	jstsArrowFuncRegex = regexp.MustCompile(`^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_]+)\s*(?::\s*[^=]+)?\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z0-9_]+)\s*=>`)
+	jstsArrowFuncRegex = regexp.MustCompile(`^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_]+)\s*(?::\s*[^=]+)?\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z0-9_]+)\s*(?::\s*[^=]+)?\s*=>`)
+
+	// jstsMethodRegex matches an ES6 class method or constructor declaration
+	// (no `function` keyword, e.g. `async processPayment(x): Promise<T> {`).
+	// Only applied while inside a class body (see classBodyDepth in
+	// extractJSTSSymbols) so it never matches control-flow blocks like
+	// `if (x) {` at the top level.
+	jstsMethodRegex = regexp.MustCompile(`^\s*(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+|abstract\s+|async\s+|get\s+|set\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]*>)?\s*\(([^)]*)\)\s*(?::\s*[^{;]+)?\s*\{`)
 
 	// Java, Spring Boot & C# regexes
 	oopAnnotationRegex = regexp.MustCompile(`^\s*@([A-Za-z0-9_]+)(?:\((.*?)\))?`)
@@ -196,79 +203,62 @@ func extractPythonSymbols(relPath string, content []byte) ([]db.SymbolRecord, er
 	return symbols, scanner.Err()
 }
 
+// jsControlKeywords excludes control-flow constructs that could otherwise be
+// misread as a class method by jstsMethodRegex's name capture group (e.g.
+// `if (x) {`, `for (;;) {`). classBodyDepth gating already excludes nearly
+// all of these on its own since control-flow blocks sit one level deeper
+// than direct class members, but this is a cheap second line of defense.
+var jsControlKeywords = map[string]bool{
+	"if": true, "for": true, "while": true, "switch": true, "catch": true,
+	"function": true, "return": true, "else": true, "do": true, "try": true,
+}
+
 func extractJSTSSymbols(relPath string, content []byte) ([]db.SymbolRecord, error) {
 	var symbols []db.SymbolRecord
 	scanner := bufio.NewScanner(bytes.NewReader(content))
 	lineNum := 0
 
+	// braceDepth is a running per-line `{`/`}` count, not a real parse — it's
+	// only precise enough to answer "is this line directly inside the most
+	// recently opened class body," which is what lets us detect ES6 class
+	// methods (declared with no `function` keyword) without also matching
+	// control-flow blocks anywhere else in the file.
+	braceDepth := 0
+	classBodyDepth := -1
+
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
+		openBraces := strings.Count(line, "{")
+		closeBraces := strings.Count(line, "}")
 
-		if trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") {
-			continue
+		isCommentOrBlank := trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "*")
+
+		if isCommentOrBlank {
+			// no symbol — falls through to brace bookkeeping below
+		} else if m := jstsClassRegex.FindStringSubmatch(line); len(m) > 1 {
+			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "class", Signature: trimmed, LineNumber: lineNum})
+			classBodyDepth = braceDepth + 1
+		} else if m := jstsInterfaceRegex.FindStringSubmatch(line); len(m) > 1 {
+			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "interface", Signature: trimmed, LineNumber: lineNum})
+		} else if m := jstsTypeRegex.FindStringSubmatch(line); len(m) > 1 {
+			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "type", Signature: trimmed, LineNumber: lineNum})
+		} else if m := jstsEnumRegex.FindStringSubmatch(line); len(m) > 1 {
+			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "enum", Signature: trimmed, LineNumber: lineNum})
+		} else if m := jstsFuncRegex.FindStringSubmatch(line); len(m) > 1 {
+			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "function", Signature: trimmed, LineNumber: lineNum})
+		} else if m := jstsArrowFuncRegex.FindStringSubmatch(line); len(m) > 1 {
+			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "function", Signature: trimmed, LineNumber: lineNum})
+		} else if classBodyDepth >= 0 && braceDepth == classBodyDepth {
+			if m := jstsMethodRegex.FindStringSubmatch(line); len(m) > 1 && !jsControlKeywords[m[1]] {
+				symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "method", Signature: trimmed, LineNumber: lineNum})
+			}
 		}
 
-		if m := jstsClassRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{
-				FilePath:   relPath,
-				Name:       m[1],
-				Kind:       "class",
-				Signature:  trimmed,
-				LineNumber: lineNum,
-			})
-			continue
-		}
-		if m := jstsInterfaceRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{
-				FilePath:   relPath,
-				Name:       m[1],
-				Kind:       "interface",
-				Signature:  trimmed,
-				LineNumber: lineNum,
-			})
-			continue
-		}
-		if m := jstsTypeRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{
-				FilePath:   relPath,
-				Name:       m[1],
-				Kind:       "type",
-				Signature:  trimmed,
-				LineNumber: lineNum,
-			})
-			continue
-		}
-		if m := jstsEnumRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{
-				FilePath:   relPath,
-				Name:       m[1],
-				Kind:       "enum",
-				Signature:  trimmed,
-				LineNumber: lineNum,
-			})
-			continue
-		}
-		if m := jstsFuncRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{
-				FilePath:   relPath,
-				Name:       m[1],
-				Kind:       "function",
-				Signature:  trimmed,
-				LineNumber: lineNum,
-			})
-			continue
-		}
-		if m := jstsArrowFuncRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{
-				FilePath:   relPath,
-				Name:       m[1],
-				Kind:       "function",
-				Signature:  trimmed,
-				LineNumber: lineNum,
-			})
-			continue
+		braceDepth += openBraces - closeBraces
+		if classBodyDepth >= 0 && braceDepth < classBodyDepth {
+			classBodyDepth = -1
 		}
 	}
 	return symbols, scanner.Err()

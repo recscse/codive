@@ -121,8 +121,33 @@ export const fetchUsers = async () => {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(symbols) != 5 {
-		t.Fatalf("expected 5 symbols, got %d", len(symbols))
+	// interface User, type UserID, class UserService, method getUser,
+	// function getUserById, arrow function fetchUsers.
+	if len(symbols) != 6 {
+		t.Fatalf("expected 6 symbols, got %d: %+v", len(symbols), symbols)
+	}
+
+	want := map[string]string{
+		"User":         "interface",
+		"UserID":       "type",
+		"UserService":  "class",
+		"getUser":      "method",
+		"getUserById":  "function",
+		"fetchUsers":   "function",
+	}
+	got := make(map[string]string, len(symbols))
+	for _, s := range symbols {
+		got[s.Name] = s.Kind
+	}
+	for name, wantKind := range want {
+		gotKind, ok := got[name]
+		if !ok {
+			t.Errorf("expected symbol %q not found", name)
+			continue
+		}
+		if gotKind != wantKind {
+			t.Errorf("symbol %q: expected kind %q, got %q", name, wantKind, gotKind)
+		}
 	}
 }
 
