@@ -896,15 +896,37 @@ func FindCallees(ctx context.Context, database *sql.DB, symbol string) ([]Symbol
 		endLine = len(lines)
 	}
 
-	funcBody := strings.Join(lines[startLine:endLine], "\n")
+	bodyLines := lines[startLine:endLine]
+	// Exclude the target's own declaration/signature line from matching: a
+	// receiver type, parameter types, or return type named there (e.g.
+	// `func (s *Server) executeTool(...) (*ToolCallResult, error) {`) are not
+	// things the function actually calls, and were previously reported as
+	// false-positive callees.
+	var bodyOnly string
+	if len(bodyLines) > 1 {
+		bodyOnly = strings.Join(bodyLines[1:], "\n")
+	}
 
 	var callees []SymbolRecord
 	seen := make(map[string]bool)
 	for _, s := range allSymbols {
-		if s.Name == symbol || len(s.Name) <= 3 {
+		if s.Name == symbol || len(s.Name) <= 3 || seen[s.Name] {
 			continue
 		}
-		if strings.Contains(funcBody, s.Name) && !seen[s.Name] {
+		// A callable symbol (function/method) must appear as an actual call or
+		// instantiation — `Name(` — to count; a bare mention elsewhere in the
+		// body (e.g. in a comment, or as part of a longer identifier) doesn't
+		// mean it's called. Non-callable symbols (types/structs/interfaces)
+		// have no equivalent call syntax, so a plain reference still counts —
+		// e.g. `Type{...}` composite literals or a variable's declared type.
+		if s.Kind == "function" || s.Kind == "method" {
+			if strings.Contains(bodyOnly, s.Name+"(") {
+				seen[s.Name] = true
+				callees = append(callees, s)
+			}
+			continue
+		}
+		if strings.Contains(bodyOnly, s.Name) {
 			seen[s.Name] = true
 			callees = append(callees, s)
 		}
