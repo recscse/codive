@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://recscse.github.io/devctx/sitemap.xml
+Sitemap: https://recscse.github.io/codive/sitemap.xml

@@ -1,17 +1,17 @@
-// Package cmd implements the command line actions and subcommands for devctx.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
 	"fmt"
 
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // RunAbout displays project information, author, and architectural summary.
 func RunAbout(version, buildDate, gitCommit string) error {
 	fmt.Println()
 	fmt.Printf("  %s  %s\n\n",
-		ui.GreenBold.Sprint("devctx"),
+		ui.GreenBold.Sprint("codive"),
 		ui.Dim.Sprint("Local-first context engine for AI coding agents"),
 	)
 
@@ -21,14 +21,14 @@ func RunAbout(version, buildDate, gitCommit string) error {
 	fmt.Println()
 	ui.KeyValue("Author", "Brijesh Yadav")
 	ui.KeyValue("License", "MIT")
-	ui.KeyValue("Repository", "https://github.com/recscse/devctx")
-	ui.KeyValue("Website", "https://recscse.github.io/devctx/")
-	ui.KeyValue("Docs", "https://recscse.github.io/devctx/docs.html")
+	ui.KeyValue("Repository", "https://github.com/recscse/codive")
+	ui.KeyValue("Website", "https://recscse.github.io/codive/")
+	ui.KeyValue("Docs", "https://recscse.github.io/codive/docs.html")
 	fmt.Println()
 	ui.Divider()
 	fmt.Println()
 	fmt.Printf("  %s\n\n",
-		"devctx indexes Abstract Syntax Trees (AST) into an embedded SQLite WAL",
+		"codive indexes Abstract Syntax Trees (AST) into an embedded SQLite WAL",
 	)
 	fmt.Printf("  %s\n",
 		"database and exposes 14 MCP tools for AI coding agents. Symbol lookups,",

@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/codive/internal/db"
 )
 
 func TestUpdateOnOutdatedSchema(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "ctxd_update_compat_test_*")
+	tempDir, err := os.MkdirTemp("", "codive_update_compat_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -21,12 +21,12 @@ func TestUpdateOnOutdatedSchema(t *testing.T) {
 		t.Fatalf("failed to write source file: %v", err)
 	}
 
-	// Create .devctx directory with an old V1 schema (only files table, NO file_fts and NO symbols)
-	ctxdDir := filepath.Join(tempDir, ".devctx")
-	if err := os.MkdirAll(ctxdDir, 0755); err != nil {
-		t.Fatalf("failed to create .devctx dir: %v", err)
+	// Create .codive directory with an old V1 schema (only files table, NO file_fts and NO symbols)
+	codiveDir := filepath.Join(tempDir, ".codive")
+	if err := os.MkdirAll(codiveDir, 0755); err != nil {
+		t.Fatalf("failed to create .codive dir: %v", err)
 	}
-	dbPath := filepath.Join(ctxdDir, "index.db")
+	dbPath := filepath.Join(codiveDir, "index.db")
 
 	rawDB, err := db.OpenRaw(dbPath)
 	if err != nil {
@@ -54,7 +54,7 @@ func TestUpdateOnOutdatedSchema(t *testing.T) {
 		t.Fatalf("failed to modify source file: %v", err)
 	}
 
-	// Run ctxd update on this outdated database. It should auto-migrate (self-heal) and succeed!
+	// Run codive update on this outdated database. It should auto-migrate (self-heal) and succeed!
 	if err := RunUpdate(tempDir); err != nil {
 		t.Fatalf("RunUpdate failed on outdated schema database: %v", err)
 	}

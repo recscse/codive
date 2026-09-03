@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/codive/internal/db"
 )
 
 func TestScanner(t *testing.T) {
 	// 1. Create a temporary fixture directory
-	tempDir, err := os.MkdirTemp("", "ctxd_scanner_test_*")
+	tempDir, err := os.MkdirTemp("", "codive_scanner_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestScanner(t *testing.T) {
 		"target/app.jar",
 		"bin/binary.exe",
 		"obj/debug.o",
-		".devctx/index.db",
+		".codive/index.db",
 	}
 
 	for _, relPath := range ignoredFiles {
@@ -132,7 +132,7 @@ func TestScanner(t *testing.T) {
 }
 
 func TestLargeFileExclusion(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "ctxd_large_file_test_*")
+	tempDir, err := os.MkdirTemp("", "codive_large_file_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -160,8 +160,8 @@ func TestLargeFileExclusion(t *testing.T) {
 	}
 }
 
-func TestDevctxIgnore(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "ctxd_ignore_test_*")
+func TestCodiveIgnore(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "codive_ignore_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -174,8 +174,8 @@ temp/
 # Ignore secret files
 .env
 `
-	if err := os.WriteFile(filepath.Join(tempDir, ".devctxignore"), []byte(ignoreContent), 0644); err != nil {
-		t.Fatalf("failed to write .devctxignore: %v", err)
+	if err := os.WriteFile(filepath.Join(tempDir, ".codiveignore"), []byte(ignoreContent), 0644); err != nil {
+		t.Fatalf("failed to write .codiveignore: %v", err)
 	}
 
 	// Create test files
@@ -199,7 +199,7 @@ temp/
 }
 
 func TestScanIncremental(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "ctxd_incr_test_*")
+	tempDir, err := os.MkdirTemp("", "codive_incr_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}

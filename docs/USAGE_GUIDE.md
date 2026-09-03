@@ -1,6 +1,6 @@
-# 📖 `devctx` Complete User & Integration Guide
+# 📖 `codive` Complete User & Integration Guide
 
-This guide covers everything you need to know about setting up, configuring, and using `devctx` with any AI coding assistant.
+This guide covers everything you need to know about setting up, configuring, and using `codive` with any AI coding assistant.
 
 ---
 
@@ -9,9 +9,9 @@ This guide covers everything you need to know about setting up, configuring, and
 ### A. Automatic Setup (Recommended)
 In your terminal, navigate to your repository root and run:
 ```bash
-devctx setup
+codive setup
 ```
-`devctx setup` automatically scans and registers `devctx` in:
+`codive setup` automatically scans and registers `codive` in:
 - **Google Antigravity**: `~/.gemini/config/mcp_config.json`
 - **Claude Desktop**: `~/Library/Application Support/Claude/claude_desktop_config.json` or `%APPDATA%\Claude\claude_desktop_config.json`
 - **Cursor IDE**: `~/.cursor/mcp.json`
@@ -26,8 +26,8 @@ If you prefer adding the configuration manually to your editor's MCP config:
 ```json
 {
   "mcpServers": {
-    "devctx": {
-      "command": "devctx",
+    "codive": {
+      "command": "codive",
       "args": ["serve"],
       "autoApprove": [
         "pack_feature_context",
@@ -119,13 +119,13 @@ If you prefer adding the configuration manually to your editor's MCP config:
 
 | Command | Action | Example |
 | :--- | :--- | :--- |
-| `devctx setup` | Auto-configures MCP in installed AI clients | `devctx setup` |
-| `devctx init` | Scans and indexes the repository | `devctx init` |
-| `devctx update` | Fast incremental synchronization (<5ms) | `devctx update` |
-| `devctx stats` | Displays the token and cloud money savings box | `devctx stats` |
-| `devctx blast <sym>` | Evaluates refactoring blast radius | `devctx blast GenerateToken` |
-| `devctx map --web` | Launches the interactive browser network graph | `devctx map --web` |
-| `devctx doctor` | Verifies SQLite integrity and MCP setup | `devctx doctor` |
-| `devctx diff` | AST-aware summary of uncommitted git changes | `devctx diff` |
-| `devctx init-rules` | Auto-generates `AGENTS.md` and `.cursorrules` | `devctx init-rules` |
-| `devctx install-hooks`| Installs Git post-commit & post-checkout hooks | `devctx install-hooks` |
+| `codive setup` | Auto-configures MCP in installed AI clients | `codive setup` |
+| `codive init` | Scans and indexes the repository | `codive init` |
+| `codive update` | Fast incremental synchronization (<5ms) | `codive update` |
+| `codive stats` | Displays the token and cloud money savings box | `codive stats` |
+| `codive blast <sym>` | Evaluates refactoring blast radius | `codive blast GenerateToken` |
+| `codive map --web` | Launches the interactive browser network graph | `codive map --web` |
+| `codive doctor` | Verifies SQLite integrity and MCP setup | `codive doctor` |
+| `codive diff` | AST-aware summary of uncommitted git changes | `codive diff` |
+| `codive init-rules` | Auto-generates `AGENTS.md` and `.cursorrules` | `codive init-rules` |
+| `codive install-hooks`| Installs Git post-commit & post-checkout hooks | `codive install-hooks` |

@@ -1,4 +1,4 @@
-// Package cmd implements the command line actions and subcommands for ctxd.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/scanner"
-	"github.com/recscse/devctx/internal/symbols"
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/scanner"
+	"github.com/recscse/codive/internal/symbols"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // formatBytes converts byte count to human-readable format.
@@ -32,7 +32,7 @@ func formatBytes(b int64) string {
 	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-// RunInit initializes the repository index by scanning files and populating .devctx/index.db.
+// RunInit initializes the repository index by scanning files and populating .codive/index.db.
 func RunInit(targetDir string) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
@@ -56,8 +56,8 @@ func RunInit(targetDir string) error {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
-	ctxdDir := filepath.Join(absDir, ".devctx")
-	dbPath := filepath.Join(ctxdDir, "index.db")
+	codiveDir := filepath.Join(absDir, ".codive")
+	dbPath := filepath.Join(codiveDir, "index.db")
 
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -181,10 +181,10 @@ func RunInit(targetDir string) error {
 	}
 
 	fmt.Println()
-	ui.Header("devctx — Repository Index Initialization")
+	ui.Header("codive — Repository Index Initialization")
 	ui.Divider()
-	ui.KeyValueHighlight("Indexed Files", fmt.Sprintf("%d files (%s)", len(scanResult.Files), formatBytes(scanResult.TotalSizeBytes)))
-	ui.KeyValueHighlight("AST Symbols", fmt.Sprintf("%d symbols", len(allSymbols)))
+	ui.KeyValueHighlight("Indexed Files", fmt.Sprintf("%s (%s)", ui.Count(len(scanResult.Files), "file", "files"), formatBytes(scanResult.TotalSizeBytes)))
+	ui.KeyValueHighlight("AST Symbols", ui.Count(len(allSymbols), "symbol", "symbols"))
 	ui.KeyValue("Language", primaryLang)
 	ui.KeyValue("Database Path", dbPath)
 	ui.KeyValue("Latency", fmt.Sprintf("%v", duration.Round(time.Millisecond)))

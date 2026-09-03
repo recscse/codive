@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/codive/internal/db"
 )
 
 // GenerateSkeleton returns a token-efficient structural outline of a source file.

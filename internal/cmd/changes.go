@@ -1,4 +1,4 @@
-// Package cmd implements the command line actions and subcommands for ctxd.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/git"
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/git"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // RunChanges inspects uncommitted git changes and prints an AST-aware token-efficient summary.
@@ -18,7 +18,7 @@ func RunChanges(targetDir string, asJSON bool) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".devctx", "index.db")
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	dbConn, err := db.Open(dbPath)
 	if err == nil {
 		defer dbConn.Close()
@@ -35,11 +35,11 @@ func RunChanges(targetDir string, asJSON bool) error {
 	}
 
 	if res.TotalChanged == 0 {
-		ui.Success("✓ Clean working tree: No uncommitted changes detected.")
+		ui.Success("Clean working tree: No uncommitted changes detected.")
 		return nil
 	}
 
-	ui.CyanBold.Printf("🌿 Git Changes (%d files on branch '%s'):\n\n", res.TotalChanged, res.Branch)
+	ui.CyanBold.Printf("Git Changes (%s on branch '%s'):\n\n", ui.Count(res.TotalChanged, "file", "files"), res.Branch)
 	for _, f := range res.Files {
 		statusColor := ui.Yellow.Sprint(f.Status)
 		if f.Status == "added" || f.Status == "untracked" {

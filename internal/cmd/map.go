@@ -1,4 +1,4 @@
-// Package cmd implements the command line actions and subcommands for ctxd.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/ui"
-	"github.com/recscse/devctx/internal/web"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/ui"
+	"github.com/recscse/codive/internal/web"
 )
 
 // FileMapJSON represents a single file and its symbols for JSON serialization.
@@ -54,9 +54,9 @@ func RunMapWeb(targetDir string, port int) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".devctx", "index.db")
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
+		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'codive init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -85,9 +85,9 @@ func GenerateMap(targetDir string, opts MapOptions) (string, error) {
 		return "", fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".devctx", "index.db")
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
+		return "", fmt.Errorf("repository is not initialized (no index found at %s). Run 'codive init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -190,7 +190,7 @@ func GenerateMap(targetDir string, opts MapOptions) (string, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("# 🗺️ Repository Map\n")
+	sb.WriteString("# Repository Map\n")
 	sb.WriteString(fmt.Sprintf("Total Files: %d | Total Symbols: %d\n\n", len(filePaths), len(allSymbols)))
 
 	truncatedFiles := 0
@@ -211,16 +211,16 @@ func GenerateMap(targetDir string, opts MapOptions) (string, error) {
 			fileRec := allFiles[f]
 			syms := symbolsByFile[f]
 			if len(syms) == 0 || !opts.IncludeSymbols {
-				sb.WriteString(fmt.Sprintf("  📄 `%s` (%s, %s)\n",
+				sb.WriteString(fmt.Sprintf("  - `%s` (%s, %s)\n",
 					filepath.Base(f),
 					fileRec.Language,
 					formatBytes(fileRec.SizeBytes)))
 			} else {
-				sb.WriteString(fmt.Sprintf("  📄 `%s` (%s, %s) — %d symbols:\n",
+				sb.WriteString(fmt.Sprintf("  - `%s` (%s, %s) — %s:\n",
 					filepath.Base(f),
 					fileRec.Language,
 					formatBytes(fileRec.SizeBytes),
-					len(syms)))
+					ui.Count(len(syms), "symbol", "symbols")))
 				for _, s := range syms {
 					cleanSig := strings.TrimSpace(s.Signature)
 					if cleanSig == "" {
@@ -237,7 +237,7 @@ func GenerateMap(targetDir string, opts MapOptions) (string, error) {
 	}
 
 	if truncatedFiles > 0 {
-		sb.WriteString(fmt.Sprintf("\n> ⚠️ *Map truncated (+%d files omitted) to fit token budget. Use 'directory_filter' or 'max_depth' to inspect specific submodules.*\n", truncatedFiles))
+		sb.WriteString(fmt.Sprintf("\n> Map truncated (+%s omitted) to fit token budget. Use 'directory_filter' or 'max_depth' to inspect specific submodules.\n", ui.Count(truncatedFiles, "file", "files")))
 	}
 
 	return strings.TrimSpace(sb.String()), nil

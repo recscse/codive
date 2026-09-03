@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/ui"
 )
 
-// RunLogs reads and prints the most recent log entries from .devctx/devctx.log.
+// RunLogs reads and prints the most recent log entries from .codive/codive.log.
 func RunLogs(targetDir string, lineCount int) error {
 	if lineCount <= 0 {
 		lineCount = 50
@@ -20,10 +20,10 @@ func RunLogs(targetDir string, lineCount int) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	logPath := filepath.Join(absDir, ".devctx", "devctx.log")
+	logPath := filepath.Join(absDir, ".codive", "codive.log")
 	file, err := os.Open(logPath)
 	if os.IsNotExist(err) {
-		ui.Warning(fmt.Sprintf("No log file found at %s. Run ctxd commands first.", logPath))
+		ui.Warning(fmt.Sprintf("No log file found at %s. Run codive commands first.", logPath))
 		return nil
 	}
 	if err != nil {

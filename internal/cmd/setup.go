@@ -1,4 +1,4 @@
-// Package cmd implements the command line actions and subcommands for ctxd.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // MCPConfigFile represents standard MCP JSON configurations.
@@ -30,21 +30,21 @@ type agentTarget struct {
 	PathGetter func() (string, error)
 }
 
-const ctxdAgentRule = `## Code Search & Exploration Rules
+const codiveAgentRule = `## Code Search & Exploration Rules
 - **DO NOT** use raw ` + "`grep`" + `, ` + "`ripgrep`" + `, or recursive ` + "`list_dir`" + ` for codebase exploration.
-- **ALWAYS PREFER** the ` + "`ctxd`" + ` MCP tools:
-  1. Use ` + "`devctx:get_repo_map`" + ` to understand the codebase structure and symbols.
-  2. Use ` + "`devctx:find_symbol`" + ` when locating function, class, or type definitions.
-  3. Use ` + "`devctx:find_references`" + ` when discovering callers or usages of a function/type.
-  4. Use ` + "`devctx:search_code`" + ` when searching for terms or strings across files.
-  5. Use ` + "`devctx:read_file_context`" + ` to read files with AST symbol summaries.
+- **ALWAYS PREFER** the ` + "`codive`" + ` MCP tools:
+  1. Use ` + "`codive:get_repo_map`" + ` to understand the codebase structure and symbols.
+  2. Use ` + "`codive:find_symbol`" + ` when locating function, class, or type definitions.
+  3. Use ` + "`codive:find_references`" + ` when discovering callers or usages of a function/type.
+  4. Use ` + "`codive:search_code`" + ` when searching for terms or strings across files.
+  5. Use ` + "`codive:read_file_context`" + ` to read files with AST symbol summaries.
 `
 
-// RunSetup automatically detects installed AI tools, configures ctxd MCP server entries, and installs agent prioritization rules.
+// RunSetup automatically detects installed AI tools, configures codive MCP server entries, and installs agent prioritization rules.
 func RunSetup(targetDir string) error {
 	exePath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("failed to determine ctxd executable path: %w", err)
+		return fmt.Errorf("failed to determine codive executable path: %w", err)
 	}
 	exePath, _ = filepath.Abs(exePath)
 
@@ -127,7 +127,7 @@ func RunSetup(targetDir string) error {
 		},
 	}
 
-	ui.Header("devctx — AI Client MCP Configuration Setup")
+	ui.Header("codive — AI Client MCP Configuration Setup")
 	ui.Divider()
 	ui.KeyValue("Executable", exePath)
 	ui.KeyValue("Target Repo", absTarget)
@@ -157,9 +157,9 @@ func RunSetup(targetDir string) error {
 
 	// 2. Install agent prioritization rules
 	rulePaths := []string{
-		filepath.Join(homeDir, ".gemini", "antigravity", "rules", "devctx.md"),
-		filepath.Join(homeDir, ".gemini", "rules", "devctx.md"),
-		filepath.Join(absTarget, ".gemini", "rules", "devctx.md"),
+		filepath.Join(homeDir, ".gemini", "antigravity", "rules", "codive.md"),
+		filepath.Join(homeDir, ".gemini", "rules", "codive.md"),
+		filepath.Join(absTarget, ".gemini", "rules", "codive.md"),
 		filepath.Join(absTarget, ".cursorrules"),
 		filepath.Join(absTarget, ".windsurfrules"),
 		filepath.Join(absTarget, "CLAUDE.md"),
@@ -176,8 +176,8 @@ func RunSetup(targetDir string) error {
 
 	fmt.Println()
 	if configuredCount > 0 {
-		ui.Success("devctx is now fully registered across all AI coding assistants!")
-		fmt.Println("  AI agents will now automatically call devctx MCP tools for symbol search and context packing.")
+		ui.Success("codive is now fully registered across all AI coding assistants!")
+		fmt.Println("  AI agents will now automatically call codive MCP tools for symbol search and context packing.")
 	} else {
 		ui.Warning("No supported AI agent configuration directories were found.")
 	}
@@ -203,8 +203,8 @@ func writeOrMergeMCPConfig(cfgPath string, exePath string, repoDir string) error
 		}
 	}
 
-	// Set/Update ctxd with autoApprove enabled
-	config.MCPServers["devctx"] = MCPServerConfig{
+	// Set/Update codive with autoApprove enabled
+	config.MCPServers["codive"] = MCPServerConfig{
 		Command: exePath,
 		Args:    []string{"serve", repoDir},
 		AutoApprove: []string{
@@ -230,15 +230,15 @@ func writeAgentRule(rulePath string) error {
 		return err
 	}
 
-	// If file exists and already contains ctxd rule, skip
+	// If file exists and already contains codive rule, skip
 	if existing, err := os.ReadFile(rulePath); err == nil {
-		if strings.Contains(string(existing), "devctx") {
+		if strings.Contains(string(existing), "codive") {
 			return nil
 		}
 		// Append rule
-		newContent := string(existing) + "\n\n" + ctxdAgentRule
+		newContent := string(existing) + "\n\n" + codiveAgentRule
 		return os.WriteFile(rulePath, []byte(newContent), 0644)
 	}
 
-	return os.WriteFile(rulePath, []byte(ctxdAgentRule), 0644)
+	return os.WriteFile(rulePath, []byte(codiveAgentRule), 0644)
 }

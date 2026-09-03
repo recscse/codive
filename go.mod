@@ -1,4 +1,4 @@
-module github.com/recscse/devctx
+module github.com/recscse/codive
 
 go 1.27.0
 

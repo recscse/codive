@@ -9,13 +9,13 @@ import (
 )
 
 func TestDB(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "ctxd_db_test_*")
+	tempDir, err := os.MkdirTemp("", "codive_db_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
-	dbPath := filepath.Join(tempDir, ".devctx", "index.db")
+	dbPath := filepath.Join(tempDir, ".codive", "index.db")
 	database, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
@@ -129,7 +129,7 @@ func TestDB(t *testing.T) {
 }
 
 func TestSchemaMigration(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "ctxd_migration_test_*")
+	tempDir, err := os.MkdirTemp("", "codive_migration_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestSchemaMigration(t *testing.T) {
 	}
 	rawDB.Close()
 
-	// 2. Open with ctxd db.Open (which automatically triggers Migrate)
+	// 2. Open with codive db.Open (which automatically triggers Migrate)
 	database, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("Open failed to auto-migrate old database: %v", err)

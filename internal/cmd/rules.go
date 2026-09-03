@@ -1,4 +1,4 @@
-// Package cmd implements the command line actions and subcommands for ctxd.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // ProjectStack contains detected tech stack metadata.
@@ -45,6 +45,7 @@ func RunInitRules(targetDir string) error {
 		filepath.Join(absDir, "CLAUDE.md"),
 		filepath.Join(absDir, "GEMINI.md"),
 		filepath.Join(absDir, ".cursorrules"),
+		filepath.Join(absDir, ".windsurfrules"),
 	}
 
 	for _, target := range ruleTargets {
@@ -162,19 +163,19 @@ func generateRulesMarkdown(stack ProjectStack) string {
 
 	sb.WriteString("## Code Search & Exploration Rules\n")
 	sb.WriteString("- **DO NOT** use raw `grep`, `ripgrep`, or recursive `list_dir` for codebase exploration.\n")
-	sb.WriteString("- **ALWAYS PREFER** the `devctx` MCP tools for zero-token code discovery:\n")
-	sb.WriteString("  1. Use `devctx:get_repo_map` to understand the codebase structure and symbols.\n")
-	sb.WriteString("  2. Use `devctx:get_file_skeleton` to inspect file structure without dumping thousands of tokens.\n")
-	sb.WriteString("  3. Use `devctx:find_symbol` when locating function, class, or type definitions.\n")
-	sb.WriteString("  4. Use `devctx:find_callers` or `devctx:find_references` when discovering usages or refactoring.\n")
-	sb.WriteString("  5. Use `devctx:find_tests_for` to locate corresponding unit test suites before and after making changes.\n")
-	sb.WriteString("  6. Use `devctx:pack_feature_context` to bundle complete feature entrypoints in 1 single turn.\n")
-	sb.WriteString("  7. Use `devctx:get_git_changes` to review uncommitted AST changes without noisy unified diffs.\n\n")
+	sb.WriteString("- **ALWAYS PREFER** the `codive` MCP tools for zero-token code discovery:\n")
+	sb.WriteString("  1. Use `codive:get_repo_map` to understand the codebase structure and symbols.\n")
+	sb.WriteString("  2. Use `codive:get_file_skeleton` to inspect file structure without dumping thousands of tokens.\n")
+	sb.WriteString("  3. Use `codive:find_symbol` when locating function, class, or type definitions.\n")
+	sb.WriteString("  4. Use `codive:find_callers` or `codive:find_references` when discovering usages or refactoring.\n")
+	sb.WriteString("  5. Use `codive:find_tests_for` to locate corresponding unit test suites before and after making changes.\n")
+	sb.WriteString("  6. Use `codive:pack_feature_context` to bundle complete feature entrypoints in 1 single turn.\n")
+	sb.WriteString("  7. Use `codive:get_git_changes` to review uncommitted AST changes without noisy unified diffs.\n\n")
 
 	sb.WriteString("## Engineering Conventions\n")
 	sb.WriteString("1. Always run tests using the verified test command after making edits.\n")
 	sb.WriteString("2. Avoid breaking existing exported signatures without updating all callers.\n")
-	sb.WriteString("3. Record significant architectural decisions using `devctx:save_decision`.\n")
+	sb.WriteString("3. Record significant architectural decisions using `codive:save_decision`.\n")
 
 	return sb.String()
 }

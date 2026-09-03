@@ -8,22 +8,22 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/scanner"
-	"github.com/recscse/devctx/internal/symbols"
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/scanner"
+	"github.com/recscse/codive/internal/symbols"
+	"github.com/recscse/codive/internal/ui"
 )
 
-// RunUpdate performs incremental scanning and synchronizes .devctx/index.db with the repo.
+// RunUpdate performs incremental scanning and synchronizes .codive/index.db with the repo.
 func RunUpdate(targetDir string) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".devctx", "index.db")
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
+		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'codive init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -111,7 +111,7 @@ func RunUpdate(targetDir string) error {
 
 	fmt.Println()
 	ui.Divider()
-	ui.Success("🔄 ctxd update complete!")
+	ui.Success("codive update complete!")
 	fmt.Printf("  %s  %s, %s, %s, %s\n",
 		ui.Dim.Sprint("Changes:      "),
 		ui.Green.Sprintf("+%d added", len(incrResult.Added)),
@@ -120,7 +120,7 @@ func RunUpdate(targetDir string) error {
 		ui.Dim.Sprintf("%d unchanged", incrResult.UnchangedCount))
 	fmt.Printf("  %s  %s (%s)\n",
 		ui.Dim.Sprint("Total Indexed:"),
-		ui.GreenBold.Sprintf("%d files", len(existing)+len(incrResult.Added)-len(incrResult.Deleted)),
+		ui.GreenBold.Sprint(ui.Count(len(existing)+len(incrResult.Added)-len(incrResult.Deleted), "file", "files")),
 		formatBytes(incrResult.TotalSizeBytes))
 	fmt.Printf("  %s  %s\n", ui.Dim.Sprint("Time Elapsed: "), duration.Round(time.Millisecond))
 	ui.Divider()

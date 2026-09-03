@@ -1,4 +1,4 @@
-// Package cmd implements the command line actions and subcommands for devctx.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // RunDoctor performs diagnostic checks on the repository, index, and AI agent configurations.
@@ -42,10 +42,10 @@ func RunDoctor(targetDir string) error {
 	}
 
 	// 3. Index database
-	dbPath := filepath.Join(absDir, ".devctx", "index.db")
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	dbInfo, err := os.Stat(dbPath)
 	if err != nil {
-		ui.CheckFail(fmt.Sprintf("Index not found at %s — run 'devctx init'", dbPath))
+		ui.CheckFail(fmt.Sprintf("Index not found at %s — run 'codive init'", dbPath))
 		allPassed = false
 	} else {
 		ui.CheckPass(fmt.Sprintf("Index database found  (%s)", formatBytes(dbInfo.Size())))
@@ -62,7 +62,13 @@ func RunDoctor(targetDir string) error {
 				ui.CheckFail(fmt.Sprintf("Index query failed: %v", err))
 				allPassed = false
 			} else {
-				ui.CheckPass(fmt.Sprintf("Index integrity OK  (%d files, %d symbols)", stats.TotalFiles, stats.TotalFiles))
+				allSyms, symErr := db.GetAllSymbols(ctx, database)
+				if symErr != nil {
+					ui.CheckFail(fmt.Sprintf("Symbol query failed: %v", symErr))
+					allPassed = false
+				} else {
+					ui.CheckPass(fmt.Sprintf("Index integrity OK  (%s, %s)", ui.Count(stats.TotalFiles, "file", "files"), ui.Count(len(allSyms), "symbol", "symbols")))
+				}
 			}
 		}
 	}
@@ -73,7 +79,7 @@ func RunDoctor(targetDir string) error {
 		if _, err := os.Stat(hookPath); err == nil {
 			ui.CheckPass(fmt.Sprintf("git hook installed: %s", hook))
 		} else {
-			ui.CheckWarn(fmt.Sprintf("git hook missing: %s  (run 'devctx install-hooks')", hook))
+			ui.CheckWarn(fmt.Sprintf("git hook missing: %s  (run 'codive install-hooks')", hook))
 		}
 	}
 
@@ -101,13 +107,13 @@ func RunDoctor(targetDir string) error {
 		if _, err := os.Stat(ac.path); err == nil {
 			ui.CheckPass(fmt.Sprintf("%-24s  %s", ac.name, ui.Dim.Sprint(ac.path)))
 		} else {
-			ui.ListItem(ac.name, "not configured — run 'devctx setup'")
+			ui.ListItem(ac.name, "not configured — run 'codive setup'")
 		}
 	}
 
 	fmt.Println()
 	if allPassed {
-		ui.Success("All checks passed — devctx is healthy and ready.")
+		ui.Success("All checks passed — codive is healthy and ready.")
 	} else {
 		ui.Warning("Some checks failed — follow the recommendations above.")
 	}

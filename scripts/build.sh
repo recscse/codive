@@ -20,11 +20,11 @@ TARGETS=(
 mkdir -p dist
 rm -rf dist/*
 
-echo "Building ctxd ${VERSION} binaries across 6 targets..."
+echo "Building codive ${VERSION} binaries across 6 targets..."
 
 for item in "${TARGETS[@]}"; do
     IFS="/" read -r os arch ext <<< "$item"
-    output="dist/ctxd-${os}-${arch}${ext}"
+    output="dist/codive-${os}-${arch}${ext}"
     echo "  -> Building ${output} (${os}/${arch})..."
     GOOS="${os}" GOARCH="${arch}" CGO_ENABLED=0 go build -ldflags "${LDFLAGS}" -o "${output}" .
 done

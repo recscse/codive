@@ -8,11 +8,11 @@ import (
 	"sort"
 	"time"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/ui"
 )
 
-// StatusJSON represents the JSON output format for devctx status.
+// StatusJSON represents the JSON output format for codive status.
 type StatusJSON struct {
 	TotalFiles     int            `json:"total_files"`
 	TotalSizeBytes int64          `json:"total_size_bytes"`
@@ -21,16 +21,16 @@ type StatusJSON struct {
 	Languages      map[string]int `json:"languages"`
 }
 
-// RunStatus reads .devctx/index.db and prints the repository index status.
+// RunStatus reads .codive/index.db and prints the repository index status.
 func RunStatus(targetDir string, asJSON bool) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".devctx", "index.db")
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository not initialized — no index at %s\n  Run 'devctx init' first", dbPath)
+		return fmt.Errorf("repository not initialized — no index at %s\n  Run 'codive init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -62,7 +62,7 @@ func RunStatus(targetDir string, asJSON bool) error {
 	ui.SectionHeader("Index Status")
 
 	ui.KeyValue("Repository", absDir)
-	ui.KeyValueAccent("Indexed Files", fmt.Sprintf("%d files", stats.TotalFiles))
+	ui.KeyValueAccent("Indexed Files", ui.Count(stats.TotalFiles, "file", "files"))
 	ui.KeyValueAccent("Total Size", formatBytes(stats.TotalSizeBytes))
 	if stats.LastUpdated.IsZero() {
 		ui.KeyValue("Last Updated", "never")

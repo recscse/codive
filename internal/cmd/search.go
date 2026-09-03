@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // RunSearch executes full-text search across indexed files.
@@ -22,9 +22,9 @@ func RunSearch(targetDir string, query string, limit int, asJSON bool) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".devctx", "index.db")
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository not initialized — no index at %s\n  Run 'devctx init' first", dbPath)
+		return fmt.Errorf("repository not initialized — no index at %s\n  Run 'codive init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -48,7 +48,7 @@ func RunSearch(targetDir string, query string, limit int, asJSON bool) error {
 		return nil
 	}
 
-	ui.SectionHeader(fmt.Sprintf("Search Results  (%d matches for '%s')", len(results), query))
+	ui.SectionHeader(fmt.Sprintf("Search Results  (%s for '%s')", ui.Count(len(results), "match", "matches"), query))
 
 	for i, res := range results {
 		fmt.Println()

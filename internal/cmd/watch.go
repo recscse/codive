@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/scanner"
-	"github.com/recscse/devctx/internal/symbols"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/scanner"
+	"github.com/recscse/codive/internal/symbols"
 )
 
 // RunWatch starts a continuous watcher that automatically synchronizes index.db on file changes.
@@ -21,7 +21,7 @@ func RunWatch(targetDir string, pollInterval time.Duration) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".devctx", "index.db")
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		fmt.Println("Index not initialized. Running initial scan...")
 		if err := RunInit(absDir); err != nil {
@@ -47,7 +47,7 @@ func RunWatch(targetDir string, pollInterval time.Duration) error {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		fmt.Println("\nStopping ctxd watcher...")
+		fmt.Println("\nStopping codive watcher...")
 		cancel()
 	}()
 

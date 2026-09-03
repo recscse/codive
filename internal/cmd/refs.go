@@ -1,4 +1,4 @@
-// Package cmd implements the command line actions and subcommands for ctxd.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // RunRefs locates and displays references/call-sites of a symbol across the repository.
@@ -23,9 +23,9 @@ func RunRefs(targetDir string, symbol string, limit int, asJSON bool) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".devctx", "index.db")
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'ctxd init' first", dbPath)
+		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'codive init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)

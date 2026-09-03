@@ -1,4 +1,4 @@
-// Package cmd implements the command line actions and subcommands for devctx.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/ui"
 )
 
 type githubRelease struct {
@@ -27,22 +27,22 @@ type githubRelease struct {
 
 // RunUpgrade checks GitHub for the latest release and self-updates the binary in-place.
 func RunUpgrade(currentVersion string) error {
-	ui.Header("devctx — Self-Update & Version Check")
+	ui.Header("codive — Self-Update & Version Check")
 	ui.Divider()
 	ui.KeyValue("Current Version", currentVersion)
 	ui.KeyValue("Platform", fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH))
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest("GET", "https://api.github.com/repos/recscse/devctx/releases/latest", nil)
+	req, err := http.NewRequest("GET", "https://api.github.com/repos/recscse/codive/releases/latest", nil)
 	if err != nil {
 		return fmt.Errorf("failed to create update request: %w", err)
 	}
-	req.Header.Set("User-Agent", "devctx-cli")
+	req.Header.Set("User-Agent", "codive-cli")
 
 	resp, err := client.Do(req)
 	if err != nil {
 		ui.Warning(fmt.Sprintf("Could not connect to GitHub API: %v", err))
-		fmt.Println("  You can upgrade manually by running: go install github.com/recscse/devctx@latest")
+		fmt.Println("  You can upgrade manually by running: go install github.com/recscse/codive@latest")
 		return nil
 	}
 	defer resp.Body.Close()
@@ -63,7 +63,7 @@ func RunUpgrade(currentVersion string) error {
 	fmt.Println()
 
 	if latestTag == currentVersion || latestTag == "v"+currentVersion || currentVersion == "v"+latestTag {
-		ui.Success(fmt.Sprintf("devctx is already up to date (%s)!", currentVersion))
+		ui.Success(fmt.Sprintf("codive is already up to date (%s)!", currentVersion))
 		return nil
 	}
 
@@ -79,18 +79,18 @@ func RunUpgrade(currentVersion string) error {
 	// Construct asset download URL
 	var assetName string
 	if runtime.GOOS == "windows" {
-		assetName = fmt.Sprintf("devctx_%s_windows_%s.zip", latestTag, runtime.GOARCH)
+		assetName = fmt.Sprintf("codive_%s_windows_%s.zip", latestTag, runtime.GOARCH)
 	} else {
-		assetName = fmt.Sprintf("devctx_%s_%s_%s.tar.gz", latestTag, runtime.GOOS, runtime.GOARCH)
+		assetName = fmt.Sprintf("codive_%s_%s_%s.tar.gz", latestTag, runtime.GOOS, runtime.GOARCH)
 	}
 
-	downloadURL := fmt.Sprintf("https://github.com/recscse/devctx/releases/download/%s/%s", latestTag, assetName)
+	downloadURL := fmt.Sprintf("https://github.com/recscse/codive/releases/download/%s/%s", latestTag, assetName)
 
 	dlResp, err := client.Get(downloadURL)
 	if err != nil || dlResp.StatusCode != http.StatusOK {
 		// Fallback to Go install if direct asset download is unavailable
 		ui.Warning(fmt.Sprintf("Binary asset '%s' not found on release. Falling back to Go install...", assetName))
-		fmt.Println("  Run: go install github.com/recscse/devctx@latest")
+		fmt.Println("  Run: go install github.com/recscse/codive@latest")
 		return nil
 	}
 	defer dlResp.Body.Close()
@@ -107,7 +107,7 @@ func RunUpgrade(currentVersion string) error {
 			return fmt.Errorf("failed to parse zip archive: %w", err)
 		}
 		for _, f := range zipReader.File {
-			if strings.HasSuffix(f.Name, "devctx.exe") || f.Name == "devctx.exe" {
+			if strings.HasSuffix(f.Name, "codive.exe") || f.Name == "codive.exe" {
 				rc, err := f.Open()
 				if err != nil {
 					return err
@@ -131,7 +131,7 @@ func RunUpgrade(currentVersion string) error {
 			if err != nil {
 				return err
 			}
-			if strings.HasSuffix(hdr.Name, "devctx") {
+			if strings.HasSuffix(hdr.Name, "codive") {
 				newBinaryBytes, err = io.ReadAll(tarReader)
 				break
 			}
@@ -139,7 +139,7 @@ func RunUpgrade(currentVersion string) error {
 	}
 
 	if len(newBinaryBytes) == 0 {
-		return fmt.Errorf("could not extract devctx executable from download archive")
+		return fmt.Errorf("could not extract codive executable from download archive")
 	}
 
 	// Rename current executable to .old on Windows to allow overwrite
@@ -158,6 +158,6 @@ func RunUpgrade(currentVersion string) error {
 		_ = os.Remove(oldExePath)
 	}
 
-	ui.Success(fmt.Sprintf("Successfully upgraded devctx to %s at %s!", latestTag, exePath))
+	ui.Success(fmt.Sprintf("Successfully upgraded codive to %s at %s!", latestTag, exePath))
 	return nil
 }

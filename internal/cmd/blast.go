@@ -1,4 +1,4 @@
-// Package cmd implements the command line actions and subcommands for ctxd.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // BlastRadiusResult represents the impact analysis of changing a symbol or signature.
@@ -33,9 +33,9 @@ func RunBlast(targetDir string, targetSymbol string, asJSON bool) error {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
 
-	dbPath := filepath.Join(absDir, ".devctx", "index.db")
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'devctx init' first", dbPath)
+		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'codive init' first", dbPath)
 	}
 
 	database, err := db.Open(dbPath)
@@ -65,9 +65,8 @@ func RunBlast(targetDir string, targetSymbol string, asJSON bool) error {
 	}
 
 	fmt.Println()
-	ui.Header(fmt.Sprintf("devctx — Blast Radius Analysis: %s", result.Symbol))
-	ui.Divider()
-	ui.KeyValue("Risk Level", fmt.Sprintf("%s (%d direct callers across %d files)", riskBadge, result.CallSites, len(result.AffectedFiles)))
+	ui.Header(fmt.Sprintf("Blast Radius Analysis: %s", result.Symbol))
+	ui.KeyValue("Risk Level", fmt.Sprintf("%s (%s across %s)", riskBadge, ui.Count(result.CallSites, "direct caller", "direct callers"), ui.Count(len(result.AffectedFiles), "file", "files")))
 
 	if len(result.AffectedFiles) > 0 {
 		ui.KeyValue("Affected Files", strings.Join(result.AffectedFiles, ", "))

@@ -16,12 +16,12 @@ When an AI coding agent explores your repository, its default fallback is raw `g
 
 ```text
 ┌───────────────────────────────────────────────────┐     ┌───────────────────────────────────────────────────┐
-│  ❌ TRADITIONAL BRUTE-FORCE GREP FLOW              │     │  ⚡ DEVCTX LOCAL AST CONTEXT ENGINE FLOW          │
+│  ❌ TRADITIONAL BRUTE-FORCE GREP FLOW              │     │  ⚡ CODIVE LOCAL AST CONTEXT ENGINE FLOW          │
 ├───────────────────────────────────────────────────┤     ├───────────────────────────────────────────────────┤
-│  Turn 1: grep -rn "GenerateToken" .               │     │  Turn 1: devctx:pack_feature_context("auth")      │
+│  Turn 1: grep -rn "GenerateToken" .               │     │  Turn 1: codive:pack_feature_context("auth")      │
 │  └── 380 lines across mocks (4,200 tokens)        │     │  └── Bundled models, handlers & tests (240 tokens)│
 │                                                   │     │                                                   │
-│  Turn 2: view_file auth_service.go                │     │  Turn 1 (cont): devctx:find_callers(...)          │
+│  Turn 2: view_file auth_service.go                │     │  Turn 1 (cont): codive:find_callers(...)          │
 │  └── 2,100-line full file dump (5,200 tokens)     │     │  └── Pinpointed all 3 callers in 2ms (18 tokens)  │
 │                                                   │     │                                                   │
 │  Turn 3–6: Guess edit ➔ 3 callers broke on import! │     │  Turn 2: Targeted edit applied & verified         │
@@ -36,9 +36,9 @@ When an AI coding agent explores your repository, its default fallback is raw `g
 
 ## 2. Architecture: Local AST Indexing with SQLite WAL Mode
 
-To solve this, we engineered **`devctx`** in Go. Instead of treating code as flat text, `devctx` parses the Abstract Syntax Tree (AST) across **Go, TypeScript, Python, and Rust**.
+To solve this, we engineered **`codive`** in Go. Instead of treating code as flat text, `codive` parses the Abstract Syntax Tree (AST) across **Go, TypeScript, Python, and Rust**.
 
-It stores all declarations, signatures, line numbers, and call graphs in an embedded SQLite database (`.devctx/index.db`) configured with Write-Ahead Logging (WAL) mode for concurrency and sub-millisecond query performance.
+It stores all declarations, signatures, line numbers, and call graphs in an embedded SQLite database (`.codive/index.db`) configured with Write-Ahead Logging (WAL) mode for concurrency and sub-millisecond query performance.
 
 ```text
                        ┌──────────────────────────────┐
@@ -51,7 +51,7 @@ It stores all declarations, signatures, line numbers, and call graphs in an embe
                                       ▼
                        ┌──────────────────────────────┐
                        │   Local SQLite (WAL Mode)    │
-                       │     `.devctx/index.db`       │
+                       │     `.codive/index.db`       │
                        │                              │
                        │  • files (hash, modtime)     │
                        │  • symbols (kind, sig, line) │
@@ -71,14 +71,14 @@ It stores all declarations, signatures, line numbers, and call graphs in an embe
 
 ---
 
-## 3. The Four Core Innovations in `devctx`
+## 3. The Four Core Innovations in `codive`
 
 ### 1. One-Shot Feature Context Packing (`pack_feature_context`)
 Instead of an AI agent taking 5 sequential turns searching for route handlers, data structs, and tests, `pack_feature_context` gathers all entrypoints, skeletons, and test suites matching a keyword into **1 single turn**:
 
 ```go
 // AI Agent executes 1 single MCP call:
-devctx:pack_feature_context(topic="auth")
+codive:pack_feature_context(topic="auth")
 // ➔ Returns: user_model.go, auth_handler.go skeleton, auth_test.go in 240 tokens
 ```
 
@@ -110,13 +110,13 @@ Before modifying a shared function, `blast_radius` analyzes all upstream callers
 ```
 
 ### 4. Automatic On-The-Fly Line Drift Protection
-When you or your AI agent edits code in the editor, you never need to manually re-index. Whenever an MCP tool is called, `devctx` inspects the file's disk `ModTime`. If dirty, it micro-parses that single file in **`< 1ms`** before answering the agent.
+When you or your AI agent edits code in the editor, you never need to manually re-index. Whenever an MCP tool is called, `codive` inspects the file's disk `ModTime`. If dirty, it micro-parses that single file in **`< 1ms`** before answering the agent.
 
 ---
 
 ## 4. Empirical Benchmark Comparison
 
-| Metric | Traditional Grep Flow | devctx AST Flow |
+| Metric | Traditional Grep Flow | codive AST Flow |
 | :--- | :--- | :--- |
 | **Tool Latency** | 50ms – 400ms (Disk regex) | **`< 1.5ms` (SQLite B-Tree)** |
 | **Token Cost (Refactor)** | 40,000 – 70,000 tokens | **1,800 – 3,200 tokens (95% Savings)** |
@@ -130,15 +130,15 @@ When you or your AI agent edits code in the editor, you never need to manually r
 
 By moving from brute-force substring searches to structured, local-first AST database queries, developers cut token costs by **80% to 95%** while making their AI coding assistants significantly more reliable.
 
-`devctx` is open-source under the MIT license. You can install it on macOS, Linux, and Windows with a single command:
+`codive` is open-source under the MIT license. You can install it on macOS, Linux, and Windows with a single command:
 
 ```bash
 # macOS / Linux (curl)
-curl -fsSL https://recscse.github.io/devctx/install.sh | bash && devctx setup
+curl -fsSL https://recscse.github.io/codive/install.sh | bash && codive setup
 
 # Windows Command Prompt (CMD)
-curl -fsSL https://recscse.github.io/devctx/install.cmd -o install.cmd && install.cmd && del install.cmd
+curl -fsSL https://recscse.github.io/codive/install.cmd -o install.cmd && install.cmd && del install.cmd
 
 # Windows (PowerShell)
-irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
+irm https://recscse.github.io/codive/install.ps1 | iex; codive setup
 ```

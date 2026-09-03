@@ -1,4 +1,4 @@
-// Package cmd implements the command line actions and subcommands for ctxd.
+// Package cmd implements the command line actions and subcommands for codive.
 package cmd
 
 import (
@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // RunInstallHooks writes post-commit and post-checkout Git hooks to keep the index synchronized automatically.
@@ -26,9 +26,9 @@ func RunInstallHooks(targetDir string) error {
 	}
 
 	hookScript := `#!/bin/sh
-# ctxd auto-sync git hook
-if command -v ctxd >/dev/null 2>&1; then
-    ctxd update >/dev/null 2>&1 &
+# codive auto-sync git hook
+if command -v codive >/dev/null 2>&1; then
+    codive update >/dev/null 2>&1 &
 fi
 `
 
@@ -46,7 +46,7 @@ fi
 	fmt.Println()
 	fmt.Printf("  %s %s\n", ui.GreenBold.Sprint("✓ Installed:"), ui.Bold.Sprint(postCommit))
 	fmt.Printf("  %s %s\n\n", ui.GreenBold.Sprint("✓ Installed:"), ui.Bold.Sprint(postCheckout))
-	ui.Success("ctxd will now automatically re-index on every commit and branch checkout.")
+	ui.Success("codive will now automatically re-index on every commit and branch checkout.")
 
 	return nil
 }

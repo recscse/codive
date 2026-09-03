@@ -22,12 +22,12 @@ if (Test-Path $distDir) {
 }
 New-Item -ItemType Directory -Path $distDir | Out-Null
 
-Write-Host "Building ctxd $Version binaries across 6 OS/Arch targets..." -ForegroundColor Cyan
+Write-Host "Building codive $Version binaries across 6 OS/Arch targets..." -ForegroundColor Cyan
 
 foreach ($t in $targets) {
     $os = $t.os
     $arch = $t.arch
-    $outName = "ctxd-$os-$arch$($t.ext)"
+    $outName = "codive-$os-$arch$($t.ext)"
     $outPath = Join-Path $distDir $outName
     Write-Host "  -> Building $outName ($os/$arch)..." -ForegroundColor Green
     

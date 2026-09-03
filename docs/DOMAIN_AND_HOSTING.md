@@ -1,6 +1,6 @@
 # 🌐 Domain Registration, Hosting & Deployment Guide
 
-This guide explains how to register a custom domain, host the `devctx` landing page and docs site for **$0/month**, and set up the one-liner install scripts (`curl ... | bash` and `irm ... | iex`).
+This guide explains how to register a custom domain, host the `codive` landing page and docs site for **$0/month**, and set up the one-liner install scripts (`curl ... | bash` and `irm ... | iex`).
 
 ---
 
@@ -10,11 +10,11 @@ For developer tools and AI context engines, developers trust concise, modern TLD
 
 | Domain | Est. Cost / Year | Why It Works |
 | :--- | :---: | :--- |
-| **`recscse.github.io/devctx`** *(Recommended)* | ~$12/yr | The gold standard for developer tools (owned by Google registry, requires HTTPS by default). |
-| **`devctx.tools`** | ~$10/yr | Extremely descriptive and high availability. |
-| **`devctx.sh`** | ~$25/yr | Excellent for terminal / CLI utility branding. |
-| **`devctx.io`** | ~$35/yr | Classic tech startup TLD. |
-| **`devctx.ai`** | ~$65/yr | Premium AI positioning. |
+| **`recscse.github.io/codive`** *(Recommended)* | ~$12/yr | The gold standard for developer tools (owned by Google registry, requires HTTPS by default). |
+| **`codive.tools`** | ~$10/yr | Extremely descriptive and high availability. |
+| **`codive.sh`** | ~$25/yr | Excellent for terminal / CLI utility branding. |
+| **`codive.io`** | ~$35/yr | Classic tech startup TLD. |
+| **`codive.ai`** | ~$65/yr | Premium AI positioning. |
 
 ### Where to Register:
 - **Cloudflare Registrar** (recommended: zero markup, at-cost pricing, free DNS & DDoS protection).
@@ -27,18 +27,18 @@ For developer tools and AI context engines, developers trust concise, modern TLD
 You do **not** need expensive cloud VPS or server infrastructure. The entire `site/` directory contains self-contained static HTML, CSS, JavaScript, and install shell scripts.
 
 ### Option A: Cloudflare Pages (Recommended - Fastest & 100% Free)
-1. Push your repository to GitHub: `github.com/your-username/devctx`.
+1. Push your repository to GitHub: `github.com/your-username/codive`.
 2. Log into [Cloudflare Dashboard](https://dash.cloudflare.com) ➔ **Workers & Pages** ➔ **Create Application** ➔ **Pages**.
 3. Connect your GitHub repository.
 4. Set **Build output directory**: `site`.
 5. Click **Deploy**.
-6. Under **Custom Domains**, add `recscse.github.io/devctx`. Cloudflare automatically provisions a free wildcard SSL certificate.
+6. Under **Custom Domains**, add `recscse.github.io/codive`. Cloudflare automatically provisions a free wildcard SSL certificate.
 
 ---
 
 ### Option B: Vercel (1-Click Deployment)
 1. Log into [Vercel](https://vercel.com).
-2. Click **Add New Project** ➔ Import your `devctx` GitHub repository.
+2. Click **Add New Project** ➔ Import your `codive` GitHub repository.
 3. Set **Root Directory**: `site`.
 4. Click **Deploy**.
 5. Add your custom domain under **Settings ➔ Domains**.
@@ -50,7 +50,7 @@ You do **not** need expensive cloud VPS or server infrastructure. The entire `si
 2. Under **Build and deployment**:
    - Source: `Deploy from a branch`
    - Branch: `main` / Folder: `/site` (or `/docs`)
-3. Under **Custom domain**, enter `recscse.github.io/devctx` and click **Save**.
+3. Under **Custom domain**, enter `recscse.github.io/codive` and click **Save**.
 
 ---
 
@@ -60,13 +60,13 @@ When you deploy the `site/` folder, both `site/install.sh` and `site/install.ps1
 
 1. **macOS & Linux**:
    ```bash
-   curl -fsSL https://recscse.github.io/devctx/install.sh | bash && devctx setup
+   curl -fsSL https://recscse.github.io/codive/install.sh | bash && codive setup
    ```
    Cloudflare/Vercel delivers `site/install.sh` with `Content-Type: text/plain`, piping directly into `bash`.
 
 2. **Windows PowerShell**:
    ```powershell
-   irm https://recscse.github.io/devctx/install.ps1 | iex; devctx setup
+   irm https://recscse.github.io/codive/install.ps1 | iex; codive setup
    ```
    PowerShell downloads `site/install.ps1` into memory and executes it immediately via `Invoke-Expression` (`iex`).
 
@@ -76,7 +76,7 @@ When you deploy the `site/` folder, both `site/install.sh` and `site/install.ps1
 
 | Type | Name | Content / Target | Proxy Status |
 | :--- | :--- | :--- | :---: |
-| **CNAME** | `@` / `recscse.github.io/devctx` | `<your-pages-subdomain>.pages.dev` | Proxied (Orange Cloud) |
-| **CNAME** | `www` | `recscse.github.io/devctx` | Proxied (Orange Cloud) |
+| **CNAME** | `@` / `recscse.github.io/codive` | `<your-pages-subdomain>.pages.dev` | Proxied (Orange Cloud) |
+| **CNAME** | `www` | `recscse.github.io/codive` | Proxied (Orange Cloud) |
 
 Once configured, your site will be live worldwide on Cloudflare's global edge network in `< 50ms` latency!

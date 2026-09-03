@@ -1,4 +1,4 @@
-// Package git provides native Git awareness and AST-aware diff summaries for ctxd.
+// Package git provides native Git awareness and AST-aware diff summaries for codive.
 package git
 
 import (
@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/codive/internal/db"
 )
 
 // FileDiffSummary represents the AST-aware changes for a specific file.

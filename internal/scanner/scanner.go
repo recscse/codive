@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/recscse/devctx/internal/db"
+	"github.com/recscse/codive/internal/db"
 )
 
 const (
-	// MaxFileSize is the maximum file size (5MB) indexed by ctxd.
+	// MaxFileSize is the maximum file size (5MB) indexed by codive.
 	MaxFileSize = 5 * 1024 * 1024
 
 	// SniffBufferSize is the number of initial bytes checked for binary content.
@@ -27,7 +27,7 @@ var DefaultIgnoredDirectories = map[string]bool{
 	".git":              true,
 	".svn":              true,
 	".hg":               true,
-	".devctx":           true,
+	".codive":           true,
 	".idea":             true,
 	".vscode":           true,
 	"node_modules":      true,
@@ -53,7 +53,7 @@ var DefaultIgnoredDirectories = map[string]bool{
 
 // DefaultIgnoredFiles contains file names that should be skipped during scan.
 var DefaultIgnoredFiles = map[string]bool{
-	".devctxignore": true,
+	".codiveignore": true,
 }
 
 // ExtensionLanguageMap maps file extensions to language names.
@@ -114,9 +114,9 @@ func DetectLanguage(filePath string) string {
 	return "Text"
 }
 
-// LoadIgnorePatterns loads custom ignore rules from .devctxignore if present in rootDir.
+// LoadIgnorePatterns loads custom ignore rules from .codiveignore if present in rootDir.
 func LoadIgnorePatterns(rootDir string) ([]string, error) {
-	ignorePath := filepath.Join(rootDir, ".devctxignore")
+	ignorePath := filepath.Join(rootDir, ".codiveignore")
 	f, err := os.Open(ignorePath)
 	if os.IsNotExist(err) {
 		return nil, nil

@@ -12,8 +12,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/recscse/devctx/internal/db"
-	"github.com/recscse/devctx/internal/ui"
+	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/ui"
 )
 
 // GraphData represents the network nodes and edges for the web map.
@@ -107,7 +107,7 @@ func StartWebServer(targetDir string, database *sql.DB, port int) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	url := fmt.Sprintf("http://%s", addr)
 
-	ui.Header("🌐 ctxd Web Architecture Map Launched")
+	ui.Header("🌐 codive Web Architecture Map Launched")
 	fmt.Println()
 	fmt.Printf("  %s %s\n", ui.Dim.Sprint("URL:        "), ui.CyanBold.Sprint(url))
 	fmt.Printf("  %s %d files, %d declared symbols\n\n", ui.Dim.Sprint("Graph Nodes:"), len(allFiles), len(allSymbols))
@@ -137,7 +137,7 @@ const htmlTemplate = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ctxd - Interactive Repository Map</title>
+  <title>codive - Interactive Repository Map</title>
   <style>
     :root {
       --bg: #0d1117;
@@ -216,7 +216,7 @@ const htmlTemplate = `<!DOCTYPE html>
 </head>
 <body>
   <header>
-    <div class="brand">⚡ ctxd <span>Interactive Map</span></div>
+    <div class="brand">⚡ codive <span>Interactive Map</span></div>
     <input type="text" id="search" class="search-box" placeholder="Filter files or symbols...">
     <button class="btn" onclick="copyPrompt()">📋 Copy Context Prompt</button>
   </header>
@@ -329,7 +329,7 @@ const htmlTemplate = `<!DOCTYPE html>
     });
 
     function copyPrompt() {
-      const text = 'Here is the repository map context extracted by ctxd:\nTotal Files: ' + nodes.filter(n=>n.kind==='file').length + '\nTotal Symbols: ' + nodes.filter(n=>n.kind!=='file').length;
+      const text = 'Here is the repository map context extracted by codive:\nTotal Files: ' + nodes.filter(n=>n.kind==='file').length + '\nTotal Symbols: ' + nodes.filter(n=>n.kind!=='file').length;
       navigator.clipboard.writeText(text).then(() => alert('Copied token-optimized context prompt to clipboard!'));
     }
   </script>

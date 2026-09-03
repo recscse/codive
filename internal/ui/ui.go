@@ -1,4 +1,4 @@
-// Package ui provides a production-grade terminal UI for devctx.
+// Package ui provides a production-grade terminal UI for codive.
 // Design language: clean monochrome structure with selective accent color,
 // aligned columns, no decorative emojis — inspired by Claude Code & Cargo.
 package ui
@@ -52,6 +52,15 @@ func SetNoColor(noColor bool) {
 	color.NoColor = noColor
 }
 
+// Count formats a quantity with correct singular/plural noun agreement,
+// e.g. Count(1, "file", "files") -> "1 file", Count(3, "file", "files") -> "3 files".
+func Count(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
+}
+
 // PrintJSON marshals data with indentation and writes to stdout.
 func PrintJSON(data any) error {
 	bytes, err := json.MarshalIndent(data, "", "  ")
@@ -65,13 +74,13 @@ func PrintJSON(data any) error {
 // ─── Layout primitives ────────────────────────────────────────────────────────
 
 // SectionHeader prints a top-level section title.
-// Visually: a blank line, then "  devctx · <title>" with a rule beneath.
+// Visually: a blank line, then "  codive · <title>" with a rule beneath.
 //
-//	  devctx  Search Results
+//	  codive  Search Results
 //	  ──────────────────────
 func SectionHeader(title string) {
 	fmt.Println()
-	fmt.Printf("  %s  %s\n", muted.Sprint("devctx"), primary.Sprint(title))
+	fmt.Printf("  %s  %s\n", muted.Sprint("codive"), primary.Sprint(title))
 	fmt.Printf("  %s\n", muted.Sprint(strings.Repeat("─", 56)))
 }
 
