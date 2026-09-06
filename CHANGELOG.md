@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v1.1.1] - 2026-09-07
+
+### Fixed
+- `codive serve` corrupted the MCP stdio JSON-RPC transport with human-readable progress-bar and summary text on the very first connection to any workspace that hadn't been `codive init`'d yet — exactly the state `codive setup`'s automated onboarding leaves every new user in. Auto-indexing on first connect now runs silently.
+- `codive stats` fabricated baseline numbers (12 queries, 32,500 tokens saved, 38.4s latency saved) for a fresh install with no recorded usage, and reported a hardcoded 4.8x/5.2x "speed multiplier" regardless of actual activity. Now computed entirely from real recorded telemetry, and correctly reports all-zeros before any tool has been called.
+- `get_git_changes` had a status-parsing bug where trimming the *entire* `git status --porcelain` output (instead of just its trailing newline) ate the leading status-column space off the first changed file only, silently truncating its path (e.g. `tracked.go` reported as `racked.go`).
+- `get_git_changes` always reported 0 changed lines and no affected symbols for brand-new (untracked) files, since `git diff` has nothing to compare them against. Its enclosing-symbol lookup also used a fuzzy "search by file path as if it were a symbol name" query that rarely matched anything, even for ordinarily modified/tracked files. Replaced with an exact per-file symbol lookup and a real new-file code path.
+- Files whose mtime changed on disk but whose content hash didn't (e.g. a touch, or a checkout resetting timestamps) were never persisted with their refreshed metadata, so they were silently rehashed from scratch on every single scan, forever.
+
+### Changed
+- Deduplicated blast-radius and call-relationship helper logic that had drifted into byte-identical copies across the CLI and MCP server, so the two surfaces can no longer silently disagree.
+
+---
+
+## [v1.1.0] - 2026-09-03
+
 ### Added
 - **Java & C# AST Support**: New symbol extractors for Java (including Spring annotations) and C#, plus `pom.xml` parsing for Maven projects.
 - **Dynamic Workspace Routing & Auto-Indexing**: MCP tools now resolve the nearest `.codive/index.db` by walking up from the target path and auto-index on the fly when no index exists yet.
