@@ -32,28 +32,27 @@ func formatBytes(b int64) string {
 	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-// RunInit initializes the repository index by scanning files and populating .codive/index.db.
-func RunInit(targetDir string) error {
-	absDir, err := filepath.Abs(targetDir)
-	if err != nil {
-		return fmt.Errorf("invalid directory path: %w", err)
-	}
+// IndexResult summarizes the outcome of indexing a repository.
+type IndexResult struct {
+	TotalFiles     int
+	TotalSizeBytes int64
+	SymbolCount    int
+	LanguageCounts map[string]int
+	PrimaryLang    string
+	DBPath         string
+	Duration       time.Duration
+}
 
-	stat, err := os.Stat(absDir)
-	if err != nil {
-		return fmt.Errorf("cannot access directory %s: %w", absDir, err)
-	}
-	if !stat.IsDir() {
-		return fmt.Errorf("path %s is not a directory", absDir)
-	}
-
-	slog.Info("Starting repository initialization", "path", absDir)
+// indexRepository scans absDir and populates its .codive/index.db. It performs
+// no output of its own — onFile (may be nil) is invoked once per file as
+// results come in, so callers where stdout must carry nothing but a protocol
+// stream (like the MCP server) can safely pass nil.
+func indexRepository(absDir string, onFile func(processed, total int, path string)) (*IndexResult, error) {
 	startTime := time.Now()
 
 	scanResult, err := scanner.Scan(absDir)
 	if err != nil {
-		slog.Error("Failed to scan repository", "error", err)
-		return fmt.Errorf("scan failed: %w", err)
+		return nil, fmt.Errorf("scan failed: %w", err)
 	}
 
 	codiveDir := filepath.Join(absDir, ".codive")
@@ -61,18 +60,17 @@ func RunInit(targetDir string) error {
 
 	database, err := db.Open(dbPath)
 	if err != nil {
-		slog.Error("Failed to open database", "db_path", dbPath, "error", err)
-		return fmt.Errorf("failed to open index database: %w", err)
+		return nil, fmt.Errorf("failed to open index database: %w", err)
 	}
 	defer database.Close()
 
 	if err := db.InitSchema(database); err != nil {
-		return fmt.Errorf("failed to initialize schema: %w", err)
+		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
 	ctx := context.Background()
 	if err := db.SaveFiles(ctx, database, scanResult.Files); err != nil {
-		return fmt.Errorf("failed to save file records: %w", err)
+		return nil, fmt.Errorf("failed to save file records: %w", err)
 	}
 
 	totalFiles := len(scanResult.Files)
@@ -80,8 +78,6 @@ func RunInit(targetDir string) error {
 	ftsFiles := make(map[string]string, totalFiles)
 
 	if totalFiles > 0 {
-		bar := ui.NewProgressBar(totalFiles, "Indexing Codebase", "files")
-
 		numWorkers := runtime.NumCPU() * 2
 		if numWorkers < 4 {
 			numWorkers = 4
@@ -134,7 +130,9 @@ func RunInit(targetDir string) error {
 		processed := 0
 		for res := range resultChan {
 			processed++
-			bar.Update(1, res.path)
+			if onFile != nil {
+				onFile(processed, totalFiles, res.path)
+			}
 			if res.content != "" {
 				ftsFiles[res.path] = res.content
 			}
@@ -142,22 +140,19 @@ func RunInit(targetDir string) error {
 				allSymbols = append(allSymbols, res.symbols...)
 			}
 		}
-		bar.Finish("Symbols & AST extracted")
 	}
 
 	if len(allSymbols) > 0 {
 		if err := db.SaveSymbols(ctx, database, allSymbols); err != nil {
-			return fmt.Errorf("failed to save symbols: %w", err)
+			return nil, fmt.Errorf("failed to save symbols: %w", err)
 		}
 	}
 
 	if len(ftsFiles) > 0 {
 		if err := db.SaveFTS(ctx, database, ftsFiles); err != nil {
-			return fmt.Errorf("failed to save full-text search index: %w", err)
+			return nil, fmt.Errorf("failed to save full-text search index: %w", err)
 		}
 	}
-
-	duration := time.Since(startTime)
 
 	// Determine primary language(s)
 	type langCount struct {
@@ -180,18 +175,88 @@ func RunInit(targetDir string) error {
 		primaryLang = sortedLangs[0].name
 	}
 
+	return &IndexResult{
+		TotalFiles:     totalFiles,
+		TotalSizeBytes: scanResult.TotalSizeBytes,
+		SymbolCount:    len(allSymbols),
+		LanguageCounts: scanResult.LanguageCounts,
+		PrimaryLang:    primaryLang,
+		DBPath:         dbPath,
+		Duration:       time.Since(startTime),
+	}, nil
+}
+
+// RunInit initializes the repository index by scanning files and populating .codive/index.db.
+func RunInit(targetDir string) error {
+	absDir, err := filepath.Abs(targetDir)
+	if err != nil {
+		return fmt.Errorf("invalid directory path: %w", err)
+	}
+
+	stat, err := os.Stat(absDir)
+	if err != nil {
+		return fmt.Errorf("cannot access directory %s: %w", absDir, err)
+	}
+	if !stat.IsDir() {
+		return fmt.Errorf("path %s is not a directory", absDir)
+	}
+
+	slog.Info("Starting repository initialization", "path", absDir)
+
+	var bar *ui.ProgressBar
+	result, err := indexRepository(absDir, func(processed, total int, path string) {
+		if bar == nil {
+			bar = ui.NewProgressBar(total, "Indexing Codebase", "files")
+		}
+		bar.Update(1, path)
+	})
+	if err != nil {
+		slog.Error("Failed to index repository", "error", err)
+		return err
+	}
+	if bar != nil {
+		bar.Finish("Symbols & AST extracted")
+	}
+
 	fmt.Println()
 	ui.Header("codive — Repository Index Initialization")
 	ui.Divider()
-	ui.KeyValueHighlight("Indexed Files", fmt.Sprintf("%s (%s)", ui.Count(len(scanResult.Files), "file", "files"), formatBytes(scanResult.TotalSizeBytes)))
-	ui.KeyValueHighlight("AST Symbols", ui.Count(len(allSymbols), "symbol", "symbols"))
-	ui.KeyValue("Language", primaryLang)
-	ui.KeyValue("Database Path", dbPath)
-	ui.KeyValue("Latency", fmt.Sprintf("%v", duration.Round(time.Millisecond)))
+	ui.KeyValueHighlight("Indexed Files", fmt.Sprintf("%s (%s)", ui.Count(result.TotalFiles, "file", "files"), formatBytes(result.TotalSizeBytes)))
+	ui.KeyValueHighlight("AST Symbols", ui.Count(result.SymbolCount, "symbol", "symbols"))
+	ui.KeyValue("Language", result.PrimaryLang)
+	ui.KeyValue("Database Path", result.DBPath)
+	ui.KeyValue("Latency", fmt.Sprintf("%v", result.Duration.Round(time.Millisecond)))
 	ui.Divider()
 	fmt.Println()
 	ui.Success("Repository successfully indexed into local SQLite (WAL mode)!")
 	fmt.Println()
 
 	return nil
+}
+
+// RunInitSilent performs the same indexing as RunInit but produces no output
+// of any kind. Use it from contexts — like the MCP stdio server — where
+// stdout must carry nothing but the protocol stream: any human-readable text
+// written there would corrupt the JSON-RPC transport for whichever client is
+// reading it.
+func RunInitSilent(targetDir string) error {
+	absDir, err := filepath.Abs(targetDir)
+	if err != nil {
+		return fmt.Errorf("invalid directory path: %w", err)
+	}
+
+	stat, err := os.Stat(absDir)
+	if err != nil {
+		return fmt.Errorf("cannot access directory %s: %w", absDir, err)
+	}
+	if !stat.IsDir() {
+		return fmt.Errorf("path %s is not a directory", absDir)
+	}
+
+	slog.Info("Silently auto-indexing repository for MCP server", "path", absDir)
+	_, err = indexRepository(absDir, nil)
+	if err != nil {
+		slog.Error("Silent auto-index failed", "error", err)
+	}
+	return err
 }

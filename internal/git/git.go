@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -56,7 +57,14 @@ func GetGitChanges(ctx context.Context, rootDir string, database *sql.DB) (*GitC
 		}, nil
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(statusOut)), "\n")
+	// Trim only the trailing newline, not leading whitespace: porcelain status
+	// lines are fixed-column ("XY path"), and X is frequently a literal space
+	// (e.g. " M" for "modified, not staged"). TrimSpace on the whole blob would
+	// eat that leading space off the first line only, shifting every fixed
+	// offset below by one and silently dropping the first character of that
+	// file's path.
+	trimmed := strings.TrimRight(string(statusOut), "\r\n")
+	lines := strings.Split(trimmed, "\n")
 	if len(lines) == 0 || (len(lines) == 1 && lines[0] == "") {
 		return &GitChangesResult{
 			Branch:       branch,
@@ -88,7 +96,7 @@ func GetGitChanges(ctx context.Context, rootDir string, database *sql.DB) (*GitC
 			statusName = "deleted"
 		}
 
-		affectedSyms, changedCount := getFileAffectedSymbols(ctx, rootDir, filePath, database)
+		affectedSyms, changedCount := getFileAffectedSymbols(ctx, rootDir, filePath, database, statusName == "untracked")
 
 		summaries = append(summaries, FileDiffSummary{
 			Path:             filePath,
@@ -105,7 +113,15 @@ func GetGitChanges(ctx context.Context, rootDir string, database *sql.DB) (*GitC
 	}, nil
 }
 
-func getFileAffectedSymbols(ctx context.Context, rootDir string, relPath string, database *sql.DB) ([]string, int) {
+func getFileAffectedSymbols(ctx context.Context, rootDir string, relPath string, database *sql.DB, isUntracked bool) ([]string, int) {
+	if isUntracked {
+		// git diff produces nothing for untracked files (there's no committed or
+		// staged version to diff against), so without this they'd always report
+		// 0 changed lines despite being entirely new. Treat the whole file as
+		// changed instead.
+		return newFileAffectedSymbols(ctx, rootDir, relPath, database)
+	}
+
 	diffCmd := exec.CommandContext(ctx, "git", "diff", "--unified=0", "HEAD", "--", filepath.FromSlash(relPath))
 	diffCmd.Dir = rootDir
 	diffOut, err := diffCmd.Output()
@@ -141,8 +157,8 @@ func getFileAffectedSymbols(ctx context.Context, rootDir string, relPath string,
 		return nil, len(changedLines)
 	}
 
-	// Fetch symbols for this file
-	syms, err := db.FindSymbols(ctx, database, relPath)
+	// Fetch symbols declared in this exact file
+	syms, err := db.FindSymbolsInFile(ctx, database, relPath)
 	if err != nil || len(syms) == 0 {
 		return nil, len(changedLines)
 	}
@@ -152,7 +168,7 @@ func getFileAffectedSymbols(ctx context.Context, rootDir string, relPath string,
 	for _, chLine := range changedLines {
 		var closestSym *db.SymbolRecord
 		for _, s := range syms {
-			if s.FilePath == relPath && s.LineNumber <= chLine {
+			if s.LineNumber <= chLine {
 				if closestSym == nil || s.LineNumber > closestSym.LineNumber {
 					sCopy := s
 					closestSym = &sCopy
@@ -170,6 +186,38 @@ func getFileAffectedSymbols(ctx context.Context, rootDir string, relPath string,
 	}
 
 	return result, len(changedLines)
+}
+
+// newFileAffectedSymbols reports every declared symbol in a brand-new
+// (untracked) file, and its total line count, since the entire file is new
+// and git diff has nothing to compare it against.
+func newFileAffectedSymbols(ctx context.Context, rootDir string, relPath string, database *sql.DB) ([]string, int) {
+	fullPath := filepath.Join(rootDir, filepath.FromSlash(relPath))
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		return nil, 0
+	}
+	lineCount := strings.Count(string(content), "\n") + 1
+
+	if database == nil {
+		return nil, lineCount
+	}
+
+	syms, err := db.FindSymbolsInFile(ctx, database, relPath)
+	if err != nil || len(syms) == 0 {
+		return nil, lineCount
+	}
+
+	matched := make(map[string]bool)
+	for _, s := range syms {
+		matched[fmt.Sprintf("[%s] %s (L%d)", s.Kind, s.Name, s.LineNumber)] = true
+	}
+
+	var result []string
+	for s := range matched {
+		result = append(result, s)
+	}
+	return result, lineCount
 }
 
 // FormatGitChanges returns a concise, token-efficient markdown report of the git changes.

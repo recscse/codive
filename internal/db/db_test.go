@@ -167,7 +167,7 @@ func TestSchemaMigration(t *testing.T) {
 	}
 	defer database.Close()
 
-	// Verify schema version is now CurrentSchemaVersion (3)
+	// Verify schema version is now CurrentSchemaVersion
 	version, err := GetSchemaVersion(database)
 	if err != nil {
 		t.Fatalf("failed to get schema version: %v", err)

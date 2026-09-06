@@ -224,9 +224,17 @@ func Scan(rootDir string) (*ScanResult, error) {
 
 // IncrementalResult contains categorized changes detected between disk and index.
 type IncrementalResult struct {
-	Added          []db.FileRecord
-	Modified       []db.FileRecord
-	Deleted        []string
+	Added    []db.FileRecord
+	Modified []db.FileRecord
+	Deleted  []string
+	// MetadataOnly holds files whose mtime changed on disk but whose content
+	// hash is identical to what's indexed (e.g. a touch, or a checkout that
+	// resets timestamps). Their symbols/FTS content don't need re-extracting,
+	// but callers should still persist these records via db.SaveFiles so the
+	// stored LastModified is refreshed — otherwise the fast unchanged-check in
+	// the next scan keeps failing for these files and they get rehashed from
+	// scratch on every single scan, forever.
+	MetadataOnly   []db.FileRecord
 	UnchangedCount int
 	LanguageCounts map[string]int
 	TotalSizeBytes int64
@@ -341,7 +349,11 @@ func ScanIncremental(rootDir string, existing map[string]db.FileRecord) (*Increm
 		} else if existingRec.ContentHash != hash {
 			result.Modified = append(result.Modified, record)
 		} else {
-			// Hash is identical despite mtime change; update mtime in DB as modified or unchanged
+			// Hash is identical despite the mtime change: content didn't
+			// actually change, so this doesn't need symbol/FTS re-extraction,
+			// but the stored LastModified still needs refreshing (see
+			// MetadataOnly's doc comment) or every future scan re-hashes it.
+			result.MetadataOnly = append(result.MetadataOnly, record)
 			result.UnchangedCount++
 		}
 

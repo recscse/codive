@@ -755,7 +755,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 		used := estimateTokens(sb.String())
 		sb.WriteString(tokenFooter(used, rawTokenEstimate))
-		db.RecordTelemetry(ctx, targetDB, "find_symbol", rawTokenEstimate-used, 14)
+		db.RecordTelemetry(ctx, targetDB, "find_symbol", used, rawTokenEstimate, 14)
 
 		return &ToolCallResult{
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
@@ -808,7 +808,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		used := estimateTokens(sb.String())
 		rawEst := len(refs) * 1200
 		sb.WriteString(tokenFooter(used, rawEst))
-		db.RecordTelemetry(ctx, targetDB, telemetryName, rawEst-used, 5)
+		db.RecordTelemetry(ctx, targetDB, telemetryName, used, rawEst, 5)
 
 		return &ToolCallResult{
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
@@ -918,7 +918,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 		used := estimateTokens(sb.String())
 		sb.WriteString(tokenFooter(used, rawTokenEstimate))
-		db.RecordTelemetry(ctx, targetDB, "get_file_skeleton", rawTokenEstimate-used, 2)
+		db.RecordTelemetry(ctx, targetDB, "get_file_skeleton", used, rawTokenEstimate, 2)
 
 		return &ToolCallResult{
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
@@ -988,7 +988,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 					seen := make(map[string]bool)
 					var names []string
 					for _, c := range callers {
-						label := enclosingFunctionName(symbolsByFile[c.FilePath], c.LineNumber)
+						label := symbols.EnclosingFunctionName(symbolsByFile[c.FilePath], c.LineNumber)
 						if label == "" {
 							label = fmt.Sprintf("%s:%d", c.FilePath, c.LineNumber)
 						}
@@ -1061,7 +1061,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		// file in FTS's bm25 score. Order is preserved within each group.
 		var codeFiles, otherFiles []string
 		for _, f := range candidateFiles {
-			if isASTCapableLanguage(scanner.DetectLanguage(f)) {
+			if symbols.IsASTCapableLanguage(scanner.DetectLanguage(f)) {
 				codeFiles = append(codeFiles, f)
 			} else {
 				otherFiles = append(otherFiles, f)
@@ -1144,55 +1144,23 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			return nil, fmt.Errorf("symbol argument is required")
 		}
 
-		cleanSymbol := symbol
-		if strings.Contains(symbol, ":") {
-			parts := strings.Split(symbol, ":")
-			cleanSymbol = parts[len(parts)-1]
-		}
-
-		refs, err := db.FindReferences(ctx, targetDB, cleanSymbol, 50)
+		res, err := db.AnalyzeBlastRadius(ctx, targetDB, symbol)
 		if err != nil {
 			return nil, err
 		}
 
-		fileMap := make(map[string]bool)
-		for _, r := range refs {
-			fileMap[r.FilePath] = true
-		}
-
-		var affectedFiles []string
-		for f := range fileMap {
-			affectedFiles = append(affectedFiles, f)
-		}
-
-		tests, _ := db.FindTestsFor(ctx, targetDB, cleanSymbol)
-		var testsToRun []string
-		for _, t := range tests {
-			testsToRun = append(testsToRun, t.TestFilePath)
-			for _, name := range t.TestNames {
-				testsToRun = append(testsToRun, name)
-			}
-		}
-
-		riskLevel := "LOW"
-		if len(affectedFiles) >= 3 || len(refs) >= 5 {
-			riskLevel = "HIGH"
-		} else if len(affectedFiles) >= 2 || len(refs) >= 2 {
-			riskLevel = "MEDIUM"
-		}
-
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("💥 Blast Radius Analysis for '%s':\n\n", cleanSymbol))
-		sb.WriteString(fmt.Sprintf("  • Risk Level: %s (%d direct callers across %d files)\n", riskLevel, len(refs), len(affectedFiles)))
-		if len(affectedFiles) > 0 {
+		sb.WriteString(fmt.Sprintf("💥 Blast Radius Analysis for '%s':\n\n", res.Symbol))
+		sb.WriteString(fmt.Sprintf("  • Risk Level: %s (%d direct callers across %d files)\n", res.RiskLevel, len(res.References), len(res.AffectedFiles)))
+		if len(res.AffectedFiles) > 0 {
 			sb.WriteString("  • Affected Files:\n")
-			for _, f := range affectedFiles {
+			for _, f := range res.AffectedFiles {
 				sb.WriteString(fmt.Sprintf("     - %s\n", f))
 			}
 		}
-		if len(testsToRun) > 0 {
+		if len(res.TestsToRun) > 0 {
 			sb.WriteString("  • Tests to Run:\n")
-			for _, t := range testsToRun {
+			for _, t := range res.TestsToRun {
 				sb.WriteString(fmt.Sprintf("     - %s\n", t))
 			}
 		} else {
@@ -1363,38 +1331,6 @@ func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootD
 }
 
 // ── LLM-output helpers ─────────────────────────────────────────────────────
-
-// enclosingFunctionName finds the nearest function/method declared before the
-// given line within fileSymbols (a single file's symbols), i.e. which function
-// a caller reference line falls inside. Returns "" if none is found.
-func enclosingFunctionName(fileSymbols []db.SymbolRecord, line int) string {
-	var best db.SymbolRecord
-	found := false
-	for _, s := range fileSymbols {
-		if (s.Kind == "function" || s.Kind == "method") && s.LineNumber <= line {
-			if !found || s.LineNumber > best.LineNumber {
-				best = s
-				found = true
-			}
-		}
-	}
-	if !found {
-		return ""
-	}
-	return best.Name
-}
-
-// isASTCapableLanguage reports whether symbols.ExtractSymbols has a real parser
-// for this language (mirrors its switch cases exactly). Anything else always
-// falls through to extractGenericSymbols, which returns no symbols.
-func isASTCapableLanguage(lang string) bool {
-	switch lang {
-	case "Go", "Python", "TypeScript", "JavaScript", "Java", "C#", "Rust":
-		return true
-	default:
-		return false
-	}
-}
 
 // classifySymbolRole returns a human-readable semantic role for display in
 // find_symbol results. It distinguishes definitions, tests, and mocks.

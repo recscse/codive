@@ -15,38 +15,6 @@ import (
 	"github.com/recscse/codive/internal/ui"
 )
 
-// enclosingFunctionName finds the nearest function/method declared before the
-// given line within fileSymbols (a single file's symbols), i.e. which function
-// a caller reference line falls inside. Returns "" if none is found.
-func enclosingFunctionName(fileSymbols []db.SymbolRecord, line int) string {
-	var best db.SymbolRecord
-	found := false
-	for _, s := range fileSymbols {
-		if (s.Kind == "function" || s.Kind == "method") && s.LineNumber <= line {
-			if !found || s.LineNumber > best.LineNumber {
-				best = s
-				found = true
-			}
-		}
-	}
-	if !found {
-		return ""
-	}
-	return best.Name
-}
-
-// isASTCapableLanguage reports whether symbols.ExtractSymbols has a real parser
-// for this language. Anything else always falls through to extractGenericSymbols,
-// which returns no symbols, so a skeleton for it is always the empty fallback.
-func isASTCapableLanguage(lang string) bool {
-	switch lang {
-	case "Go", "Python", "TypeScript", "JavaScript", "Java", "C#", "Rust":
-		return true
-	default:
-		return false
-	}
-}
-
 // RunPack creates a high-density, token-optimized context bundle for a task or query.
 func RunPack(targetDir string, query string) error {
 	if strings.TrimSpace(query) == "" {
@@ -153,7 +121,7 @@ func PackFeatureContext(ctx context.Context, database *sql.DB, rootDir string, t
 				seen := make(map[string]bool)
 				var names []string
 				for _, c := range callers {
-					label := enclosingFunctionName(symbolsByFile[c.FilePath], c.LineNumber)
+					label := symbols.EnclosingFunctionName(symbolsByFile[c.FilePath], c.LineNumber)
 					if label == "" {
 						label = fmt.Sprintf("%s:%d", c.FilePath, c.LineNumber)
 					}
@@ -224,7 +192,7 @@ func PackFeatureContext(ctx context.Context, database *sql.DB, rootDir string, t
 	// FTS's bm25 score. Order is preserved within each group.
 	var codeFiles, otherFiles []string
 	for _, f := range candidateFiles {
-		if isASTCapableLanguage(scanner.DetectLanguage(f)) {
+		if symbols.IsASTCapableLanguage(scanner.DetectLanguage(f)) {
 			codeFiles = append(codeFiles, f)
 		} else {
 			otherFiles = append(otherFiles, f)

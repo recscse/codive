@@ -197,6 +197,39 @@ func isCodeDeclaration(line, language string) bool {
 	return false
 }
 
+// EnclosingFunctionName finds the nearest function/method declared before the
+// given line within fileSymbols (a single file's symbols), i.e. which function
+// a caller reference line falls inside. Returns "" if none is found.
+func EnclosingFunctionName(fileSymbols []db.SymbolRecord, line int) string {
+	var best db.SymbolRecord
+	found := false
+	for _, s := range fileSymbols {
+		if (s.Kind == "function" || s.Kind == "method") && s.LineNumber <= line {
+			if !found || s.LineNumber > best.LineNumber {
+				best = s
+				found = true
+			}
+		}
+	}
+	if !found {
+		return ""
+	}
+	return best.Name
+}
+
+// IsASTCapableLanguage reports whether ExtractSymbols has a real parser for
+// this language (mirrors its switch cases exactly). Anything else always
+// falls through to extractGenericSymbols, which returns no symbols, so a
+// skeleton for it is always the empty fallback.
+func IsASTCapableLanguage(lang string) bool {
+	switch lang {
+	case "Go", "Python", "TypeScript", "JavaScript", "Java", "C#", "Rust":
+		return true
+	default:
+		return false
+	}
+}
+
 // findClassDecl finds the primary class/struct/interface declaration in a symbol list.
 func findClassDecl(syms []db.SymbolRecord) *db.SymbolRecord {
 	for i := range syms {

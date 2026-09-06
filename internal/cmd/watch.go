@@ -73,6 +73,16 @@ func RunWatch(targetDir string, pollInterval time.Duration) error {
 			}
 
 			hasChanges := len(incrResult.Added) > 0 || len(incrResult.Modified) > 0 || len(incrResult.Deleted) > 0
+			if !hasChanges && len(incrResult.MetadataOnly) == 0 {
+				continue
+			}
+
+			if len(incrResult.MetadataOnly) > 0 {
+				// Content is unchanged, so no symbol/FTS re-extraction is needed —
+				// just refresh the stored mtime so these files stop being rehashed
+				// on every poll.
+				_ = db.SaveFiles(ctx, database, incrResult.MetadataOnly)
+			}
 			if !hasChanges {
 				continue
 			}

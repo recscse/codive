@@ -53,6 +53,14 @@ func RunUpdate(targetDir string) error {
 		"deleted", len(incrResult.Deleted),
 		"unchanged", incrResult.UnchangedCount)
 
+	if len(incrResult.MetadataOnly) > 0 {
+		// Content is unchanged, so no symbol/FTS re-extraction is needed — just
+		// refresh the stored mtime so these files stop being rehashed on every update.
+		if err := db.SaveFiles(ctx, database, incrResult.MetadataOnly); err != nil {
+			return fmt.Errorf("failed to refresh unchanged file metadata: %w", err)
+		}
+	}
+
 	// 1. Save added and modified files
 	toSave := append(incrResult.Added, incrResult.Modified...)
 	if len(toSave) > 0 {

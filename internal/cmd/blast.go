@@ -85,51 +85,20 @@ func RunBlast(targetDir string, targetSymbol string, asJSON bool) error {
 	return nil
 }
 
-// AnalyzeBlastRadius performs call graph and test suite impact analysis for a symbol.
+// AnalyzeBlastRadius performs call graph and test suite impact analysis for a
+// symbol, delegating the actual analysis to db.AnalyzeBlastRadius (shared with
+// the MCP blast_radius tool) and adapting it to the CLI's result shape.
 func AnalyzeBlastRadius(ctx context.Context, database *sql.DB, symbol string) (*BlastRadiusResult, error) {
-	// Strip file prefix if passed like "auth.go:GenerateToken"
-	cleanSymbol := symbol
-	if strings.Contains(symbol, ":") {
-		parts := strings.Split(symbol, ":")
-		cleanSymbol = parts[len(parts)-1]
-	}
-
-	refs, err := db.FindReferences(ctx, database, cleanSymbol, 50)
+	res, err := db.AnalyzeBlastRadius(ctx, database, symbol)
 	if err != nil {
 		return nil, err
 	}
 
-	fileMap := make(map[string]bool)
-	for _, r := range refs {
-		fileMap[r.FilePath] = true
-	}
-
-	var affectedFiles []string
-	for f := range fileMap {
-		affectedFiles = append(affectedFiles, f)
-	}
-
-	tests, _ := db.FindTestsFor(ctx, database, cleanSymbol)
-	var testsToRun []string
-	for _, t := range tests {
-		testsToRun = append(testsToRun, t.TestFilePath)
-		for _, name := range t.TestNames {
-			testsToRun = append(testsToRun, name)
-		}
-	}
-
-	riskLevel := "LOW"
-	if len(affectedFiles) >= 3 || len(refs) >= 5 {
-		riskLevel = "HIGH"
-	} else if len(affectedFiles) >= 2 || len(refs) >= 2 {
-		riskLevel = "MEDIUM"
-	}
-
 	return &BlastRadiusResult{
-		Symbol:        cleanSymbol,
-		RiskLevel:     riskLevel,
-		CallSites:     len(refs),
-		AffectedFiles: affectedFiles,
-		TestsToRun:    testsToRun,
+		Symbol:        res.Symbol,
+		RiskLevel:     res.RiskLevel,
+		CallSites:     len(res.References),
+		AffectedFiles: res.AffectedFiles,
+		TestsToRun:    res.TestsToRun,
 	}, nil
 }

@@ -42,7 +42,7 @@ type RepoStats struct {
 }
 
 // CurrentSchemaVersion is the latest database schema version.
-const CurrentSchemaVersion = 5
+const CurrentSchemaVersion = 6
 
 // Open initializes and opens the SQLite database at dbPath, creating parent dirs and migrating schema.
 func Open(dbPath string) (*sql.DB, error) {
@@ -185,6 +185,13 @@ var Migrations = []Migration{
 			created_at TIMESTAMP NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_telemetry_created ON telemetry(created_at);
+		`,
+	},
+	{
+		Version:     6,
+		Description: "Add raw_estimate to telemetry so speed multiplier is computed from real data",
+		SQL: `
+		ALTER TABLE telemetry ADD COLUMN raw_estimate INTEGER NOT NULL DEFAULT 0;
 		`,
 	},
 }
@@ -532,6 +539,33 @@ func FindSymbols(ctx context.Context, database *sql.DB, query string) ([]SymbolR
 		symbols = append(symbols, s)
 	}
 	return symbols, rows.Err()
+}
+
+// FindSymbolsInFile returns every symbol declared in exactly the given file
+// path, ordered by line number. Unlike FindSymbols (a fuzzy name/signature
+// search), this is an exact file lookup — the right tool when you already
+// know which file you want the declared symbols for.
+func FindSymbolsInFile(ctx context.Context, database *sql.DB, filePath string) ([]SymbolRecord, error) {
+	rows, err := database.QueryContext(ctx, `
+		SELECT file_path, name, kind, signature, line_number
+		FROM symbols
+		WHERE file_path = ?
+		ORDER BY line_number ASC;
+	`, filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find symbols in file: %w", err)
+	}
+	defer rows.Close()
+
+	var syms []SymbolRecord
+	for rows.Next() {
+		var s SymbolRecord
+		if err := rows.Scan(&s.FilePath, &s.Name, &s.Kind, &s.Signature, &s.LineNumber); err != nil {
+			return nil, fmt.Errorf("failed to scan symbol: %w", err)
+		}
+		syms = append(syms, s)
+	}
+	return syms, rows.Err()
 }
 
 // SearchResult represents a matching file from FTS search.
@@ -935,6 +969,68 @@ func FindCallees(ctx context.Context, database *sql.DB, symbol string) ([]Symbol
 	return callees, nil
 }
 
+// BlastRadiusResult represents the impact analysis of changing a symbol.
+type BlastRadiusResult struct {
+	Symbol        string
+	RiskLevel     string // "HIGH", "MEDIUM", "LOW"
+	References    []ReferenceResult
+	AffectedFiles []string
+	TestsToRun    []string
+}
+
+// AnalyzeBlastRadius performs call graph and test suite impact analysis for a
+// symbol: it finds every reference, the files they live in, and any test
+// suites that already cover it, then derives a coarse risk level from those
+// counts. Shared by the CLI `blast` command and the MCP blast_radius tool so
+// the two surfaces can't silently drift on what counts as high risk.
+func AnalyzeBlastRadius(ctx context.Context, database *sql.DB, symbol string) (*BlastRadiusResult, error) {
+	// Strip file prefix if passed like "auth.go:GenerateToken"
+	cleanSymbol := symbol
+	if strings.Contains(symbol, ":") {
+		parts := strings.Split(symbol, ":")
+		cleanSymbol = parts[len(parts)-1]
+	}
+
+	refs, err := FindReferences(ctx, database, cleanSymbol, 50)
+	if err != nil {
+		return nil, err
+	}
+
+	fileMap := make(map[string]bool)
+	for _, r := range refs {
+		fileMap[r.FilePath] = true
+	}
+
+	var affectedFiles []string
+	for f := range fileMap {
+		affectedFiles = append(affectedFiles, f)
+	}
+
+	tests, _ := FindTestsFor(ctx, database, cleanSymbol)
+	var testsToRun []string
+	for _, t := range tests {
+		testsToRun = append(testsToRun, t.TestFilePath)
+		for _, name := range t.TestNames {
+			testsToRun = append(testsToRun, name)
+		}
+	}
+
+	riskLevel := "LOW"
+	if len(affectedFiles) >= 3 || len(refs) >= 5 {
+		riskLevel = "HIGH"
+	} else if len(affectedFiles) >= 2 || len(refs) >= 2 {
+		riskLevel = "MEDIUM"
+	}
+
+	return &BlastRadiusResult{
+		Symbol:        cleanSymbol,
+		RiskLevel:     riskLevel,
+		References:    refs,
+		AffectedFiles: affectedFiles,
+		TestsToRun:    testsToRun,
+	}, nil
+}
+
 // DecisionRecord represents a durable architectural or design decision recorded by an AI agent.
 type DecisionRecord struct {
 	ID        int64     `json:"id"`
@@ -1009,45 +1105,56 @@ type SavingsReport struct {
 }
 
 // RecordTelemetry records token and latency savings for an MCP query.
-func RecordTelemetry(ctx context.Context, database *sql.DB, toolName string, tokensSaved int, latencySavedMs int) {
+// rawEstimate is the estimated token cost of the raw (non-codive) alternative
+// for this call — e.g. reading the whole file — and usedTokens is the actual
+// size of the response codive returned. Storing both (rather than just their
+// difference) lets GetSavingsReport derive a real speed multiplier from
+// aggregate usage instead of guessing a constant.
+func RecordTelemetry(ctx context.Context, database *sql.DB, toolName string, usedTokens int, rawEstimate int, latencySavedMs int) {
 	if database == nil {
 		return
 	}
+	tokensSaved := rawEstimate - usedTokens
+	if tokensSaved < 0 {
+		tokensSaved = 0
+	}
 	_, _ = database.ExecContext(ctx, `
-		INSERT INTO telemetry (tool_name, tokens_saved, latency_saved_ms, created_at)
-		VALUES (?, ?, ?, ?);
-	`, toolName, tokensSaved, latencySavedMs, time.Now().UTC())
+		INSERT INTO telemetry (tool_name, tokens_saved, raw_estimate, latency_saved_ms, created_at)
+		VALUES (?, ?, ?, ?, ?);
+	`, toolName, tokensSaved, rawEstimate, latencySavedMs, time.Now().UTC())
 }
 
-// GetSavingsReport computes aggregate efficiency and cloud cost reduction metrics.
+// GetSavingsReport computes aggregate efficiency and cloud cost reduction
+// metrics purely from recorded telemetry — it never fabricates data, so a
+// fresh install with no recorded queries yet correctly reports all-zero
+// stats (SpeedMultiplier reports 1.0, meaning "no measured speedup yet").
 func GetSavingsReport(ctx context.Context, database *sql.DB) (*SavingsReport, error) {
 	row := database.QueryRowContext(ctx, `
-		SELECT 
-			COUNT(1), 
-			COALESCE(SUM(tokens_saved), 0), 
-			COALESCE(SUM(latency_saved_ms), 0)
+		SELECT
+			COUNT(1),
+			COALESCE(SUM(tokens_saved), 0),
+			COALESCE(SUM(latency_saved_ms), 0),
+			COALESCE(SUM(raw_estimate), 0)
 		FROM telemetry;
 	`)
 
 	var queries int64
 	var tokens int64
 	var latencyMs int64
-	if err := row.Scan(&queries, &tokens, &latencyMs); err != nil {
+	var rawTotal int64
+	if err := row.Scan(&queries, &tokens, &latencyMs, &rawTotal); err != nil {
 		return nil, fmt.Errorf("failed to compute savings report: %w", err)
-	}
-
-	if queries == 0 {
-		// Provide default baseline estimates if fresh install
-		queries = 12
-		tokens = 32500
-		latencyMs = 38400
 	}
 
 	costUSD := (float64(tokens) / 1000000.0) * 3.00 // $3.00 per 1M input tokens
 
-	speedMultiplier := 4.8
-	if queries > 0 {
-		speedMultiplier = 5.2
+	// Real ratio of raw (uncompressed) token cost to what was actually used,
+	// derived from recorded usage rather than a guessed constant. Falls back
+	// to 1.0 (no measured speedup) until there's enough data to divide by.
+	speedMultiplier := 1.0
+	usedTotal := rawTotal - tokens
+	if usedTotal > 0 {
+		speedMultiplier = float64(rawTotal) / float64(usedTotal)
 	}
 
 	return &SavingsReport{

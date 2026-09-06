@@ -25,8 +25,10 @@ func RunServe(targetDir string, version string) error {
 
 	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		// Auto-initialize if not initialized yet
-		_ = RunInit(absDir)
+		// Auto-initialize silently: stdout here IS the JSON-RPC transport, so
+		// RunInit's progress bar and summary banner (both written to stdout)
+		// would corrupt it before the first real protocol message ever goes out.
+		_ = RunInitSilent(absDir)
 	}
 
 	database, err := db.Open(dbPath)
@@ -69,14 +71,22 @@ func syncQuietly(ctx context.Context, rootDir string, database *sql.DB) {
 		return
 	}
 
-	if len(incrResult.Added) == 0 && len(incrResult.Modified) == 0 && len(incrResult.Deleted) == 0 {
+	if len(incrResult.Added) == 0 && len(incrResult.Modified) == 0 && len(incrResult.Deleted) == 0 && len(incrResult.MetadataOnly) == 0 {
 		return
 	}
 
-	slog.Info("Auto-sync background worker detected changes",
-		"added", len(incrResult.Added),
-		"modified", len(incrResult.Modified),
-		"deleted", len(incrResult.Deleted))
+	if len(incrResult.MetadataOnly) > 0 {
+		// Content is unchanged, so no symbol/FTS re-extraction is needed — just
+		// refresh the stored mtime so these files stop being rehashed on every scan.
+		_ = db.SaveFiles(ctx, database, incrResult.MetadataOnly)
+	}
+
+	if len(incrResult.Added) > 0 || len(incrResult.Modified) > 0 || len(incrResult.Deleted) > 0 {
+		slog.Info("Auto-sync background worker detected changes",
+			"added", len(incrResult.Added),
+			"modified", len(incrResult.Modified),
+			"deleted", len(incrResult.Deleted))
+	}
 
 	toSave := append(incrResult.Added, incrResult.Modified...)
 	if len(toSave) > 0 {
