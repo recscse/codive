@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/scanner"
+	"github.com/recscse/codive/internal/symbols"
 )
 
 func setupTestDB(t *testing.T) (string, func()) {
@@ -205,4 +207,112 @@ func TestMCPServer(t *testing.T) {
 	if !strings.Contains(out.String(), "package main") {
 		t.Errorf("expected read_file_context to return file content, got %s", out.String())
 	}
+}
+
+// indexForTest builds a real index for dir the same way init does, so file
+// records carry genuine sizes, mtimes, and content hashes.
+func indexForTest(t *testing.T, dir string) {
+	t.Helper()
+	res, err := scanner.Scan(dir)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	database, err := db.Open(filepath.Join(dir, ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	if err := db.SaveFiles(ctx, database, res.Files); err != nil {
+		t.Fatalf("failed to save files: %v", err)
+	}
+	fts := make(map[string]string)
+	for _, f := range res.Files {
+		content, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(f.Path)))
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", f.Path, err)
+		}
+		fts[f.Path] = string(content)
+		syms, _ := symbols.ExtractSymbols(f.Path, f.Language, content)
+		if err := db.SaveSymbols(ctx, database, syms); err != nil {
+			t.Fatalf("failed to save symbols: %v", err)
+		}
+	}
+	if err := db.SaveFTS(ctx, database, fts); err != nil {
+		t.Fatalf("failed to save fts: %v", err)
+	}
+}
+
+func TestEnsureFreshSymbols(t *testing.T) {
+	tempDir := t.TempDir()
+	srcPath := filepath.Join(tempDir, "a.go")
+	if err := os.WriteFile(srcPath, []byte("package p\n\nfunc Alpha() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write a.go: %v", err)
+	}
+	indexForTest(t, tempDir)
+
+	// An ignored file that exists on disk but was never indexed.
+	if err := os.MkdirAll(filepath.Join(tempDir, "node_modules"), 0755); err != nil {
+		t.Fatalf("failed to create node_modules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, "node_modules", "x.js"), []byte("const SECRETVALUE = 1\n"), 0644); err != nil {
+		t.Fatalf("failed to write x.js: %v", err)
+	}
+
+	database, err := db.Open(filepath.Join(tempDir, ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	defer database.Close()
+	server := NewServer(tempDir, database, "test")
+	defer server.Close()
+	ctx := context.Background()
+	call := func(name string, args map[string]any) string {
+		t.Helper()
+		args["workspace_path"] = tempDir
+		res, err := server.executeTool(ctx, name, args)
+		if err != nil {
+			t.Fatalf("%s failed: %v", name, err)
+		}
+		return res.Content[0].Text
+	}
+
+	t.Run("unindexed file is not pulled into the index", func(t *testing.T) {
+		call("read_file_context", map[string]any{"path": "node_modules/x.js"})
+		if _, ok, _ := db.GetFile(ctx, database, "node_modules/x.js"); ok {
+			t.Error("read_file_context indexed an ignored file")
+		}
+		if hits, _ := db.SearchFTS(ctx, database, "SECRETVALUE", 5); len(hits) != 0 {
+			t.Errorf("ignored file content leaked into FTS: %+v", hits)
+		}
+	})
+
+	t.Run("unchanged file is not rewritten", func(t *testing.T) {
+		before, _, _ := db.GetFile(ctx, database, "a.go")
+		call("find_symbol", map[string]any{"query": "Alpha"})
+		after, _, _ := db.GetFile(ctx, database, "a.go")
+		if !after.LastIndexed.Equal(before.LastIndexed) {
+			t.Errorf("unchanged file was re-indexed: LastIndexed %v -> %v", before.LastIndexed, after.LastIndexed)
+		}
+	})
+
+	t.Run("modified file is refreshed before results are printed", func(t *testing.T) {
+		newContent := []byte("package p\n\n\n\n\nfunc Alpha() {}\n")
+		if err := os.WriteFile(srcPath, newContent, 0644); err != nil {
+			t.Fatalf("failed to rewrite a.go: %v", err)
+		}
+		future := time.Now().Add(time.Minute)
+		if err := os.Chtimes(srcPath, future, future); err != nil {
+			t.Fatalf("failed to bump mtime: %v", err)
+		}
+
+		out := call("find_symbol", map[string]any{"query": "Alpha"})
+		if !strings.Contains(out, "(L6)") || strings.Contains(out, "(L3)") {
+			t.Errorf("expected only the refreshed location L6, got:\n%s", out)
+		}
+		rec, _, _ := db.GetFile(ctx, database, "a.go")
+		if rec.ContentHash != scanner.HashBytes(newContent) {
+			t.Errorf("refreshed record has stale/empty content hash %q", rec.ContentHash)
+		}
+	})
 }

@@ -43,6 +43,7 @@ func RunServe(targetDir string, version string) error {
 	go startBackgroundWatcher(ctx, absDir, database)
 
 	server := mcp.NewServer(absDir, database, version)
+	defer server.Close()
 	return server.Serve(os.Stdin, os.Stdout)
 }
 

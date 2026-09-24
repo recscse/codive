@@ -144,19 +144,9 @@ func main() {
 
 	command := strings.ToLower(args[0])
 
-	// Determine working dir for logger
-	logTargetDir := "."
-	if len(args) >= 2 && !strings.HasPrefix(args[1], "-") {
-		if (command == "symbol" || command == "find-symbol" || command == "search" || command == "pack") && len(args) >= 3 {
-			logTargetDir = args[2]
-		} else if command != "symbol" && command != "find-symbol" && command != "search" && command != "pack" {
-			logTargetDir = args[1]
-		}
-	}
-
 	// Initialize structured logging
 	if command != "help" && command != "--help" && command != "-h" && command != "version" && command != "--version" && command != "-v" {
-		_ = logger.InitLogger(logTargetDir, verbose)
+		_ = logger.InitLogger(logDirFor(args), verbose)
 		defer logger.Close()
 	}
 
@@ -447,4 +437,21 @@ func main() {
 		fmt.Printf("  Run %s for available commands.\n\n", ui.Bold.Sprint("codive help"))
 		os.Exit(1)
 	}
+}
+
+// logDirFor picks the workspace directory whose .codive/ folder should hold
+// the log file. Positional arguments are only treated as a directory when one
+// actually exists on disk: many commands take a symbol or query first (e.g.
+// `codive blast GenerateToken`), and blindly using that argument as a path
+// used to create a stray ./GenerateToken/.codive/ folder in the caller's cwd.
+func logDirFor(args []string) string {
+	for _, a := range args[1:] {
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		if info, err := os.Stat(a); err == nil && info.IsDir() {
+			return a
+		}
+	}
+	return "."
 }

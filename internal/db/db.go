@@ -382,6 +382,46 @@ func GetAllFiles(ctx context.Context, database *sql.DB) (map[string]FileRecord, 
 	return records, nil
 }
 
+// GetFile returns the indexed record for a single file path. The bool result
+// is false (with a nil error) when the path isn't in the index.
+func GetFile(ctx context.Context, database *sql.DB, path string) (FileRecord, bool, error) {
+	var r FileRecord
+	var lastModStr, lastIdxStr string
+	err := database.QueryRowContext(ctx, `
+		SELECT path, language, size_bytes, content_hash, last_modified, last_indexed
+		FROM files
+		WHERE path = ?;
+	`, path).Scan(&r.Path, &r.Language, &r.SizeBytes, &r.ContentHash, &lastModStr, &lastIdxStr)
+	if err == sql.ErrNoRows {
+		return FileRecord{}, false, nil
+	}
+	if err != nil {
+		return FileRecord{}, false, fmt.Errorf("failed to query file %s: %w", path, err)
+	}
+	r.LastModified = parseTimestamp(lastModStr)
+	r.LastIndexed = parseTimestamp(lastIdxStr)
+	return r, true, nil
+}
+
+// ClearIndex removes every indexed file, symbol, and full-text record, so a
+// full re-index starts from an empty index instead of layering new rows over
+// stale ones (deleted files, or symbols whose line number moved). Decisions
+// and telemetry are deliberately kept: they aren't derived from the source.
+func ClearIndex(ctx context.Context, database *sql.DB) error {
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin clear transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, table := range []string{"files", "symbols", "file_fts"} {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+";"); err != nil {
+			return fmt.Errorf("failed to clear %s: %w", table, err)
+		}
+	}
+	return tx.Commit()
+}
+
 // DeleteFiles removes records for the specified file paths and their associated symbols.
 func DeleteFiles(ctx context.Context, database *sql.DB, paths []string) error {
 	if len(paths) == 0 {
@@ -871,10 +911,10 @@ func FindTestsFor(ctx context.Context, database *sql.DB, target string) ([]TestL
 
 	var results []TestLocation
 	for _, tf := range testFiles {
-		syms, _ := FindSymbols(ctx, database, tf)
+		syms, _ := FindSymbolsInFile(ctx, database, tf)
 		var testNames []string
 		for _, s := range syms {
-			if s.FilePath == tf && (strings.HasPrefix(s.Name, "Test") || strings.HasPrefix(s.Name, "test_") || strings.HasPrefix(s.Name, "it(") || strings.HasPrefix(s.Name, "describe(")) {
+			if strings.HasPrefix(s.Name, "Test") || strings.HasPrefix(s.Name, "test_") || strings.HasPrefix(s.Name, "it(") || strings.HasPrefix(s.Name, "describe(") {
 				testNames = append(testNames, fmt.Sprintf("%s (L%d)", s.Name, s.LineNumber))
 			}
 		}

@@ -69,6 +69,12 @@ func indexRepository(absDir string, onFile func(processed, total int, path strin
 	}
 
 	ctx := context.Background()
+	// init is a full rebuild: without clearing first, files deleted since the
+	// last index and symbols whose line number moved (line_number is part of
+	// the symbols primary key) would survive alongside the fresh rows.
+	if err := db.ClearIndex(ctx, database); err != nil {
+		return nil, fmt.Errorf("failed to clear previous index: %w", err)
+	}
 	if err := db.SaveFiles(ctx, database, scanResult.Files); err != nil {
 		return nil, fmt.Errorf("failed to save file records: %w", err)
 	}

@@ -87,6 +87,20 @@ func NewServer(rootDir string, database *sql.DB, version string) *Server {
 	}
 }
 
+// Close closes every database connection the server opened on demand for
+// workspaces it resolved. The database passed to NewServer is owned by the
+// caller and is left open.
+func (s *Server) Close() {
+	s.dbMutex.Lock()
+	defer s.dbMutex.Unlock()
+	for dir, conn := range s.dbCache {
+		if conn != nil && conn != s.database {
+			_ = conn.Close()
+		}
+		delete(s.dbCache, dir)
+	}
+}
+
 func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 	searchDir := s.rootDir
 	if strings.TrimSpace(targetPath) != "" {
@@ -709,6 +723,25 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			return nil, err
 		}
 
+		// Line-number drift protection: refresh each matched file once (not
+		// once per match), then re-query if anything was re-parsed so the
+		// locations printed below are the current ones.
+		refreshed := false
+		checked := make(map[string]bool)
+		for _, sym := range syms {
+			if !checked[sym.FilePath] {
+				checked[sym.FilePath] = true
+				if s.ensureFreshSymbols(ctx, targetDB, targetDir, sym.FilePath) {
+					refreshed = true
+				}
+			}
+		}
+		if refreshed {
+			if fresh, err := db.FindSymbols(ctx, targetDB, query); err == nil {
+				syms = fresh
+			}
+		}
+
 		if len(syms) == 0 {
 			return &ToolCallResult{
 				Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("No symbols found matching '%s'", query)}},
@@ -731,8 +764,6 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 		rawTokenEstimate := 0
 		for i, sym := range syms {
-			s.ensureFreshSymbols(ctx, targetDB, targetDir, sym.FilePath)
-
 			// Semantic classification
 			role := classifySymbolRole(sym.FilePath, sym.Kind)
 
@@ -895,7 +926,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		rawLineCount := strings.Count(string(contentBytes), "\n") + 1
 		rawTokenEstimate := rawLineCount * 5 // ~5 tokens per line of code
 
-		syms, _ := db.FindSymbols(ctx, targetDB, relPath)
+		syms, _ := db.FindSymbolsInFile(ctx, targetDB, relPath)
 		lang := scanner.DetectLanguage(relPath)
 		skel := symbols.GenerateSkeleton(relPath, lang, contentBytes, syms)
 
@@ -1240,16 +1271,14 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			contentBytes = []byte(ftsContent)
 		}
 
-		syms, _ := db.FindSymbols(ctx, targetDB, relPath)
+		syms, _ := db.FindSymbolsInFile(ctx, targetDB, relPath)
 
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("=== File: %s (%d bytes) ===\n", relPath, len(contentBytes)))
 		if len(syms) > 0 {
 			sb.WriteString("Declared Symbols:\n")
 			for _, sym := range syms {
-				if sym.FilePath == relPath {
-					sb.WriteString(fmt.Sprintf(" - [%s] %s (L%d)\n", sym.Kind, sym.Name, sym.LineNumber))
-				}
+				sb.WriteString(fmt.Sprintf(" - [%s] %s (L%d)\n", sym.Kind, sym.Name, sym.LineNumber))
 			}
 			sb.WriteString("\n")
 		}
@@ -1291,43 +1320,57 @@ func validateSafeRelPath(rootDir string, relPath string) (string, error) {
 	return absTargetClean, nil
 }
 
-// ensureFreshSymbols checks if the file on disk was modified after index time and micro-reparses on-the-fly.
-func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootDir string, relPath string) {
+// ensureFreshSymbols re-parses an already-indexed file whose size or mtime on
+// disk no longer matches the index, so line numbers don't drift between
+// background syncs. It reports whether symbols were rewritten. Files that
+// aren't in the index are left alone: they're either ignored (node_modules,
+// .codiveignore, binaries) or not yet picked up by a scan, and indexing them
+// here would bypass those filters.
+func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootDir string, relPath string) bool {
+	rec, indexed, err := db.GetFile(ctx, database, relPath)
+	if err != nil || !indexed {
+		return false
+	}
 	fullPath, err := validateSafeRelPath(rootDir, relPath)
 	if err != nil {
-		return
+		return false
 	}
 	info, err := os.Stat(fullPath)
-	if err != nil {
-		return
+	if err != nil || info.IsDir() {
+		return false
+	}
+	modTime := info.ModTime().UTC()
+	if rec.SizeBytes == info.Size() && rec.LastModified.Equal(modTime) {
+		return false
 	}
 
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
-		return
+		return false
 	}
+	rec.SizeBytes = info.Size()
+	rec.LastModified = modTime
+	rec.LastIndexed = time.Now().UTC()
 
-	lang := scanner.DetectLanguage(relPath)
-	syms, err := symbols.ExtractSymbols(relPath, lang, content)
+	hash := scanner.HashBytes(content)
+	if hash == rec.ContentHash {
+		// Only the mtime changed: refresh it so the next check short-circuits.
+		_ = db.SaveFiles(ctx, database, []db.FileRecord{rec})
+		return false
+	}
+	rec.ContentHash = hash
+
+	syms, err := symbols.ExtractSymbols(relPath, rec.Language, content)
 	if err != nil {
-		return
+		return false
 	}
-
-	// Update symbols and FTS dynamically in milliseconds
 	_ = db.DeleteSymbolsForFiles(ctx, database, []string{relPath})
 	if len(syms) > 0 {
 		_ = db.SaveSymbols(ctx, database, syms)
 	}
 	_ = db.SaveFTS(ctx, database, map[string]string{relPath: string(content)})
-	_ = db.SaveFiles(ctx, database, []db.FileRecord{
-		{
-			Path:         relPath,
-			Language:     lang,
-			SizeBytes:    info.Size(),
-			LastModified: info.ModTime(),
-			LastIndexed:  time.Now().UTC(),
-		},
-	})
+	_ = db.SaveFiles(ctx, database, []db.FileRecord{rec})
+	return true
 }
 
 // ── LLM-output helpers ─────────────────────────────────────────────────────

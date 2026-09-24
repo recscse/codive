@@ -202,3 +202,39 @@ func TestSchemaMigration(t *testing.T) {
 }
 
 
+
+// FindTestsFor must list the test functions inside a matched test file, not
+// just the file itself.
+func TestFindTestsForListsTestNames(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if err := SaveFiles(ctx, database, []FileRecord{
+		{Path: "pkg/auth.go", Language: "Go", SizeBytes: 1, ContentHash: "a", LastModified: now, LastIndexed: now},
+		{Path: "pkg/auth_test.go", Language: "Go", SizeBytes: 1, ContentHash: "b", LastModified: now, LastIndexed: now},
+	}); err != nil {
+		t.Fatalf("failed to save files: %v", err)
+	}
+	if err := SaveSymbols(ctx, database, []SymbolRecord{
+		{FilePath: "pkg/auth_test.go", Name: "TestLogin", Kind: "function", Signature: "func TestLogin(t *testing.T)", LineNumber: 5},
+		{FilePath: "pkg/auth_test.go", Name: "helper", Kind: "function", Signature: "func helper()", LineNumber: 9},
+	}); err != nil {
+		t.Fatalf("failed to save symbols: %v", err)
+	}
+
+	tests, err := FindTestsFor(ctx, database, "pkg/auth.go")
+	if err != nil {
+		t.Fatalf("FindTestsFor failed: %v", err)
+	}
+	if len(tests) != 1 || tests[0].TestFilePath != "pkg/auth_test.go" {
+		t.Fatalf("expected pkg/auth_test.go, got %+v", tests)
+	}
+	if len(tests[0].TestNames) != 1 || tests[0].TestNames[0] != "TestLogin (L5)" {
+		t.Errorf("expected [TestLogin (L5)], got %v", tests[0].TestNames)
+	}
+}

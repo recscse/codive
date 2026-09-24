@@ -247,3 +247,44 @@ func TestScanIncremental(t *testing.T) {
 	}
 }
 
+
+// A file whose size and mtime match the index must be classified as unchanged
+// without being opened, and must still count toward the language/size totals.
+func TestScanIncrementalSkipsSniffForUnchangedFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, "keep.go")
+	if err := os.WriteFile(path, []byte("package keep\n"), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	initial, err := Scan(tempDir)
+	if err != nil {
+		t.Fatalf("initial scan failed: %v", err)
+	}
+	existing := make(map[string]db.FileRecord)
+	for _, f := range initial.Files {
+		existing[f.Path] = f
+	}
+	rec := existing["keep.go"]
+
+	// Same size, same mtime, but content that the binary sniff would reject.
+	// If the scanner opened the file it would drop it and report it deleted.
+	if err := os.WriteFile(path, make([]byte, rec.SizeBytes), 0644); err != nil {
+		t.Fatalf("failed to rewrite file: %v", err)
+	}
+	if err := os.Chtimes(path, rec.LastModified, rec.LastModified); err != nil {
+		t.Fatalf("failed to restore mtime: %v", err)
+	}
+
+	res, err := ScanIncremental(tempDir, existing)
+	if err != nil {
+		t.Fatalf("incremental scan failed: %v", err)
+	}
+	if len(res.Deleted) != 0 || len(res.Modified) != 0 || res.UnchangedCount != 1 {
+		t.Errorf("expected keep.go unchanged without a sniff, got deleted=%v modified=%d unchanged=%d",
+			res.Deleted, len(res.Modified), res.UnchangedCount)
+	}
+	if res.LanguageCounts["Go"] != 1 || res.TotalSizeBytes != rec.SizeBytes {
+		t.Errorf("unchanged file missing from totals: langs=%v size=%d", res.LanguageCounts, res.TotalSizeBytes)
+	}
+}
