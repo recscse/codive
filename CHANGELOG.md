@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `find_references`, `find_callers`, and `blast_radius` could return **nothing at all** for common identifiers on large repositories (e.g. `Fprintf` with ~2,900 references in the Go standard library): the reference scan built an FTS snippet for every candidate file, ran one extra query per candidate, and re-fetched each file's content, so it ran past the tool-call deadline. References are now streamed straight from the full-text index and stop at the requested limit (`find_references` on a 10k-file repo: 1.3s → under 10ms). Measured against `grep -w` on five common symbols: 0 missed, 0 extra.
+- Capped results no longer read as complete. `find_references`/`find_callers` say "MORE EXIST" when the limit was hit (previously an agent was told e.g. "Found: 30" for a symbol with thousands of references), `blast_radius` reports "N+" with an explicit lower-bound note, and `find_symbol` returns at most 30 matches (configurable via `limit`) with a "showing N of M" header — a broad query like `New` previously returned ~100,000 tokens in one response.
+- `find_references` matched substrings (`Scan` matched `ScanIncremental`, `rescan`), and `find_callers` could miss real callers when a symbol was mostly mentioned in comments or imports. Both now match whole identifiers and filter during the scan.
+- Re-running `codive init` kept symbols from deleted files and duplicated any symbol whose line number had moved. `init` now replaces the index atomically.
+- `find_tests_for` found test files but never listed the tests inside them.
+- Reading a file through the MCP server (e.g. `read_file_context` on `node_modules/.env`) could pull ignored files into the full-text index, and every `find_symbol` match triggered a full re-parse and four table rewrites even for unchanged files. Files are now only re-parsed when already indexed and actually changed.
+- `get_git_changes` mishandled paths with spaces or non-ASCII characters (git C-quotes them), collapsed new untracked directories into one unreadable entry, and listed affected symbols in random order.
+- Commands that take a symbol name (e.g. `codive blast GenerateToken`) created a stray `./GenerateToken/.codive/` log folder in the current directory.
+- A crash between a schema migration and its version bump left the database failing to open with "duplicate column" on every start. Migrations are now transactional.
+- A crash mid-sync could leave a file marked as indexed at its new content hash while still holding the previous version's symbols. All index writes for a batch now happen in one transaction.
+
+### Changed
+- **Freshness is now guaranteed at query time**: before answering, the MCP server syncs the index if its last sync is more than 2s old, and the background poll adapts to repository size. On a 10k-file repository this cut idle CPU from ~33% of a core to ~3% while new files still become visible within ~1–2s.
+- No-op rescans no longer reopen files already known to be binary (0.9s → 0.25s per rescan on a 10k-file repository).
+- Every MCP tool call now runs under a 60s deadline, and `get_git_changes` runs a fixed number of git processes (one streamed diff for the whole repo instead of one per changed file), listing at most 500 files and analyzing at most 300 — with any skipped files disclosed in the output.
+- `read_file_context` returns at most 1,000 lines per call and accepts `start_line`/`end_line`.
+- MCP auto-indexing of an agent-supplied `workspace_path` is limited to the configured workspace or a git repository root.
+- The MCP server negotiates the protocol version (`2025-06-18`, `2025-03-26`, `2024-11-05`) and accepts JSON-RPC batches.
+- `find_references`/`find_callers` output is grouped by file, using 10–25% fewer tokens than the equivalent `grep -rn` output.
+- Indexing (`init`, `update`, `watch`, `serve` auto-sync, MCP auto-index) now shares one implementation instead of four drifted copies.
+
 ---
 
 ## [v1.1.1] - 2026-09-07
