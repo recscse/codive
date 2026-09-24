@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/recscse/codive/internal/db"
@@ -144,5 +145,97 @@ func TestGetGitChanges_UntrackedFileReportsSymbols(t *testing.T) {
 	}
 	if len(found.AffectedSymbols) != 1 || found.AffectedSymbols[0] != "[function] BrandNew (L3)" {
 		t.Errorf("expected BrandNew to be reported as an affected symbol, got %+v", found.AffectedSymbols)
+	}
+}
+
+func findFile(res *GitChangesResult, path string) *FileDiffSummary {
+	for i := range res.Files {
+		if res.Files[i].Path == path {
+			return &res.Files[i]
+		}
+	}
+	return nil
+}
+
+// Paths with spaces must come back verbatim (not C-quoted), files inside a
+// new untracked directory must be listed individually, and a rename must be
+// reported once under its new path.
+func TestGetGitChanges_PorcelainEdgeCases(t *testing.T) {
+	dir := setupRepo(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "my file.go"), []byte("package sample\n"), 0644); err != nil {
+		t.Fatalf("failed to write file with space: %v", err)
+	}
+	runGit(t, dir, "add", "my file.go")
+	runGit(t, dir, "commit", "-q", "-m", "space")
+	if err := os.WriteFile(filepath.Join(dir, "my file.go"), []byte("package sample\n\nfunc Spaced() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to modify file with space: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "newpkg"), 0755); err != nil {
+		t.Fatalf("failed to create newpkg: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "newpkg", "fresh.go"), []byte("package newpkg\n\nfunc Fresh() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write fresh.go: %v", err)
+	}
+
+	runGit(t, dir, "mv", "tracked.go", "renamed.go")
+
+	res, err := GetGitChanges(context.Background(), dir, nil)
+	if err != nil {
+		t.Fatalf("GetGitChanges failed: %v", err)
+	}
+
+	if f := findFile(res, "my file.go"); f == nil || f.Status != "modified" || f.ChangedLineCount == 0 {
+		t.Errorf("expected modified 'my file.go' with changed lines, got %+v (all: %+v)", f, res.Files)
+	}
+	if f := findFile(res, "newpkg/fresh.go"); f == nil || f.Status != "untracked" || f.ChangedLineCount != 4 {
+		t.Errorf("expected untracked newpkg/fresh.go with 4 lines, got %+v (all: %+v)", f, res.Files)
+	}
+	if findFile(res, "newpkg/") != nil {
+		t.Errorf("untracked directory reported as a single entry: %+v", res.Files)
+	}
+	if findFile(res, "renamed.go") == nil || findFile(res, "tracked.go") != nil {
+		t.Errorf("expected rename reported once as renamed.go, got %+v", res.Files)
+	}
+	if res.TotalChanged != 3 {
+		t.Errorf("expected 3 changed entries, got %d: %+v", res.TotalChanged, res.Files)
+	}
+}
+
+// Affected symbols must be listed in line order, not map iteration order.
+func TestGetGitChanges_AffectedSymbolsOrdered(t *testing.T) {
+	dir := setupRepo(t)
+	content := "package sample\n\nfunc A() {}\n\nfunc B() {}\n\nfunc C() {}\n\nfunc D() {}\n"
+	if err := os.WriteFile(filepath.Join(dir, "multi.go"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write multi.go: %v", err)
+	}
+
+	database, err := db.Open(filepath.Join(dir, ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	defer database.Close()
+	var syms []db.SymbolRecord
+	for i, name := range []string{"A", "B", "C", "D"} {
+		syms = append(syms, db.SymbolRecord{FilePath: "multi.go", Name: name, Kind: "function", Signature: "func " + name + "()", LineNumber: 3 + 2*i})
+	}
+	if err := db.SaveSymbols(context.Background(), database, syms); err != nil {
+		t.Fatalf("failed to save symbols: %v", err)
+	}
+
+	want := "[function] A (L3),[function] B (L5),[function] C (L7),[function] D (L9)"
+	for run := 0; run < 20; run++ {
+		res, err := GetGitChanges(context.Background(), dir, database)
+		if err != nil {
+			t.Fatalf("GetGitChanges failed: %v", err)
+		}
+		f := findFile(res, "multi.go")
+		if f == nil {
+			t.Fatalf("multi.go missing from %+v", res.Files)
+		}
+		if got := strings.Join(f.AffectedSymbols, ","); got != want {
+			t.Fatalf("run %d: symbols out of order:\n got  %s\n want %s", run, got, want)
+		}
 	}
 }

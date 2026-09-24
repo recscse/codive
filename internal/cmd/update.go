@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/indexer"
 	"github.com/recscse/codive/internal/scanner"
-	"github.com/recscse/codive/internal/symbols"
 	"github.com/recscse/codive/internal/ui"
 )
 
@@ -53,65 +53,9 @@ func RunUpdate(targetDir string) error {
 		"deleted", len(incrResult.Deleted),
 		"unchanged", incrResult.UnchangedCount)
 
-	if len(incrResult.MetadataOnly) > 0 {
-		// Content is unchanged, so no symbol/FTS re-extraction is needed — just
-		// refresh the stored mtime so these files stop being rehashed on every update.
-		if err := db.SaveFiles(ctx, database, incrResult.MetadataOnly); err != nil {
-			return fmt.Errorf("failed to refresh unchanged file metadata: %w", err)
-		}
-	}
-
-	// 1. Save added and modified files
-	toSave := append(incrResult.Added, incrResult.Modified...)
-	if len(toSave) > 0 {
-		if err := db.SaveFiles(ctx, database, toSave); err != nil {
-			return fmt.Errorf("failed to update changed files: %w", err)
-		}
-
-		// Delete old symbols for modified files before re-extracting
-		var changedPaths []string
-		for _, f := range toSave {
-			changedPaths = append(changedPaths, f.Path)
-		}
-		if err := db.DeleteSymbolsForFiles(ctx, database, changedPaths); err != nil {
-			return fmt.Errorf("failed to clear old symbols: %w", err)
-		}
-
-		// Extract and save new symbols & FTS content
-		var newSymbols []db.SymbolRecord
-		ftsFiles := make(map[string]string)
-		for _, f := range toSave {
-			fullPath := filepath.Join(absDir, filepath.FromSlash(f.Path))
-			content, err := os.ReadFile(fullPath)
-			if err != nil {
-				continue
-			}
-			ftsFiles[f.Path] = string(content)
-			syms, err := symbols.ExtractSymbols(f.Path, f.Language, content)
-			if err != nil {
-				continue
-			}
-			newSymbols = append(newSymbols, syms...)
-		}
-		if len(newSymbols) > 0 {
-			if err := db.SaveSymbols(ctx, database, newSymbols); err != nil {
-				return fmt.Errorf("failed to save symbols: %w", err)
-			}
-		}
-		if len(ftsFiles) > 0 {
-			if err := db.SaveFTS(ctx, database, ftsFiles); err != nil {
-				return fmt.Errorf("failed to save fts index: %w", err)
-			}
-		}
-	}
-
-	// 2. Remove deleted files (also removes symbols and FTS records)
-	if len(incrResult.Deleted) > 0 {
-		if err := db.DeleteFiles(ctx, database, incrResult.Deleted); err != nil {
-			return fmt.Errorf("failed to remove deleted files: %w", err)
-		}
-		if err := db.DeleteFTSForFiles(ctx, database, incrResult.Deleted); err != nil {
-			return fmt.Errorf("failed to remove deleted fts records: %w", err)
+	if indexer.HasChanges(incrResult) {
+		if err := indexer.Apply(ctx, database, absDir, incrResult); err != nil {
+			return fmt.Errorf("failed to update index: %w", err)
 		}
 	}
 

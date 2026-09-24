@@ -17,6 +17,7 @@ import (
 
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/git"
+	"github.com/recscse/codive/internal/indexer"
 	"github.com/recscse/codive/internal/scanner"
 	"github.com/recscse/codive/internal/symbols"
 )
@@ -138,36 +139,16 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 		dbPath := filepath.Join(resolvedDir, ".codive", "index.db")
 		_ = os.MkdirAll(filepath.Dir(dbPath), 0755)
 
-		// Quick scan & index
-		scanRes, scanErr := scanner.Scan(resolvedDir)
-		if scanErr == nil && len(scanRes.Files) > 0 {
-			dbConn, openErr := db.Open(dbPath)
-			if openErr == nil {
-				_ = db.InitSchema(dbConn)
-				ctx := context.Background()
-				_ = db.SaveFiles(ctx, dbConn, scanRes.Files)
-				var syms []db.SymbolRecord
-				ftsMap := make(map[string]string)
-				for _, f := range scanRes.Files {
-					full := filepath.Join(resolvedDir, filepath.FromSlash(f.Path))
-					c, _ := os.ReadFile(full)
-					if len(c) > 0 {
-						ftsMap[f.Path] = string(c)
-						extracted, _ := symbols.ExtractSymbols(f.Path, f.Language, c)
-						syms = append(syms, extracted...)
-					}
-				}
-				if len(syms) > 0 {
-					_ = db.SaveSymbols(ctx, dbConn, syms)
-				}
-				if len(ftsMap) > 0 {
-					_ = db.SaveFTS(ctx, dbConn, ftsMap)
-				}
-				s.dbMutex.Lock()
-				s.dbCache[resolvedDir] = dbConn
-				s.dbMutex.Unlock()
-				return dbConn, resolvedDir, nil
+		dbConn, openErr := db.Open(dbPath)
+		if openErr == nil {
+			if _, err := indexer.Rebuild(context.Background(), dbConn, resolvedDir, nil); err != nil {
+				dbConn.Close()
+				return nil, resolvedDir, fmt.Errorf("failed to auto-index %s: %w", resolvedDir, err)
 			}
+			s.dbMutex.Lock()
+			s.dbCache[resolvedDir] = dbConn
+			s.dbMutex.Unlock()
+			return dbConn, resolvedDir, nil
 		}
 	}
 
@@ -1355,7 +1336,7 @@ func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootD
 	hash := scanner.HashBytes(content)
 	if hash == rec.ContentHash {
 		// Only the mtime changed: refresh it so the next check short-circuits.
-		_ = db.SaveFiles(ctx, database, []db.FileRecord{rec})
+		_ = db.ApplyIndexChanges(ctx, database, db.IndexChanges{MetadataOnly: []db.FileRecord{rec}})
 		return false
 	}
 	rec.ContentHash = hash
@@ -1364,13 +1345,12 @@ func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootD
 	if err != nil {
 		return false
 	}
-	_ = db.DeleteSymbolsForFiles(ctx, database, []string{relPath})
-	if len(syms) > 0 {
-		_ = db.SaveSymbols(ctx, database, syms)
-	}
-	_ = db.SaveFTS(ctx, database, map[string]string{relPath: string(content)})
-	_ = db.SaveFiles(ctx, database, []db.FileRecord{rec})
-	return true
+	err = db.ApplyIndexChanges(ctx, database, db.IndexChanges{
+		Files:   []db.FileRecord{rec},
+		Symbols: syms,
+		FTS:     map[string]string{relPath: string(content)},
+	})
+	return err == nil
 }
 
 // ── LLM-output helpers ─────────────────────────────────────────────────────

@@ -11,9 +11,8 @@ import (
 	"time"
 
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/indexer"
 	"github.com/recscse/codive/internal/mcp"
-	"github.com/recscse/codive/internal/scanner"
-	"github.com/recscse/codive/internal/symbols"
 )
 
 // RunServe starts the MCP (Model Context Protocol) JSON-RPC server over standard I/O with background auto-sync.
@@ -62,66 +61,15 @@ func startBackgroundWatcher(ctx context.Context, rootDir string, database *sql.D
 }
 
 func syncQuietly(ctx context.Context, rootDir string, database *sql.DB) {
-	existingMap, err := db.GetAllFiles(ctx, database)
+	incrResult, err := indexer.Sync(ctx, database, rootDir)
 	if err != nil {
+		slog.Warn("Auto-sync background worker failed", "error", err)
 		return
 	}
-
-	incrResult, err := scanner.ScanIncremental(rootDir, existingMap)
-	if err != nil {
-		return
-	}
-
-	if len(incrResult.Added) == 0 && len(incrResult.Modified) == 0 && len(incrResult.Deleted) == 0 && len(incrResult.MetadataOnly) == 0 {
-		return
-	}
-
-	if len(incrResult.MetadataOnly) > 0 {
-		// Content is unchanged, so no symbol/FTS re-extraction is needed — just
-		// refresh the stored mtime so these files stop being rehashed on every scan.
-		_ = db.SaveFiles(ctx, database, incrResult.MetadataOnly)
-	}
-
 	if len(incrResult.Added) > 0 || len(incrResult.Modified) > 0 || len(incrResult.Deleted) > 0 {
 		slog.Info("Auto-sync background worker detected changes",
 			"added", len(incrResult.Added),
 			"modified", len(incrResult.Modified),
 			"deleted", len(incrResult.Deleted))
-	}
-
-	toSave := append(incrResult.Added, incrResult.Modified...)
-	if len(toSave) > 0 {
-		_ = db.SaveFiles(ctx, database, toSave)
-		var changedPaths []string
-		for _, f := range toSave {
-			changedPaths = append(changedPaths, f.Path)
-		}
-		_ = db.DeleteSymbolsForFiles(ctx, database, changedPaths)
-
-		var newSymbols []db.SymbolRecord
-		ftsFiles := make(map[string]string)
-		for _, f := range toSave {
-			fullPath := filepath.Join(rootDir, filepath.FromSlash(f.Path))
-			content, err := os.ReadFile(fullPath)
-			if err != nil {
-				continue
-			}
-			syms, err := symbols.ExtractSymbols(f.Path, f.Language, content)
-			if err == nil && len(syms) > 0 {
-				newSymbols = append(newSymbols, syms...)
-			}
-			ftsFiles[f.Path] = string(content)
-		}
-		if len(newSymbols) > 0 {
-			_ = db.SaveSymbols(ctx, database, newSymbols)
-		}
-		if len(ftsFiles) > 0 {
-			_ = db.SaveFTS(ctx, database, ftsFiles)
-		}
-	}
-
-	if len(incrResult.Deleted) > 0 {
-		_ = db.DeleteFiles(ctx, database, incrResult.Deleted)
-		_ = db.DeleteFTSForFiles(ctx, database, incrResult.Deleted)
 	}
 }

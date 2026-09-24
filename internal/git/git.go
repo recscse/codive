@@ -45,8 +45,12 @@ func GetGitChanges(ctx context.Context, rootDir string, database *sql.DB) (*GitC
 		branch = "unknown"
 	}
 
-	// Run git status --porcelain
-	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
+	// -z: NUL-separated entries with paths emitted verbatim. Without it git
+	// C-quotes any path containing spaces or non-ASCII characters ("my file.go"
+	// comes back wrapped in quotes with escapes), which then matches nothing in
+	// the index. -uall: list each untracked file rather than collapsing a new
+	// directory into a single "dir/" entry that can't be read or diffed.
+	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain=v1", "-z", "-uall")
 	statusCmd.Dir = rootDir
 	statusOut, err := statusCmd.Output()
 	if err != nil {
@@ -57,49 +61,21 @@ func GetGitChanges(ctx context.Context, rootDir string, database *sql.DB) (*GitC
 		}, nil
 	}
 
-	// Trim only the trailing newline, not leading whitespace: porcelain status
-	// lines are fixed-column ("XY path"), and X is frequently a literal space
-	// (e.g. " M" for "modified, not staged"). TrimSpace on the whole blob would
-	// eat that leading space off the first line only, shifting every fixed
-	// offset below by one and silently dropping the first character of that
-	// file's path.
-	trimmed := strings.TrimRight(string(statusOut), "\r\n")
-	lines := strings.Split(trimmed, "\n")
-	if len(lines) == 0 || (len(lines) == 1 && lines[0] == "") {
-		return &GitChangesResult{
-			Branch:       branch,
-			TotalChanged: 0,
-			Files:        nil,
-		}, nil
-	}
-
 	var summaries []FileDiffSummary
-	for _, l := range lines {
-		if len(l) < 4 {
-			continue
-		}
-		statusCode := strings.TrimSpace(l[:2])
-		filePath := strings.TrimSpace(l[3:])
-		// Handle renamed files like "old -> new"
-		if strings.Contains(filePath, " -> ") {
-			parts := strings.Split(filePath, " -> ")
-			filePath = parts[len(parts)-1]
-		}
-		filePath = filepath.ToSlash(filePath)
-
+	for _, entry := range parseStatusZ(statusOut) {
 		statusName := "modified"
-		if strings.Contains(statusCode, "?") {
+		if strings.Contains(entry.code, "?") {
 			statusName = "untracked"
-		} else if strings.Contains(statusCode, "A") {
+		} else if strings.Contains(entry.code, "A") {
 			statusName = "added"
-		} else if strings.Contains(statusCode, "D") {
+		} else if strings.Contains(entry.code, "D") {
 			statusName = "deleted"
 		}
 
-		affectedSyms, changedCount := getFileAffectedSymbols(ctx, rootDir, filePath, database, statusName == "untracked")
+		affectedSyms, changedCount := getFileAffectedSymbols(ctx, rootDir, entry.path, database, statusName == "untracked")
 
 		summaries = append(summaries, FileDiffSummary{
-			Path:             filePath,
+			Path:             entry.path,
 			Status:           statusName,
 			AffectedSymbols:  affectedSyms,
 			ChangedLineCount: changedCount,
@@ -111,6 +87,31 @@ func GetGitChanges(ctx context.Context, rootDir string, database *sql.DB) (*GitC
 		TotalChanged: len(summaries),
 		Files:        summaries,
 	}, nil
+}
+
+type statusEntry struct {
+	code string // two-character XY status, e.g. " M", "A ", "??", "R "
+	path string // current path, slash-separated
+}
+
+// parseStatusZ parses `git status --porcelain=v1 -z` output. Each entry is
+// "XY path" terminated by NUL; renames and copies are followed by one extra
+// NUL-terminated field holding the original path, which is skipped.
+func parseStatusZ(out []byte) []statusEntry {
+	fields := strings.Split(string(out), "\x00")
+	var entries []statusEntry
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		if len(f) < 4 {
+			continue
+		}
+		code := f[:2]
+		entries = append(entries, statusEntry{code: code, path: filepath.ToSlash(f[3:])})
+		if strings.ContainsAny(code, "RC") {
+			i++ // skip the original path of the rename/copy
+		}
+	}
+	return entries
 }
 
 func getFileAffectedSymbols(ctx context.Context, rootDir string, relPath string, database *sql.DB, isUntracked bool) ([]string, int) {
@@ -163,29 +164,33 @@ func getFileAffectedSymbols(ctx context.Context, rootDir string, relPath string,
 		return nil, len(changedLines)
 	}
 
-	// Match changed lines against closest preceding symbol declaration
-	matchedSymbols := make(map[string]bool)
+	// Match changed lines against the closest preceding symbol declaration.
+	// syms is ordered by line, so collecting indexes and walking them in order
+	// keeps the output stable (it used to come out of a map in random order).
+	matched := make(map[int]bool)
 	for _, chLine := range changedLines {
-		var closestSym *db.SymbolRecord
-		for _, s := range syms {
-			if s.LineNumber <= chLine {
-				if closestSym == nil || s.LineNumber > closestSym.LineNumber {
-					sCopy := s
-					closestSym = &sCopy
-				}
+		closest := -1
+		for i, s := range syms {
+			if s.LineNumber <= chLine && (closest < 0 || s.LineNumber > syms[closest].LineNumber) {
+				closest = i
 			}
 		}
-		if closestSym != nil {
-			matchedSymbols[fmt.Sprintf("[%s] %s (L%d)", closestSym.Kind, closestSym.Name, closestSym.LineNumber)] = true
+		if closest >= 0 {
+			matched[closest] = true
 		}
 	}
 
 	var result []string
-	for s := range matchedSymbols {
-		result = append(result, s)
+	for i, s := range syms {
+		if matched[i] {
+			result = append(result, formatSymbol(s))
+		}
 	}
-
 	return result, len(changedLines)
+}
+
+func formatSymbol(s db.SymbolRecord) string {
+	return fmt.Sprintf("[%s] %s (L%d)", s.Kind, s.Name, s.LineNumber)
 }
 
 // newFileAffectedSymbols reports every declared symbol in a brand-new
@@ -208,14 +213,9 @@ func newFileAffectedSymbols(ctx context.Context, rootDir string, relPath string,
 		return nil, lineCount
 	}
 
-	matched := make(map[string]bool)
+	result := make([]string, 0, len(syms))
 	for _, s := range syms {
-		matched[fmt.Sprintf("[%s] %s (L%d)", s.Kind, s.Name, s.LineNumber)] = true
-	}
-
-	var result []string
-	for s := range matched {
-		result = append(result, s)
+		result = append(result, formatSymbol(s))
 	}
 	return result, lineCount
 }

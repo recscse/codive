@@ -205,15 +205,36 @@ func Migrate(database *sql.DB) error {
 
 	for _, m := range Migrations {
 		if currentVersion < m.Version {
-			if _, err := database.Exec(m.SQL); err != nil {
-				return fmt.Errorf("migration %d failed (%s): %w", m.Version, m.Description, err)
-			}
-			if err := SetSchemaVersion(database, m.Version); err != nil {
+			if err := applyMigration(database, m); err != nil {
 				return err
 			}
 		}
 	}
 
+	return nil
+}
+
+// applyMigration runs a migration's SQL and records its version in a single
+// transaction (SQLite DDL and user_version are both transactional). Doing them
+// separately meant a crash in between left a non-idempotent migration such as
+// ALTER TABLE ADD COLUMN applied but unrecorded, so every later Open retried
+// it and failed with "duplicate column".
+func applyMigration(database *sql.DB, m Migration) error {
+	tx, err := database.Begin()
+	if err != nil {
+		return fmt.Errorf("migration %d: failed to begin transaction: %w", m.Version, err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(m.SQL); err != nil {
+		return fmt.Errorf("migration %d failed (%s): %w", m.Version, m.Description, err)
+	}
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d;", m.Version)); err != nil {
+		return fmt.Errorf("failed to set schema version to %d: %w", m.Version, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("migration %d: failed to commit: %w", m.Version, err)
+	}
 	return nil
 }
 
@@ -403,22 +424,123 @@ func GetFile(ctx context.Context, database *sql.DB, path string) (FileRecord, bo
 	return r, true, nil
 }
 
-// ClearIndex removes every indexed file, symbol, and full-text record, so a
-// full re-index starts from an empty index instead of layering new rows over
-// stale ones (deleted files, or symbols whose line number moved). Decisions
-// and telemetry are deliberately kept: they aren't derived from the source.
-func ClearIndex(ctx context.Context, database *sql.DB) error {
+// IndexChanges is one batch of index updates, applied atomically by
+// ApplyIndexChanges.
+type IndexChanges struct {
+	// ReplaceAll clears every file, symbol, and FTS row first, making the
+	// batch a full rebuild. Decisions and telemetry are always kept: they
+	// aren't derived from the source.
+	ReplaceAll bool
+	// Files are added or modified files. Their existing symbols and FTS rows
+	// are replaced by the Symbols and FTS entries in this batch.
+	Files   []FileRecord
+	Symbols []SymbolRecord
+	FTS     map[string]string
+	// MetadataOnly are files whose content is unchanged but whose stored
+	// size/mtime must be refreshed. Their symbols and FTS rows are untouched.
+	MetadataOnly []FileRecord
+	// Deleted paths lose their file, symbol, and FTS rows.
+	Deleted []string
+}
+
+// ApplyIndexChanges writes a batch of index updates in a single transaction.
+// A file's record, symbols, and FTS content therefore always change together:
+// a crash can't leave a file marked as indexed at its new hash while still
+// holding the previous version's symbols, which no later incremental scan
+// would notice or repair.
+func ApplyIndexChanges(ctx context.Context, database *sql.DB, c IndexChanges) error {
 	tx, err := database.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to begin clear transaction: %w", err)
+		return fmt.Errorf("failed to begin index transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"files", "symbols", "file_fts"} {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+";"); err != nil {
-			return fmt.Errorf("failed to clear %s: %w", table, err)
+	exec := func(query string, args ...any) error {
+		_, err := tx.ExecContext(ctx, query, args...)
+		return err
+	}
+
+	if c.ReplaceAll {
+		for _, table := range []string{"files", "symbols", "file_fts"} {
+			if err := exec("DELETE FROM " + table + ";"); err != nil {
+				return fmt.Errorf("failed to clear %s: %w", table, err)
+			}
+		}
+	} else {
+		stale := make([]string, 0, len(c.Files)+len(c.Deleted))
+		for _, f := range c.Files {
+			stale = append(stale, f.Path)
+		}
+		stale = append(stale, c.Deleted...)
+		for _, p := range stale {
+			if err := exec("DELETE FROM symbols WHERE file_path = ?;", p); err != nil {
+				return fmt.Errorf("failed to delete symbols for %s: %w", p, err)
+			}
+			if err := exec("DELETE FROM file_fts WHERE path = ?;", p); err != nil {
+				return fmt.Errorf("failed to delete fts for %s: %w", p, err)
+			}
+		}
+		for _, p := range c.Deleted {
+			if err := exec("DELETE FROM files WHERE path = ?;", p); err != nil {
+				return fmt.Errorf("failed to delete record for %s: %w", p, err)
+			}
 		}
 	}
+
+	upsertFile, err := tx.PrepareContext(ctx, `
+		INSERT INTO files (path, language, size_bytes, content_hash, last_modified, last_indexed)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET
+			language = excluded.language,
+			size_bytes = excluded.size_bytes,
+			content_hash = excluded.content_hash,
+			last_modified = excluded.last_modified,
+			last_indexed = excluded.last_indexed;
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare file upsert: %w", err)
+	}
+	defer upsertFile.Close()
+	for _, batch := range [][]FileRecord{c.Files, c.MetadataOnly} {
+		for _, f := range batch {
+			if _, err := upsertFile.ExecContext(ctx, f.Path, f.Language, f.SizeBytes, f.ContentHash,
+				f.LastModified.UTC(), f.LastIndexed.UTC()); err != nil {
+				return fmt.Errorf("failed to upsert record for %s: %w", f.Path, err)
+			}
+		}
+	}
+
+	if len(c.Symbols) > 0 {
+		insSym, err := tx.PrepareContext(ctx, `
+			INSERT INTO symbols (file_path, name, kind, signature, line_number)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(file_path, name, kind, line_number) DO UPDATE SET
+				signature = excluded.signature;
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare symbol insert: %w", err)
+		}
+		defer insSym.Close()
+		for _, s := range c.Symbols {
+			if _, err := insSym.ExecContext(ctx, s.FilePath, s.Name, s.Kind, s.Signature, s.LineNumber); err != nil {
+				return fmt.Errorf("failed to insert symbol %s in %s: %w", s.Name, s.FilePath, err)
+			}
+		}
+	}
+
+	if len(c.FTS) > 0 {
+		insFTS, err := tx.PrepareContext(ctx, "INSERT INTO file_fts (path, content) VALUES (?, ?);")
+		if err != nil {
+			return fmt.Errorf("failed to prepare fts insert: %w", err)
+		}
+		defer insFTS.Close()
+		for p, content := range c.FTS {
+			if _, err := insFTS.ExecContext(ctx, p, content); err != nil {
+				return fmt.Errorf("failed to insert fts for %s: %w", p, err)
+			}
+		}
+	}
+
 	return tx.Commit()
 }
 
@@ -463,20 +585,6 @@ func SaveSymbols(ctx context.Context, database *sql.DB, symbols []SymbolRecord) 
 	if len(symbols) == 0 {
 		return nil
 	}
-
-	// Defensive check: ensure symbols table exists
-	_, _ = database.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS symbols (
-			file_path TEXT NOT NULL,
-			name TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			signature TEXT NOT NULL,
-			line_number INTEGER NOT NULL,
-			PRIMARY KEY (file_path, name, kind, line_number)
-		);
-		CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
-		CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
-	`)
 
 	tx, err := database.BeginTx(ctx, nil)
 	if err != nil {
@@ -558,11 +666,11 @@ func GetAllSymbols(ctx context.Context, database *sql.DB) ([]SymbolRecord, error
 
 // FindSymbols searches for symbols matching the query string (case-insensitive substring or exact match).
 func FindSymbols(ctx context.Context, database *sql.DB, query string) ([]SymbolRecord, error) {
-	likePattern := "%" + query + "%"
+	likePattern := "%" + escapeLike(query) + "%"
 	rows, err := database.QueryContext(ctx, `
 		SELECT file_path, name, kind, signature, line_number
 		FROM symbols
-		WHERE name LIKE ? OR signature LIKE ?
+		WHERE name LIKE ? ESCAPE '\' OR signature LIKE ? ESCAPE '\'
 		ORDER BY (name = ?) DESC, name ASC, file_path ASC, line_number ASC;
 	`, likePattern, likePattern, query)
 	if err != nil {
@@ -620,15 +728,6 @@ func SaveFTS(ctx context.Context, database *sql.DB, files map[string]string) err
 	if len(files) == 0 {
 		return nil
 	}
-
-	// Defensive check: ensure file_fts exists
-	_, _ = database.ExecContext(ctx, `
-		CREATE VIRTUAL TABLE IF NOT EXISTS file_fts USING fts5(
-			path UNINDEXED,
-			content,
-			tokenize = 'porter unicode61'
-		);
-	`)
 
 	tx, err := database.BeginTx(ctx, nil)
 	if err != nil {
@@ -723,7 +822,7 @@ func SearchFTS(ctx context.Context, database *sql.DB, query string, limit int) (
 	// Apply Symbol-Boost: prioritize files where the query matches an actual symbol definition
 	for i := range results {
 		var count int
-		row := database.QueryRowContext(ctx, "SELECT COUNT(1) FROM symbols WHERE file_path = ? AND name LIKE ? LIMIT 1;", results[i].Path, "%"+query+"%")
+		row := database.QueryRowContext(ctx, `SELECT COUNT(1) FROM symbols WHERE file_path = ? AND name LIKE ? ESCAPE '\' LIMIT 1;`, results[i].Path, "%"+escapeLike(query)+"%")
 		_ = row.Scan(&count)
 		if count > 0 {
 			results[i].Rank -= 10.0
@@ -801,7 +900,6 @@ func FindCallers(ctx context.Context, database *sql.DB, symbol string, limit int
 		return nil, err
 	}
 
-	callPattern := symbol + "("
 	var callers []ReferenceResult
 	for _, r := range refs {
 		if declSites[fmt.Sprintf("%s:%d", r.FilePath, r.LineNumber)] {
@@ -812,7 +910,7 @@ func FindCallers(ctx context.Context, database *sql.DB, symbol string, limit int
 			strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "/*") {
 			continue
 		}
-		if !strings.Contains(r.Snippet, callPattern) {
+		if !containsCall(r.Snippet, symbol) {
 			continue
 		}
 		callers = append(callers, r)
@@ -843,7 +941,7 @@ func FindReferences(ctx context.Context, database *sql.DB, symbol string, limit 
 
 		lines := strings.Split(content, "\n")
 		for idx, line := range lines {
-			if strings.Contains(line, symbol) {
+			if containsWord(line, symbol) {
 				refs = append(refs, ReferenceResult{
 					FilePath:   res.Path,
 					LineNumber: idx + 1,
@@ -994,13 +1092,13 @@ func FindCallees(ctx context.Context, database *sql.DB, symbol string) ([]Symbol
 		// have no equivalent call syntax, so a plain reference still counts —
 		// e.g. `Type{...}` composite literals or a variable's declared type.
 		if s.Kind == "function" || s.Kind == "method" {
-			if strings.Contains(bodyOnly, s.Name+"(") {
+			if containsCall(bodyOnly, s.Name) {
 				seen[s.Name] = true
 				callees = append(callees, s)
 			}
 			continue
 		}
-		if strings.Contains(bodyOnly, s.Name) {
+		if containsWord(bodyOnly, s.Name) {
 			seen[s.Name] = true
 			callees = append(callees, s)
 		}
@@ -1045,6 +1143,7 @@ func AnalyzeBlastRadius(ctx context.Context, database *sql.DB, symbol string) (*
 	for f := range fileMap {
 		affectedFiles = append(affectedFiles, f)
 	}
+	sort.Strings(affectedFiles)
 
 	tests, _ := FindTestsFor(ctx, database, cleanSymbol)
 	var testsToRun []string
@@ -1114,9 +1213,9 @@ func GetDecisions(ctx context.Context, database *sql.DB, topic string) ([]Decisi
 		rows, err = database.QueryContext(ctx, `
 			SELECT id, topic, summary, created_at
 			FROM decisions
-			WHERE topic LIKE ? OR summary LIKE ?
+			WHERE topic LIKE ? ESCAPE '\' OR summary LIKE ? ESCAPE '\'
 			ORDER BY created_at DESC;
-		`, "%"+topic+"%", "%"+topic+"%")
+		`, "%"+escapeLike(topic)+"%", "%"+escapeLike(topic)+"%")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query decisions: %w", err)
@@ -1137,11 +1236,11 @@ func GetDecisions(ctx context.Context, database *sql.DB, topic string) ([]Decisi
 
 // SavingsReport contains aggregate metrics on time and token efficiency.
 type SavingsReport struct {
-	TotalQueriesServed int64   `json:"total_queries_served"`
-	TotalTokensSaved   int64   `json:"total_tokens_saved"`
-	TotalLatencySavedMs int64  `json:"total_latency_saved_ms"`
+	TotalQueriesServed    int64   `json:"total_queries_served"`
+	TotalTokensSaved      int64   `json:"total_tokens_saved"`
+	TotalLatencySavedMs   int64   `json:"total_latency_saved_ms"`
 	EstimatedCostSavedUSD float64 `json:"estimated_cost_saved_usd"`
-	SpeedMultiplier    float64 `json:"speed_multiplier"`
+	SpeedMultiplier       float64 `json:"speed_multiplier"`
 }
 
 // RecordTelemetry records token and latency savings for an MCP query.
@@ -1204,4 +1303,53 @@ func GetSavingsReport(ctx context.Context, database *sql.DB) (*SavingsReport, er
 		EstimatedCostSavedUSD: costUSD,
 		SpeedMultiplier:       speedMultiplier,
 	}, nil
+}
+
+// escapeLike escapes LIKE wildcards so a query is matched literally (used with
+// ESCAPE '\'). Without it, the '_' in a snake_case name matches any character.
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(s)
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || b == '$' || b >= 0x80 ||
+		('0' <= b && b <= '9') || ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z')
+}
+
+// wordMatches calls match for each occurrence of word in s that isn't part of
+// a longer identifier, so "Scan" doesn't match inside "ScanIncremental" or
+// "rescan". Boundaries are only enforced on edges where word itself starts or
+// ends with an identifier character. match receives the index just past the
+// occurrence and stops the search by returning true.
+func wordMatches(s, word string, match func(end int) bool) bool {
+	if word == "" {
+		return false
+	}
+	checkStart := isIdentByte(word[0])
+	checkEnd := isIdentByte(word[len(word)-1])
+	for from := 0; from <= len(s)-len(word); {
+		i := strings.Index(s[from:], word)
+		if i < 0 {
+			return false
+		}
+		start := from + i
+		end := start + len(word)
+		if (!checkStart || start == 0 || !isIdentByte(s[start-1])) &&
+			(!checkEnd || end == len(s) || !isIdentByte(s[end])) && match(end) {
+			return true
+		}
+		from = start + 1
+	}
+	return false
+}
+
+// containsWord reports whether s mentions word as a whole identifier.
+func containsWord(s, word string) bool {
+	return wordMatches(s, word, func(int) bool { return true })
+}
+
+// containsCall reports whether s contains a call to name: the whole
+// identifier immediately followed by "(".
+func containsCall(s, name string) bool {
+	return wordMatches(s, name, func(end int) bool { return end < len(s) && s[end] == '(' })
 }
