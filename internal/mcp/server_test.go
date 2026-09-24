@@ -424,3 +424,64 @@ func TestServeBatch(t *testing.T) {
 		t.Errorf("expected -32600 for an empty batch, got %s", lines[1])
 	}
 }
+
+// Capped tool output must say it is capped instead of reading as complete.
+func TestCappedResultsAreDisclosed(t *testing.T) {
+	tempDir := t.TempDir()
+	src := "package p\n\nfunc HelperOne() {}\n\nfunc HelperTwo() { HelperOne(); HelperOne() }\n"
+	if err := os.WriteFile(filepath.Join(tempDir, "a.go"), []byte(src), 0644); err != nil {
+		t.Fatalf("failed to write a.go: %v", err)
+	}
+	indexForTest(t, tempDir)
+	server := NewServer(tempDir, nil, "test")
+	defer server.Close()
+	call := func(name string, args map[string]any) string {
+		t.Helper()
+		args["workspace_path"] = tempDir
+		res, err := server.executeTool(context.Background(), name, args)
+		if err != nil {
+			t.Fatalf("%s failed: %v", name, err)
+		}
+		return res.Content[0].Text
+	}
+
+	if out := call("find_symbol", map[string]any{"query": "Helper", "limit": float64(1)}); !strings.Contains(out, "showing 1 of 2") {
+		t.Errorf("find_symbol did not disclose its cap:\n%s", out)
+	}
+	if out := call("find_references", map[string]any{"symbol": "HelperOne", "limit": float64(1)}); !strings.Contains(out, "MORE EXIST") {
+		t.Errorf("find_references did not disclose its cap:\n%s", out)
+	}
+	if out := call("find_references", map[string]any{"symbol": "HelperOne"}); !strings.Contains(out, "complete") {
+		t.Errorf("uncapped find_references should say it is complete:\n%s", out)
+	}
+}
+
+// The freshness hook must run before index reads on the served workspace,
+// and not for decision tools or other workspaces.
+func TestFreshnessHook(t *testing.T) {
+	served := t.TempDir()
+	indexForTest(t, served)
+	other := t.TempDir()
+	indexForTest(t, other)
+
+	server := NewServer(served, nil, "test")
+	defer server.Close()
+	calls := 0
+	server.SetFreshnessHook(func(context.Context) { calls++ })
+
+	run := func(name string, args map[string]any) {
+		t.Helper()
+		if _, err := server.executeTool(context.Background(), name, args); err != nil {
+			t.Fatalf("%s failed: %v", name, err)
+		}
+	}
+	run("find_symbol", map[string]any{"query": "x", "workspace_path": served})
+	if calls != 1 {
+		t.Errorf("expected hook before find_symbol on served workspace, calls=%d", calls)
+	}
+	run("get_decisions", map[string]any{"workspace_path": served})
+	run("find_symbol", map[string]any{"query": "x", "workspace_path": other})
+	if calls != 1 {
+		t.Errorf("hook must not run for decisions or other workspaces, calls=%d", calls)
+	}
+}

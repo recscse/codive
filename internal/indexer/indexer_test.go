@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/recscse/codive/internal/db"
 )
@@ -71,4 +73,52 @@ func TestRebuildAndSync(t *testing.T) {
 	if err != nil || HasChanges(incr) {
 		t.Errorf("expected no changes on second sync, got err=%v changes=%+v", err, incr)
 	}
+}
+
+func TestFreshenerSyncIfOlder(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package p\n\nfunc A() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write a.go: %v", err)
+	}
+	database, err := db.Open(filepath.Join(dir, ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	if _, err := Rebuild(ctx, database, dir, nil); err != nil {
+		t.Fatalf("rebuild failed: %v", err)
+	}
+
+	f := NewFreshener(database, dir)
+	if res, err := f.SyncIfOlder(ctx, time.Hour); err != nil || res == nil {
+		t.Fatalf("first call must sync (nothing recorded yet): res=%v err=%v", res, err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "b.go"), []byte("package p\n\nfunc B() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write b.go: %v", err)
+	}
+	if res, _ := f.SyncIfOlder(ctx, time.Hour); res != nil {
+		t.Errorf("sync within maxAge should be skipped, got %+v", res)
+	}
+	res, err := f.SyncIfOlder(ctx, 0)
+	if err != nil || res == nil || len(res.Added) != 1 {
+		t.Fatalf("stale index must sync and pick up b.go: res=%+v err=%v", res, err)
+	}
+	if syms, _ := db.FindSymbols(ctx, database, "B"); len(syms) == 0 {
+		t.Error("B not indexed after on-demand sync")
+	}
+
+	// Concurrent callers share one sync instead of racing.
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := f.SyncIfOlder(ctx, time.Hour); err != nil {
+				t.Errorf("concurrent sync failed: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
 }

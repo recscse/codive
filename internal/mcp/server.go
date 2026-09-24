@@ -70,6 +70,17 @@ type Server struct {
 	database *sql.DB
 	dbMutex  sync.RWMutex
 	dbCache  map[string]*sql.DB
+	// freshen, when set, brings the served workspace's index up to date
+	// before a tool reads it (see SetFreshnessHook).
+	freshen func(ctx context.Context)
+}
+
+// SetFreshnessHook registers fn to run before any index-reading tool call
+// that targets the server's own workspace, so answers reflect recent edits
+// even when the background sync hasn't run yet. fn should be cheap when the
+// index is already fresh.
+func (s *Server) SetFreshnessHook(fn func(ctx context.Context)) {
+	s.freshen = fn
 }
 
 // NewServer creates a new MCP Server instance. version is reported to MCP
@@ -199,6 +210,13 @@ func negotiateProtocolVersion(requested string) string {
 		}
 	}
 	return supportedProtocolVersions[0]
+}
+
+// isServedWorkspace reports whether dir is the workspace this server was
+// started for (the only one its freshness hook keeps in sync).
+func (s *Server) isServedWorkspace(dir string) bool {
+	absRoot, err := filepath.Abs(s.rootDir)
+	return err == nil && filepath.Clean(dir) == filepath.Clean(absRoot)
 }
 
 // checkAutoIndexable reports whether dir may be indexed on demand: it must be
@@ -672,6 +690,11 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		return nil, err
 	}
 
+	// Decisions don't come from source files, so they don't need a fresh index.
+	if s.freshen != nil && name != "save_decision" && name != "get_decisions" && s.isServedWorkspace(targetDir) {
+		s.freshen(ctx)
+	}
+
 	switch name {
 	case "get_repo_map":
 		maxDepth := 0
@@ -800,17 +823,21 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		if strings.TrimSpace(query) == "" {
 			return nil, fmt.Errorf("query argument is required")
 		}
+		limit := 30
+		if l, ok := args["limit"].(float64); ok && l > 0 {
+			limit = int(l)
+		}
 		syms, err := db.FindSymbols(ctx, targetDB, query)
 		if err != nil {
 			return nil, err
 		}
 
-		// Line-number drift protection: refresh each matched file once (not
-		// once per match), then re-query if anything was re-parsed so the
-		// locations printed below are the current ones.
+		// Line-number drift protection: refresh each file that will actually
+		// be shown (once per file, not per match), then re-query if anything
+		// was re-parsed so the locations printed below are the current ones.
 		refreshed := false
 		checked := make(map[string]bool)
-		for _, sym := range syms {
+		for _, sym := range syms[:min(limit, len(syms))] {
 			if !checked[sym.FilePath] {
 				checked[sym.FilePath] = true
 				if s.ensureFreshSymbols(ctx, targetDB, targetDir, sym.FilePath) {
@@ -830,8 +857,17 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			}, nil
 		}
 
+		total := len(syms)
+		syms = syms[:min(limit, total)]
+
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("### Symbol Matches for `%s` (Found: %d)\n\n", query, len(syms)))
+		if total > len(syms) {
+			// Exact name matches sort first, so the most likely targets are
+			// always inside the shown slice.
+			sb.WriteString(fmt.Sprintf("### Symbol Matches for `%s` (showing %d of %d — exact name matches first; use a more specific query or raise `limit` to see more)\n\n", query, len(syms), total))
+		} else {
+			sb.WriteString(fmt.Sprintf("### Symbol Matches for `%s` (Found: %d)\n\n", query, total))
+		}
 
 		// Auto-recall: inject matching architectural decisions before results
 		decisions, _ := db.GetDecisions(ctx, targetDB, query)
@@ -884,21 +920,22 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			limit = int(l)
 		}
 
-		var refs []db.ReferenceResult
+		var page *db.ReferencePage
 		var err error
 		var heading, emptyMsg, telemetryName string
 		if name == "find_callers" {
 			// Genuinely narrower than find_references: excludes the symbol's own
 			// declaration and anything that isn't a real call expression.
-			refs, err = db.FindCallers(ctx, targetDB, symbol, limit)
+			page, err = db.FindCallersPage(ctx, targetDB, symbol, limit)
 			heading, emptyMsg, telemetryName = "Callers", "No callers found for '%s'", "find_callers"
 		} else {
-			refs, err = db.FindReferences(ctx, targetDB, symbol, limit)
+			page, err = db.FindReferencesPage(ctx, targetDB, symbol, limit)
 			heading, emptyMsg, telemetryName = "References", "No references found for '%s'", "find_references"
 		}
 		if err != nil {
 			return nil, err
 		}
+		refs := page.Refs
 
 		if len(refs) == 0 {
 			return &ToolCallResult{
@@ -907,15 +944,24 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}
 
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("### %s for `%s` (Found: %d)\n\n", heading, symbol, len(refs)))
+		if page.More {
+			// Never let a capped list read as the complete set: an agent that
+			// believes "30 references" when there are 3,000 will under-scope a
+			// refactor.
+			sb.WriteString(fmt.Sprintf("### %s for `%s` (showing first %d — MORE EXIST; raise `limit` for the full list)\n\n", heading, symbol, len(refs)))
+		} else {
+			sb.WriteString(fmt.Sprintf("### %s for `%s` (Found: %d, complete)\n\n", heading, symbol, len(refs)))
+		}
 
-		for i, ref := range refs {
-			role := classifyRefRole(ref.FilePath)
-			sb.WriteString(fmt.Sprintf("%d. **[%s]** `%s:%d`\n", i+1, role, ref.FilePath, ref.LineNumber))
-			if strings.TrimSpace(ref.Snippet) != "" {
-				sb.WriteString(fmt.Sprintf("   ```\n   %s\n   ```\n", strings.TrimSpace(ref.Snippet)))
+		// Grouped by file (results already arrive file by file), so each path
+		// is written once instead of once per hit.
+		currentFile := ""
+		for _, ref := range refs {
+			if ref.FilePath != currentFile {
+				currentFile = ref.FilePath
+				sb.WriteString(fmt.Sprintf("**%s** [%s]\n", ref.FilePath, classifyRefRole(ref.FilePath)))
 			}
-			sb.WriteString("\n")
+			sb.WriteString(fmt.Sprintf("  L%d: %s\n", ref.LineNumber, strings.TrimSpace(ref.Snippet)))
 		}
 
 		used := estimateTokens(sb.String())
@@ -1084,10 +1130,17 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			}
 		}
 		if len(relSyms) > 0 {
-			allSymbolsForRel, _ := db.GetAllSymbols(ctx, targetDB)
+			// Symbols are loaded only for files that actually contain a caller,
+			// not for the whole repository (a full load per call is ~100k rows
+			// on a large codebase).
 			symbolsByFile := make(map[string][]db.SymbolRecord)
-			for _, s := range allSymbolsForRel {
-				symbolsByFile[s.FilePath] = append(symbolsByFile[s.FilePath], s)
+			fileSymbols := func(path string) []db.SymbolRecord {
+				if syms, ok := symbolsByFile[path]; ok {
+					return syms
+				}
+				syms, _ := db.FindSymbolsInFile(ctx, targetDB, path)
+				symbolsByFile[path] = syms
+				return syms
 			}
 
 			sb.WriteString("## 🔗 Call Relationships\n")
@@ -1101,7 +1154,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 					seen := make(map[string]bool)
 					var names []string
 					for _, c := range callers {
-						label := symbols.EnclosingFunctionName(symbolsByFile[c.FilePath], c.LineNumber)
+						label := symbols.EnclosingFunctionName(fileSymbols(c.FilePath), c.LineNumber)
 						if label == "" {
 							label = fmt.Sprintf("%s:%d", c.FilePath, c.LineNumber)
 						}
@@ -1264,7 +1317,14 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("💥 Blast Radius Analysis for '%s':\n\n", res.Symbol))
-		sb.WriteString(fmt.Sprintf("  • Risk Level: %s (%d direct callers across %d files)\n", res.RiskLevel, len(res.References), len(res.AffectedFiles)))
+		plus := ""
+		if res.MoreReferences {
+			plus = "+"
+		}
+		sb.WriteString(fmt.Sprintf("  • Risk Level: %s (%d%s references across %d%s files)\n", res.RiskLevel, len(res.References), plus, len(res.AffectedFiles), plus))
+		if res.MoreReferences {
+			sb.WriteString("  • Note: reference scan capped — counts and file list below are a lower bound, not the full set.\n")
+		}
 		if len(res.AffectedFiles) > 0 {
 			sb.WriteString("  • Affected Files:\n")
 			for _, f := range res.AffectedFiles {

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/scanner"
@@ -162,4 +163,49 @@ func Rebuild(ctx context.Context, database *sql.DB, rootDir string, onFile Progr
 		return nil, err
 	}
 	return &RebuildResult{Scan: scanRes, FileCount: len(ext.Files), SymbolCount: len(ext.Symbols)}, nil
+}
+
+// Freshener serializes syncs of one workspace and remembers when the last one
+// finished. It lets the MCP server guarantee a maximum index age at the
+// moment each query is answered (syncing on demand if needed), so the
+// background poll can run infrequently on large repositories without making
+// answers stale.
+type Freshener struct {
+	database *sql.DB
+	rootDir  string
+
+	mu       sync.Mutex
+	last     time.Time
+	lastCost time.Duration
+}
+
+// NewFreshener returns a Freshener for the index of rootDir.
+func NewFreshener(database *sql.DB, rootDir string) *Freshener {
+	return &Freshener{database: database, rootDir: rootDir}
+}
+
+// SyncIfOlder syncs the index unless a sync finished less than maxAge ago.
+// Callers arriving while a sync is running wait for it and then reuse its
+// result instead of starting another. The returned result is nil when no
+// sync was needed.
+func (f *Freshener) SyncIfOlder(ctx context.Context, maxAge time.Duration) (*scanner.IncrementalResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.last.IsZero() && time.Since(f.last) < maxAge {
+		return nil, nil
+	}
+	start := time.Now()
+	res, err := Sync(ctx, f.database, f.rootDir)
+	f.lastCost = time.Since(start)
+	if err == nil {
+		f.last = time.Now()
+	}
+	return res, err
+}
+
+// LastCost reports how long the most recent sync took.
+func (f *Freshener) LastCost() time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastCost
 }

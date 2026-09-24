@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/recscse/codive/internal/db"
 )
@@ -108,5 +109,17 @@ func TestReInitDropsStaleSymbols(t *testing.T) {
 	}
 	if rec, ok, _ := db.GetFile(ctx, database, "b.go"); ok {
 		t.Errorf("deleted file still indexed: %+v", rec)
+	}
+}
+
+func TestNextSyncDelay(t *testing.T) {
+	for elapsed, want := range map[time.Duration]time.Duration{
+		10 * time.Millisecond:  minSyncInterval,
+		300 * time.Millisecond: 6 * time.Second,
+		5 * time.Second:        maxSyncInterval,
+	} {
+		if got := nextSyncDelay(elapsed); got != want {
+			t.Errorf("nextSyncDelay(%v) = %v, want %v", elapsed, got, want)
+		}
 	}
 }

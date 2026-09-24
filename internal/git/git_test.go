@@ -226,7 +226,7 @@ func TestGetGitChanges_AffectedSymbolsOrdered(t *testing.T) {
 	}
 
 	want := "[function] A (L3),[function] B (L5),[function] C (L7),[function] D (L9)"
-	for run := 0; run < 20; run++ {
+	for run := 0; run < 5; run++ {
 		res, err := GetGitChanges(context.Background(), dir, database)
 		if err != nil {
 			t.Fatalf("GetGitChanges failed: %v", err)

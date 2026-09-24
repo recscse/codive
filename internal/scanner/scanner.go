@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/recscse/codive/internal/db"
@@ -185,6 +186,32 @@ func IsBinary(filePath string) (bool, error) {
 	return false, nil
 }
 
+type fileStamp struct {
+	size    int64
+	modTime time.Time
+}
+
+// binaryCache remembers files found to be binary, keyed by absolute path, so
+// repeated scans (the serve/watch loops) don't reopen them while their size
+// and mtime are unchanged. It only holds binary files, so it stays small.
+var binaryCache = struct {
+	sync.Mutex
+	m map[string]fileStamp
+}{m: make(map[string]fileStamp)}
+
+func knownBinary(path string, info fs.FileInfo) bool {
+	binaryCache.Lock()
+	defer binaryCache.Unlock()
+	st, ok := binaryCache.m[path]
+	return ok && st.size == info.Size() && st.modTime.Equal(info.ModTime())
+}
+
+func rememberBinary(path string, info fs.FileInfo) {
+	binaryCache.Lock()
+	defer binaryCache.Unlock()
+	binaryCache.m[path] = fileStamp{size: info.Size(), modTime: info.ModTime()}
+}
+
 // HashFile computes the hex SHA-256 hash of a file's content.
 func HashFile(filePath string) (string, error) {
 	f, err := os.Open(filePath)
@@ -344,10 +371,21 @@ func ScanIncremental(rootDir string, existing map[string]db.FileRecord) (*Increm
 			return nil
 		}
 
-		// Check if file is binary (unless 0 bytes)
+		// Check if file is binary (unless 0 bytes). Files already known to be
+		// binary at this size/mtime are skipped without being reopened: they
+		// never enter the index, so the unchanged check above can't catch
+		// them, and re-sniffing every one on each watcher pass dominated
+		// no-op rescans of large repos.
 		if info.Size() > 0 {
+			if knownBinary(path, info) {
+				return nil
+			}
 			binary, err := IsBinary(path)
-			if err != nil || binary {
+			if err != nil {
+				return nil
+			}
+			if binary {
+				rememberBinary(path, info)
 				return nil
 			}
 		}

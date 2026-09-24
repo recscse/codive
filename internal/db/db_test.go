@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -382,5 +383,84 @@ func TestReferencesMatchWholeIdentifiers(t *testing.T) {
 
 	if syms, _ := FindSymbols(ctx, database, "a_b"); len(syms) != 0 {
 		t.Errorf("'_' was treated as a LIKE wildcard: %+v", syms)
+	}
+}
+
+// FindCallees must keep its matching rules: functions count only when called,
+// types count when mentioned, the signature line and the symbol itself are
+// ignored, and the body ends at the next declaration in the file.
+func TestFindCallees(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	main := "package p\n\nfunc Target(c *Config) Result {\n\tHelper()\n\t// OtherFunc is only mentioned\n\tv := Settings{}\n\tTarget(nil)\n\treturn v\n}\n\nfunc After() { Unrelated() }\n"
+	syms := []SymbolRecord{
+		{FilePath: "main.go", Name: "Target", Kind: "function", Signature: "func Target(c *Config) Result", LineNumber: 3},
+		{FilePath: "main.go", Name: "After", Kind: "function", Signature: "func After()", LineNumber: 11},
+		{FilePath: "lib.go", Name: "Helper", Kind: "function", Signature: "func Helper()", LineNumber: 3},
+		{FilePath: "lib.go", Name: "OtherFunc", Kind: "function", Signature: "func OtherFunc()", LineNumber: 5},
+		{FilePath: "lib.go", Name: "Unrelated", Kind: "function", Signature: "func Unrelated()", LineNumber: 7},
+		{FilePath: "types.go", Name: "Settings", Kind: "struct", Signature: "type Settings struct", LineNumber: 3},
+		{FilePath: "types.go", Name: "Config", Kind: "struct", Signature: "type Config struct", LineNumber: 5},
+		{FilePath: "types.go", Name: "Result", Kind: "struct", Signature: "type Result struct", LineNumber: 7},
+	}
+	if err := ApplyIndexChanges(ctx, database, IndexChanges{
+		Files: []FileRecord{
+			{Path: "main.go", Language: "Go", SizeBytes: int64(len(main)), ContentHash: "m", LastModified: now, LastIndexed: now},
+		},
+		Symbols: syms,
+		FTS:     map[string]string{"main.go": main},
+	}); err != nil {
+		t.Fatalf("seed failed: %v", err)
+	}
+
+	callees, err := FindCallees(ctx, database, "Target")
+	if err != nil {
+		t.Fatalf("FindCallees failed: %v", err)
+	}
+	var got []string
+	for _, c := range callees {
+		got = append(got, c.Name)
+	}
+	if strings.Join(got, ",") != "Helper,Settings" {
+		t.Errorf("expected callees [Helper Settings], got %v", got)
+	}
+}
+
+// A capped reference page must report that more matches exist, and an
+// uncapped one must not.
+func TestFindReferencesPageReportsMore(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	content := "Hit()\nHit()\nHit()\n"
+	if err := ApplyIndexChanges(ctx, database, IndexChanges{
+		Files: []FileRecord{{Path: "a.go", Language: "Go", SizeBytes: 1, ContentHash: "h", LastModified: now, LastIndexed: now}},
+		FTS:   map[string]string{"a.go": content},
+	}); err != nil {
+		t.Fatalf("seed failed: %v", err)
+	}
+
+	page, err := FindReferencesPage(ctx, database, "Hit", 2)
+	if err != nil || len(page.Refs) != 2 || !page.More {
+		t.Errorf("limit 2 of 3: expected 2 refs with More, got %+v err=%v", page, err)
+	}
+	page, err = FindReferencesPage(ctx, database, "Hit", 3)
+	if err != nil || len(page.Refs) != 3 || page.More {
+		t.Errorf("limit 3 of 3: expected 3 refs without More, got %+v err=%v", page, err)
+	}
+	callers, err := FindCallersPage(ctx, database, "Hit", 1)
+	if err != nil || len(callers.Refs) != 1 || !callers.More {
+		t.Errorf("callers limit 1 of 3: expected More, got %+v err=%v", callers, err)
 	}
 }
