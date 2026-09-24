@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -237,5 +238,41 @@ func TestGetGitChanges_AffectedSymbolsOrdered(t *testing.T) {
 		if got := strings.Join(f.AffectedSymbols, ","); got != want {
 			t.Fatalf("run %d: symbols out of order:\n got  %s\n want %s", run, got, want)
 		}
+	}
+}
+
+// Past the listing and analysis caps, the result must say what was left out
+// rather than silently dropping files or reporting them as unchanged.
+func TestGetGitChanges_CapsAreReported(t *testing.T) {
+	dir := setupRepo(t)
+	if err := os.MkdirAll(filepath.Join(dir, "gen"), 0755); err != nil {
+		t.Fatalf("failed to create gen: %v", err)
+	}
+	total := maxListedFiles + 5
+	for i := 0; i < total; i++ {
+		name := filepath.Join(dir, "gen", fmt.Sprintf("f%04d.go", i))
+		if err := os.WriteFile(name, []byte("package gen\n"), 0644); err != nil {
+			t.Fatalf("failed to write %s: %v", name, err)
+		}
+	}
+
+	res, err := GetGitChanges(context.Background(), dir, nil)
+	if err != nil {
+		t.Fatalf("GetGitChanges failed: %v", err)
+	}
+	if res.TotalChanged != total || len(res.Files) != maxListedFiles || res.Omitted != 5 {
+		t.Errorf("expected total=%d listed=%d omitted=5, got total=%d listed=%d omitted=%d",
+			total, maxListedFiles, res.TotalChanged, len(res.Files), res.Omitted)
+	}
+	if res.NotAnalyzed != maxListedFiles-maxDetailedFiles {
+		t.Errorf("expected %d files listed without analysis, got %d", maxListedFiles-maxDetailedFiles, res.NotAnalyzed)
+	}
+	if res.Files[0].ChangedLineCount == 0 {
+		t.Errorf("first file should have been analyzed: %+v", res.Files[0])
+	}
+
+	out := FormatGitChanges(res)
+	if !strings.Contains(out, "5 more changed files not shown") || !strings.Contains(out, "status only") {
+		t.Errorf("formatted output does not disclose the caps:\n%s", out[len(out)-400:])
 	}
 }

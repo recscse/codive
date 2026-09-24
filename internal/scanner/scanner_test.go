@@ -20,14 +20,14 @@ func TestScanner(t *testing.T) {
 
 	// 2. Set up valid test files in different languages
 	filesToCreate := map[string]string{
-		"main.go":              "package main\n\nfunc main() {}\n",
-		"script.py":            "print('hello world')\n",
-		"app.ts":               "const greeting: string = 'hello';\n",
-		"service.java":         "public class Service {}\n",
-		"Program.cs":           "using System;\nclass Program {}\n",
-		"nested/deep/util.py":  "def add(a, b): return a + b\n",
-		"README.md":            "# Test Project\n",
-		"empty.js":             "",
+		"main.go":             "package main\n\nfunc main() {}\n",
+		"script.py":           "print('hello world')\n",
+		"app.ts":              "const greeting: string = 'hello';\n",
+		"service.java":        "public class Service {}\n",
+		"Program.cs":          "using System;\nclass Program {}\n",
+		"nested/deep/util.py": "def add(a, b): return a + b\n",
+		"README.md":           "# Test Project\n",
+		"empty.js":            "",
 	}
 
 	for relPath, content := range filesToCreate {
@@ -246,7 +246,6 @@ func TestScanIncremental(t *testing.T) {
 		t.Errorf("expected 1 deleted file (file1.go), got %+v", incrResult.Deleted)
 	}
 }
-
 
 // A file whose size and mtime match the index must be classified as unchanged
 // without being opened, and must still count toward the language/size totals.

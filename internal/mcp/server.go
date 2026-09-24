@@ -133,8 +133,15 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 		curr = parent
 	}
 
-	// If no index exists anywhere, auto-index the target workspace on-the-fly!
+	// If no index exists anywhere, auto-index the target workspace on-the-fly.
+	// Only the configured workspace or a git repository qualifies:
+	// workspace_path comes from the agent, and auto-indexing something like a
+	// drive root or home directory would walk (and copy into FTS) everything
+	// under it.
 	if resolvedDir == "" {
+		if err := checkAutoIndexable(searchDir, s.rootDir); err != nil {
+			return nil, searchDir, err
+		}
 		resolvedDir = searchDir
 		dbPath := filepath.Join(resolvedDir, ".codive", "index.db")
 		_ = os.MkdirAll(filepath.Dir(dbPath), 0755)
@@ -173,6 +180,44 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 	return dbConn, absPath, nil
 }
 
+// toolCallTimeout bounds how long a single tools/call may run.
+const toolCallTimeout = 60 * time.Second
+
+// supportedProtocolVersions lists the MCP revisions this server can speak,
+// newest first. It only uses tools with text content, which all of them
+// share; 2025-03-26 additionally requires accepting JSON-RPC batches, which
+// Serve handles.
+var supportedProtocolVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
+
+// negotiateProtocolVersion follows the MCP lifecycle rule: echo the client's
+// requested version when supported, otherwise offer the newest one we have
+// and let the client decide whether to disconnect.
+func negotiateProtocolVersion(requested string) string {
+	for _, v := range supportedProtocolVersions {
+		if v == requested {
+			return v
+		}
+	}
+	return supportedProtocolVersions[0]
+}
+
+// checkAutoIndexable reports whether dir may be indexed on demand: it must be
+// an existing directory that is either the server's configured workspace or
+// the root of a git repository (.git is a directory, or a file in worktrees).
+func checkAutoIndexable(dir, rootDir string) error {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("workspace %s is not an accessible directory", dir)
+	}
+	if absRoot, err := filepath.Abs(rootDir); err == nil && filepath.Clean(dir) == filepath.Clean(absRoot) {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		return nil
+	}
+	return fmt.Errorf("no codive index found for %s, and it is not a git repository root, so it won't be auto-indexed; run `codive init %s` to index it explicitly", dir, dir)
+}
+
 // Serve reads JSON-RPC messages from in and writes responses to out until EOF.
 func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	reader := bufio.NewReader(in)
@@ -192,13 +237,41 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 			continue
 		}
 
+		// JSON-RPC batch (an array of requests): part of MCP 2025-03-26, which
+		// this server advertises, so it must be accepted.
+		if line[0] == '[' {
+			var batch []json.RawMessage
+			if err := json.Unmarshal(line, &batch); err != nil {
+				_ = encoder.Encode(parseErrorResponse())
+				continue
+			}
+			if len(batch) == 0 {
+				_ = encoder.Encode(JSONRPCResponse{JSONRPC: "2.0", Error: &JSONRPCError{Code: -32600, Message: "Invalid Request: empty batch"}})
+				continue
+			}
+			var responses []*JSONRPCResponse
+			for _, raw := range batch {
+				var req JSONRPCRequest
+				if err := json.Unmarshal(raw, &req); err != nil {
+					responses = append(responses, &JSONRPCResponse{JSONRPC: "2.0", Error: &JSONRPCError{Code: -32600, Message: "Invalid Request"}})
+					continue
+				}
+				if resp := s.handleRequest(context.Background(), req); resp != nil {
+					responses = append(responses, resp)
+				}
+			}
+			// A batch of only notifications gets no response at all.
+			if len(responses) > 0 {
+				if err := encoder.Encode(responses); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
 		var req JSONRPCRequest
 		if err := json.Unmarshal(line, &req); err != nil {
-			resp := JSONRPCResponse{
-				JSONRPC: "2.0",
-				Error:   &JSONRPCError{Code: -32700, Message: "Parse error"},
-			}
-			_ = encoder.Encode(resp)
+			_ = encoder.Encode(parseErrorResponse())
 			continue
 		}
 
@@ -211,6 +284,13 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	}
 }
 
+func parseErrorResponse() JSONRPCResponse {
+	return JSONRPCResponse{
+		JSONRPC: "2.0",
+		Error:   &JSONRPCError{Code: -32700, Message: "Parse error"},
+	}
+}
+
 func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPCResponse {
 	if strings.HasPrefix(req.Method, "notifications/") {
 		return nil
@@ -218,11 +298,15 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 
 	switch req.Method {
 	case "initialize":
+		var initParams struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		}
+		_ = json.Unmarshal(req.Params, &initParams)
 		return &JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Result: map[string]any{
-				"protocolVersion": "2024-11-05",
+				"protocolVersion": negotiateProtocolVersion(initParams.ProtocolVersion),
 				"capabilities": map[string]any{
 					"tools": map[string]any{},
 				},
@@ -499,13 +583,21 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 			},
 			{
 				Name:        "read_file_context",
-				Description: "Reads the verified content of a source file along with its AST metadata and declared symbol outline.",
+				Description: "Reads the verified content of a source file along with its AST metadata and declared symbol outline. Returns at most 1000 lines per call; use start_line/end_line to page through larger files.",
 				InputSchema: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"path": map[string]any{
 							"type":        "string",
 							"description": "Relative path to the source file in the repository",
+						},
+						"start_line": map[string]any{
+							"type":        "integer",
+							"description": "Optional first line to return (1-based, inclusive). Defaults to 1.",
+						},
+						"end_line": map[string]any{
+							"type":        "integer",
+							"description": "Optional last line to return (1-based, inclusive). Defaults to start_line + 999.",
 						},
 						"workspace_path": map[string]any{
 							"type":        "string",
@@ -537,7 +629,16 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 			}
 		}
 
-		result, err := s.executeTool(ctx, callParams.Name, callParams.Arguments)
+		// Requests are served one at a time, so a single runaway call (a huge
+		// git diff, a slow query on a giant index) must not block every call
+		// after it. Context-aware work (SQLite queries, git subprocesses) is
+		// cancelled at the deadline and the call reports an error instead.
+		callCtx, cancel := context.WithTimeout(ctx, toolCallTimeout)
+		defer cancel()
+		result, err := s.executeTool(callCtx, callParams.Name, callParams.Arguments)
+		if err == nil && callCtx.Err() != nil {
+			err = fmt.Errorf("%s did not finish within %v: %w", callParams.Name, toolCallTimeout, callCtx.Err())
+		}
 		if err != nil {
 			return &JSONRPCResponse{
 				JSONRPC: "2.0",
@@ -1263,8 +1364,17 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			}
 			sb.WriteString("\n")
 		}
+		startLine, _ := args["start_line"].(float64)
+		endLine, _ := args["end_line"].(float64)
+		body, note, err := selectLines(string(contentBytes), int(startLine), int(endLine), maxReadLines)
+		if err != nil {
+			return nil, err
+		}
 		sb.WriteString("--- Content ---\n")
-		sb.WriteString(string(contentBytes))
+		sb.WriteString(body)
+		if note != "" {
+			sb.WriteString("\n" + note)
+		}
 		sb.WriteString("\n=== End of File ===")
 
 		return &ToolCallResult{
@@ -1274,6 +1384,43 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
+}
+
+// maxReadLines caps how much of a file read_file_context returns when no
+// explicit range is requested, so one call on a generated or vendored file
+// can't dump megabytes into the agent's context.
+const maxReadLines = 1000
+
+// selectLines returns lines [start, end] (1-based, inclusive) of content. A
+// zero start means line 1 and a zero end means start+limit-1; the range is
+// clamped to the file and to limit lines. note, when non-empty, tells the
+// agent the output is partial and how to fetch the rest.
+func selectLines(content string, start, end, limit int) (body, note string, err error) {
+	lines := strings.Split(content, "\n")
+	total := len(lines)
+	if start < 0 || end < 0 {
+		return "", "", fmt.Errorf("start_line and end_line must be positive")
+	}
+	if start == 0 {
+		start = 1
+	}
+	if start > total {
+		return "", "", fmt.Errorf("start_line %d is past the end of the file (%d lines)", start, total)
+	}
+	if end == 0 || end > start+limit-1 {
+		end = start + limit - 1
+	}
+	if end > total {
+		end = total
+	}
+	if end < start {
+		return "", "", fmt.Errorf("end_line %d is before start_line %d", end, start)
+	}
+	body = strings.Join(lines[start-1:end], "\n")
+	if start > 1 || end < total {
+		note = fmt.Sprintf("[Showing lines %d-%d of %d. Pass start_line/end_line (max %d lines per call) to read more.]", start, end, total, limit)
+	}
+	return body, note, nil
 }
 
 // validateSafeRelPath ensures that relPath does not escape the root repository directory.

@@ -15,11 +15,11 @@ import (
 
 // BlastRadiusResult represents the impact analysis of changing a symbol or signature.
 type BlastRadiusResult struct {
-	Symbol       string   `json:"symbol"`
-	RiskLevel    string   `json:"risk_level"` // "HIGH", "MEDIUM", "LOW"
-	CallSites    int      `json:"call_sites"`
+	Symbol        string   `json:"symbol"`
+	RiskLevel     string   `json:"risk_level"` // "HIGH", "MEDIUM", "LOW"
+	CallSites     int      `json:"call_sites"`
 	AffectedFiles []string `json:"affected_files"`
-	TestsToRun   []string `json:"tests_to_run"`
+	TestsToRun    []string `json:"tests_to_run"`
 }
 
 // RunBlast analyzes the blast radius and potential regressions when modifying a symbol.

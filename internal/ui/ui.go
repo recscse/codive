@@ -16,33 +16,33 @@ import (
 // Terminal style primitives
 var (
 	// Accent — used sparingly for primary value, success, or brand identity
-	accent    = color.New(color.FgHiGreen)
-	accentB   = color.New(color.FgHiGreen, color.Bold)
+	accent  = color.New(color.FgHiGreen)
+	accentB = color.New(color.FgHiGreen, color.Bold)
 
 	// Muted — secondary text, labels, dividers
-	muted     = color.New(color.Faint)
-	mutedB    = color.New(color.Faint, color.Bold)
+	muted  = color.New(color.Faint)
+	mutedB = color.New(color.Faint, color.Bold)
 
 	// Primary — command/section titles, symbol names
 	primary   = color.New(color.Bold)
 	secondary = color.New(color.FgWhite)
 
 	// Semantic
-	errorC   = color.New(color.FgRed, color.Bold)
-	warnC    = color.New(color.FgYellow)
-	infoC    = color.New(color.FgCyan)
-	kindC    = color.New(color.FgHiBlue)
+	errorC = color.New(color.FgRed, color.Bold)
+	warnC  = color.New(color.FgYellow)
+	infoC  = color.New(color.FgCyan)
+	kindC  = color.New(color.FgHiBlue)
 
 	// Exported aliases used by other packages
-	Dim      = muted
-	Bold     = primary
-	Green    = accent
-	GreenBold = accentB
-	Cyan     = infoC
-	CyanBold = color.New(color.FgCyan, color.Bold)
-	Yellow   = warnC
-	Red      = errorC
-	Magenta  = color.New(color.FgMagenta)
+	Dim         = muted
+	Bold        = primary
+	Green       = accent
+	GreenBold   = accentB
+	Cyan        = infoC
+	CyanBold    = color.New(color.FgCyan, color.Bold)
+	Yellow      = warnC
+	Red         = errorC
+	Magenta     = color.New(color.FgMagenta)
 	MagentaBold = color.New(color.FgMagenta, color.Bold)
 	WhiteBold   = color.New(color.FgHiWhite, color.Bold)
 )
@@ -76,8 +76,8 @@ func PrintJSON(data any) error {
 // SectionHeader prints a top-level section title.
 // Visually: a blank line, then "  codive · <title>" with a rule beneath.
 //
-//	  codive  Search Results
-//	  ──────────────────────
+//	codive  Search Results
+//	──────────────────────
 func SectionHeader(title string) {
 	fmt.Println()
 	fmt.Printf("  %s  %s\n", muted.Sprint("codive"), primary.Sprint(title))

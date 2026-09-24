@@ -316,3 +316,111 @@ func TestEnsureFreshSymbols(t *testing.T) {
 		}
 	})
 }
+
+func TestNegotiateProtocolVersion(t *testing.T) {
+	for requested, want := range map[string]string{
+		"2024-11-05": "2024-11-05",
+		"2025-03-26": "2025-03-26",
+		"2025-06-18": "2025-06-18",
+		"1999-01-01": supportedProtocolVersions[0],
+		"":           supportedProtocolVersions[0],
+	} {
+		if got := negotiateProtocolVersion(requested); got != want {
+			t.Errorf("negotiateProtocolVersion(%q) = %q, want %q", requested, got, want)
+		}
+	}
+}
+
+func TestSelectLines(t *testing.T) {
+	content := "l1\nl2\nl3\nl4\nl5"
+	tests := []struct {
+		start, end, limit int
+		body              string
+		partial, wantErr  bool
+	}{
+		{0, 0, 10, "l1\nl2\nl3\nl4\nl5", false, false},
+		{0, 0, 2, "l1\nl2", true, false},
+		{2, 3, 10, "l2\nl3", true, false},
+		{4, 99, 10, "l4\nl5", true, false},
+		{3, 0, 2, "l3\nl4", true, false},
+		{6, 0, 10, "", false, true},
+		{3, 2, 10, "", false, true},
+	}
+	for _, tt := range tests {
+		body, note, err := selectLines(content, tt.start, tt.end, tt.limit)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("selectLines(%d,%d,%d) err = %v, wantErr %v", tt.start, tt.end, tt.limit, err, tt.wantErr)
+			continue
+		}
+		if tt.wantErr {
+			continue
+		}
+		if body != tt.body || (note != "") != tt.partial {
+			t.Errorf("selectLines(%d,%d,%d) = %q (note %q), want %q partial=%v", tt.start, tt.end, tt.limit, body, note, tt.body, tt.partial)
+		}
+	}
+}
+
+// An agent-supplied workspace_path that has no index must only be
+// auto-indexed when it is a git repository root.
+func TestAutoIndexRequiresGitRepo(t *testing.T) {
+	plain := t.TempDir()
+	if err := os.WriteFile(filepath.Join(plain, "x.go"), []byte("package x\n"), 0644); err != nil {
+		t.Fatalf("failed to write x.go: %v", err)
+	}
+	server := NewServer(t.TempDir(), nil, "test")
+	defer server.Close()
+
+	if _, err := server.executeTool(context.Background(), "find_symbol", map[string]any{"query": "x", "workspace_path": plain}); err == nil {
+		t.Error("expected a non-git directory to be refused for auto-indexing")
+	}
+	if _, err := os.Stat(filepath.Join(plain, ".codive")); !os.IsNotExist(err) {
+		t.Error("refused directory still got a .codive index created in it")
+	}
+
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0755); err != nil {
+		t.Fatalf("failed to create .git: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "y.go"), []byte("package y\n\nfunc Yes() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write y.go: %v", err)
+	}
+	res, err := server.executeTool(context.Background(), "find_symbol", map[string]any{"query": "Yes", "workspace_path": repo})
+	if err != nil {
+		t.Fatalf("expected git repo to be auto-indexed: %v", err)
+	}
+	if !strings.Contains(res.Content[0].Text, "y.go") {
+		t.Errorf("auto-indexed repo did not return its symbol: %s", res.Content[0].Text)
+	}
+}
+
+// MCP 2025-03-26 requires accepting JSON-RPC batches: requests in an array get
+// an array of responses, and notifications inside a batch get none.
+func TestServeBatch(t *testing.T) {
+	server := NewServer(t.TempDir(), nil, "test")
+	defer server.Close()
+
+	in := `[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"},{"jsonrpc":"2.0","id":2,"method":"ping"}]` + "\n" +
+		`[{"jsonrpc":"2.0","method":"notifications/initialized"}]` + "\n" +
+		`[]` + "\n"
+	var out bytes.Buffer
+	if err := server.Serve(strings.NewReader(in), &out); err != nil {
+		t.Fatalf("serve failed: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 output lines (batch reply + empty-batch error), got %d:\n%s", len(lines), out.String())
+	}
+	var batch []JSONRPCResponse
+	if err := json.Unmarshal([]byte(lines[0]), &batch); err != nil {
+		t.Fatalf("batch reply is not an array: %v\n%s", err, lines[0])
+	}
+	if len(batch) != 2 || batch[0].ID != float64(1) || batch[1].ID != float64(2) {
+		t.Errorf("expected responses for ids 1 and 2 only, got %+v", batch)
+	}
+	var empty JSONRPCResponse
+	if err := json.Unmarshal([]byte(lines[1]), &empty); err != nil || empty.Error == nil || empty.Error.Code != -32600 {
+		t.Errorf("expected -32600 for an empty batch, got %s", lines[1])
+	}
+}
