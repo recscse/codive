@@ -98,6 +98,8 @@ func printUsage() {
 	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--json     "), "Output results in machine-readable JSON")
 	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--no-color "), "Disable ANSI color output")
 	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--verbose  "), "Stream structured logs to stderr")
+	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--dry-run  "), "setup, init-rules, install-hooks: show changes without writing")
+	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--undo     "), "setup, init-rules, install-hooks: remove what codive added")
 	fmt.Println()
 	fmt.Printf("  %s\n", ui.Dim.Sprint("Examples"))
 	fmt.Printf("    %s\n", ui.Dim.Sprint("codive setup"))
@@ -119,9 +121,15 @@ func main() {
 	asJSON := false
 	noColor := false
 	verbose := false
+	dryRun := false
+	undo := false
 
 	for _, arg := range os.Args[1:] {
 		switch arg {
+		case "--dry-run":
+			dryRun = true
+		case "--undo":
+			undo = true
 		case "--no-color":
 			noColor = true
 		case "--json":
@@ -166,7 +174,7 @@ func main() {
 		if len(args) >= 2 {
 			targetDir = args[1]
 		}
-		if err := cmd.RunInitRules(targetDir); err != nil {
+		if err := cmd.RunInitRules(targetDir, dryRun, undo); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}
@@ -176,7 +184,7 @@ func main() {
 		if len(args) >= 2 {
 			targetDir = args[1]
 		}
-		if err := cmd.RunInstallHooks(targetDir); err != nil {
+		if err := cmd.RunInstallHooks(targetDir, dryRun, undo); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}
@@ -372,7 +380,7 @@ func main() {
 		if len(args) >= 2 {
 			targetDir = args[1]
 		}
-		if err := cmd.RunSetup(targetDir); err != nil {
+		if err := cmd.RunSetup(targetDir, dryRun, undo); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}

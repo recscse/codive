@@ -20,44 +20,41 @@ type ProjectStack struct {
 	LintCommand    string
 }
 
-// RunInitRules inspects the repository, detects the technology stack, and auto-generates tailor-made agent architecture rules.
-func RunInitRules(targetDir string) error {
+// RunInitRules detects the project's stack and writes agent guidance
+// (project overview plus codive usage) into the agent instruction files in
+// use. It only ever edits codive's own marked block, so existing
+// instructions are preserved; undo removes the block again.
+func RunInitRules(targetDir string, dryRun, undo bool) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
 		return fmt.Errorf("invalid directory path: %w", err)
 	}
+	env, err := defaultSetupEnv(absDir)
+	if err != nil {
+		return err
+	}
 
-	ui.Header("✨ Auto-Generating Agent Architecture Rules")
+	ui.Header("✨ Agent Architecture Rules")
 	fmt.Println()
 
 	stack := detectProjectStack(absDir)
-	fmt.Printf("  %s %s\n", ui.Dim.Sprint("Detected Language:"), ui.Bold.Sprint(stack.Language))
-	if stack.Framework != "" {
-		fmt.Printf("  %s %s\n", ui.Dim.Sprint("Detected Framework:"), ui.CyanBold.Sprint(stack.Framework))
-	}
-	fmt.Printf("  %s %s\n", ui.Dim.Sprint("Test Command:"), ui.GreenBold.Sprint(stack.TestCommand))
-	fmt.Println()
-
-	rulesContent := generateRulesMarkdown(stack)
-
-	ruleTargets := []string{
-		filepath.Join(absDir, "AGENTS.md"),
-		filepath.Join(absDir, "CLAUDE.md"),
-		filepath.Join(absDir, "GEMINI.md"),
-		filepath.Join(absDir, ".cursorrules"),
-		filepath.Join(absDir, ".windsurfrules"),
-	}
-
-	for _, target := range ruleTargets {
-		if err := os.WriteFile(target, []byte(rulesContent), 0644); err != nil {
-			ui.Warning(fmt.Sprintf("Could not write %s: %v", filepath.Base(target), err))
-		} else {
-			fmt.Printf("  %s %s\n", ui.GreenBold.Sprint("✓ Created Rule:"), ui.Bold.Sprint(filepath.Base(target)))
+	if !undo {
+		fmt.Printf("  %s %s\n", ui.Dim.Sprint("Detected Language:"), ui.Bold.Sprint(stack.Language))
+		if stack.Framework != "" {
+			fmt.Printf("  %s %s\n", ui.Dim.Sprint("Detected Framework:"), ui.CyanBold.Sprint(stack.Framework))
 		}
+		fmt.Printf("  %s %s\n", ui.Dim.Sprint("Test Command:"), ui.GreenBold.Sprint(stack.TestCommand))
+		fmt.Println()
 	}
 
+	actions := writeAgentGuidance(absDir, env, generateRulesMarkdown(stack), dryRun, undo)
+	for _, a := range actions {
+		fmt.Printf("  %s %s\n", ui.GreenBold.Sprint("✓ "+a.Status+":"), ui.Bold.Sprint(a.Path))
+	}
+	if len(actions) == 0 {
+		ui.Warning("Nothing to change.")
+	}
 	fmt.Println()
-	ui.Success("🎉 Custom architecture rules generated! AI agents will automatically follow these guidelines.")
 	return nil
 }
 
@@ -140,10 +137,10 @@ func fileExists(dir string, name string) bool {
 	return err == nil
 }
 
+// generateRulesMarkdown renders the project overview followed by the shared
+// codive usage guidance.
 func generateRulesMarkdown(stack ProjectStack) string {
 	var sb strings.Builder
-	sb.WriteString("# AI Agent Architecture & Exploration Guidelines\n\n")
-
 	sb.WriteString("## Project Overview\n")
 	sb.WriteString(fmt.Sprintf("- **Primary Language**: %s\n", stack.Language))
 	if stack.Framework != "" {
@@ -152,30 +149,29 @@ func generateRulesMarkdown(stack ProjectStack) string {
 	if stack.BuildCommand != "" {
 		sb.WriteString(fmt.Sprintf("- **Build Command**: `%s`\n", stack.BuildCommand))
 	}
-	if stack.TestCommand != "" {
+	if stack.TestCommand != "" && stack.TestCommand != "N/A" {
 		sb.WriteString(fmt.Sprintf("- **Test Command**: `%s`\n", stack.TestCommand))
 	}
 	if stack.LintCommand != "" {
-		sb.WriteString(fmt.Sprintf("- **Lint Command**: `%s`\n\n", stack.LintCommand))
-	} else {
-		sb.WriteString("\n")
+		sb.WriteString(fmt.Sprintf("- **Lint Command**: `%s`\n", stack.LintCommand))
 	}
-
-	sb.WriteString("## Code Search & Exploration Rules\n")
-	sb.WriteString("- **DO NOT** use raw `grep`, `ripgrep`, or recursive `list_dir` for codebase exploration.\n")
-	sb.WriteString("- **ALWAYS PREFER** the `codive` MCP tools for zero-token code discovery:\n")
-	sb.WriteString("  1. Use `codive:get_repo_map` to understand the codebase structure and symbols.\n")
-	sb.WriteString("  2. Use `codive:get_file_skeleton` to inspect file structure without dumping thousands of tokens.\n")
-	sb.WriteString("  3. Use `codive:find_symbol` when locating function, class, or type definitions.\n")
-	sb.WriteString("  4. Use `codive:find_callers` or `codive:find_references` when discovering usages or refactoring.\n")
-	sb.WriteString("  5. Use `codive:find_tests_for` to locate corresponding unit test suites before and after making changes.\n")
-	sb.WriteString("  6. Use `codive:pack_feature_context` to bundle complete feature entrypoints in 1 single turn.\n")
-	sb.WriteString("  7. Use `codive:get_git_changes` to review uncommitted AST changes without noisy unified diffs.\n\n")
-
-	sb.WriteString("## Engineering Conventions\n")
-	sb.WriteString("1. Always run tests using the verified test command after making edits.\n")
-	sb.WriteString("2. Avoid breaking existing exported signatures without updating all callers.\n")
-	sb.WriteString("3. Record significant architectural decisions using `codive:save_decision`.\n")
-
+	sb.WriteString("\n")
+	sb.WriteString(codiveGuidance)
 	return sb.String()
 }
+
+// codiveGuidance tells agents when to reach for which codive tool. It maps
+// questions to tools rather than banning grep: plain text search is still
+// the right tool for literal strings and for files codive can't parse.
+const codiveGuidance = "## Code navigation with codive (MCP)\n" +
+	"Prefer codive's MCP tools to understand code: they answer from a live index of this repository and return exact, compact results instead of whole files.\n" +
+	"- Where is X defined? → `find_symbol`\n" +
+	"- What's in this file? → `get_file_skeleton`, then `read_file_context` with `start_line`/`end_line` for just the part you need\n" +
+	"- Who calls X? What breaks if X changes? → `find_callers`, `blast_radius`\n" +
+	"- Which tests cover this? → `find_tests_for`\n" +
+	"- What have I changed so far? → `get_git_changes`\n" +
+	"- Overview of a feature in one call → `pack_feature_context`\n" +
+	"\n" +
+	"Results marked \"MORE EXIST\" or \"showing N of M\" are partial: raise `limit` or narrow the query before drawing conclusions.\n" +
+	"Plain text search (grep/rg) is still the right tool for literal strings, log or error messages, config values, and files codive doesn't parse.\n" +
+	"Record lasting design decisions with `save_decision` so later sessions can find them.\n"
