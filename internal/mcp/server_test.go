@@ -3,7 +3,9 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -467,8 +469,13 @@ func TestFreshnessHook(t *testing.T) {
 
 	server := NewServer(served, nil, "test")
 	defer server.Close()
-	calls := 0
-	server.SetFreshnessHook(func(context.Context) { calls++ })
+	var dirs []string
+	server.SetFreshnessHook(func(_ context.Context, dir string, database *sql.DB) {
+		if database == nil {
+			t.Error("hook called without a database")
+		}
+		dirs = append(dirs, filepath.Clean(dir))
+	})
 
 	run := func(name string, args map[string]any) {
 		t.Helper()
@@ -477,13 +484,81 @@ func TestFreshnessHook(t *testing.T) {
 		}
 	}
 	run("find_symbol", map[string]any{"query": "x", "workspace_path": served})
-	if calls != 1 {
-		t.Errorf("expected hook before find_symbol on served workspace, calls=%d", calls)
-	}
 	run("get_decisions", map[string]any{"workspace_path": served})
 	run("find_symbol", map[string]any{"query": "x", "workspace_path": other})
-	if calls != 1 {
-		t.Errorf("hook must not run for decisions or other workspaces, calls=%d", calls)
+
+	// Decisions don't need a fresh index; every other call refreshes the
+	// workspace it actually targets.
+	want := []string{filepath.Clean(served), filepath.Clean(other)}
+	if strings.Join(dirs, "|") != strings.Join(want, "|") {
+		t.Errorf("hook calls = %v, want %v", dirs, want)
+	}
+}
+
+func TestFileURIToPath(t *testing.T) {
+	tests := map[string]string{
+		"file:///home/me/proj":        filepath.FromSlash("/home/me/proj"),
+		"file:///C:/work/my%20proj":   filepath.FromSlash("C:/work/my proj"),
+		"file://localhost/srv/code":   filepath.FromSlash("/srv/code"),
+		"file://server/share/project": filepath.FromSlash("//server/share/project"),
+	}
+	for uri, want := range tests {
+		if got, ok := fileURIToPath(uri); !ok || got != filepath.Clean(want) {
+			t.Errorf("fileURIToPath(%q) = %q, %v; want %q", uri, got, ok, filepath.Clean(want))
+		}
+	}
+	if _, ok := fileURIToPath("https://example.com/x"); ok {
+		t.Error("non-file URI accepted")
+	}
+}
+
+// With a roots-capable client, the server must ask for the workspace after
+// initialization, switch to the first local root it gets back, and not
+// answer the client's response as if it were a request.
+func TestRootsSwitchWorkspace(t *testing.T) {
+	started := t.TempDir()
+	open := t.TempDir()
+	if err := os.Mkdir(filepath.Join(open, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(open, "w.go"), []byte("package w\n\nfunc InOpenWorkspace() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	uri := "file://" + filepath.ToSlash(open)
+	if !strings.HasPrefix(filepath.ToSlash(open), "/") {
+		uri = "file:///" + filepath.ToSlash(open)
+	}
+
+	server := NewServer(started, nil, "test")
+	defer server.Close()
+
+	pr, pw := io.Pipe()
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(pr, &out) }()
+	send := func(s string) {
+		if _, err := pw.Write([]byte(s + "\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{"listChanged":true}}}}`)
+	send(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	send(`{"jsonrpc":"2.0","id":"codive-roots-1","result":{"roots":[{"uri":"` + uri + `","name":"open"}]}}`)
+	send(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"find_symbol","arguments":{"query":"InOpenWorkspace"}}}`)
+	pw.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("serve failed: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected initialize reply, roots/list request, tool reply; got %d lines:\n%s", len(lines), out.String())
+	}
+	if !strings.Contains(lines[1], `"method":"roots/list"`) {
+		t.Errorf("server did not request roots after initialization: %s", lines[1])
+	}
+	if !strings.Contains(lines[2], "w.go") {
+		t.Errorf("tool call was not answered from the client's workspace: %s", lines[2])
 	}
 }
 

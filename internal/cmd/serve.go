@@ -3,10 +3,12 @@ package cmd
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/recscse/codive/internal/db"
@@ -47,8 +49,20 @@ func RunServe(targetDir string, version string) error {
 
 	server := mcp.NewServer(absDir, database, version)
 	defer server.Close()
-	server.SetFreshnessHook(func(ctx context.Context) {
-		logSync(fresh.SyncIfOlder(ctx, queryMaxIndexAge))
+	// One Freshener per workspace: the one started with, plus any the client
+	// switches to (MCP roots) or a tool call targets via workspace_path.
+	var freshMu sync.Mutex
+	fresheners := map[string]*indexer.Freshener{filepath.Clean(absDir): fresh}
+	server.SetFreshnessHook(func(ctx context.Context, dir string, db *sql.DB) {
+		key := filepath.Clean(dir)
+		freshMu.Lock()
+		f, ok := fresheners[key]
+		if !ok {
+			f = indexer.NewFreshener(db, dir)
+			fresheners[key] = f
+		}
+		freshMu.Unlock()
+		logSync(f.SyncIfOlder(ctx, queryMaxIndexAge))
 	})
 	return server.Serve(os.Stdin, os.Stdout)
 }
