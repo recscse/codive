@@ -6,11 +6,15 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -100,6 +104,18 @@ func RunUpgrade(currentVersion string) error {
 		return fmt.Errorf("failed to read downloaded binary: %w", err)
 	}
 
+	// Integrity check against the release's published checksum. This catches
+	// corrupted or truncated downloads; it can't prove authenticity, since
+	// the checksum comes from the same release.
+	switch expected, err := fetchChecksum(client, downloadURL+".sha256"); {
+	case err != nil:
+		ui.Warning(fmt.Sprintf("No checksum published for %s (%v); the download could not be verified.", assetName, err))
+	case !checksumMatches(bodyBytes, expected):
+		return fmt.Errorf("checksum mismatch for %s: download is corrupted or was tampered with; nothing was changed", assetName)
+	default:
+		ui.Info("Checksum verified (SHA-256).")
+	}
+
 	var newBinaryBytes []byte
 	if runtime.GOOS == "windows" {
 		zipReader, err := zip.NewReader(bytes.NewReader(bodyBytes), int64(len(bodyBytes)))
@@ -142,22 +158,83 @@ func RunUpgrade(currentVersion string) error {
 		return fmt.Errorf("could not extract codive executable from download archive")
 	}
 
-	// Rename current executable to .old on Windows to allow overwrite
+	// Stage the new binary and make sure it actually runs on this machine
+	// before replacing the working one, so a bad download can't leave the
+	// user without a usable codive.
+	newExePath := exePath + ".new"
+	if err := os.WriteFile(newExePath, newBinaryBytes, 0755); err != nil {
+		return fmt.Errorf("failed to stage updated binary: %w", err)
+	}
+	if err := smokeTestBinary(newExePath); err != nil {
+		_ = os.Remove(newExePath)
+		return fmt.Errorf("downloaded binary failed to run (%v); nothing was changed", err)
+	}
+
+	// Windows can't overwrite a running executable, but it can rename it.
 	oldExePath := exePath + ".old"
 	_ = os.Remove(oldExePath)
 	if err := os.Rename(exePath, oldExePath); err != nil {
-		// If rename fails, try direct overwrite
-		if err := os.WriteFile(exePath, newBinaryBytes, 0755); err != nil {
-			return fmt.Errorf("failed to update binary at %s: %w", exePath, err)
-		}
-	} else {
-		if err := os.WriteFile(exePath, newBinaryBytes, 0755); err != nil {
-			_ = os.Rename(oldExePath, exePath)
-			return fmt.Errorf("failed to write updated binary: %w", err)
-		}
-		_ = os.Remove(oldExePath)
+		_ = os.Remove(newExePath)
+		return fmt.Errorf("failed to move the current binary aside: %w", err)
 	}
+	if err := os.Rename(newExePath, exePath); err != nil {
+		_ = os.Rename(oldExePath, exePath)
+		_ = os.Remove(newExePath)
+		return fmt.Errorf("failed to install updated binary: %w", err)
+	}
+	// Fails harmlessly on Windows while the old binary is still running; it
+	// is cleaned up by the next upgrade.
+	_ = os.Remove(oldExePath)
 
 	ui.Success(fmt.Sprintf("Successfully upgraded codive to %s at %s!", latestTag, exePath))
 	return nil
+}
+
+// fetchChecksum downloads a "<hex digest>  <file name>" checksum file (the
+// format sha256sum writes) and returns the digest.
+func fetchChecksum(client *http.Client, url string) (string, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", err
+	}
+	return parseChecksum(string(data))
+}
+
+func parseChecksum(text string) (string, error) {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return "", fmt.Errorf("empty checksum file")
+	}
+	digest := strings.ToLower(fields[0])
+	if len(digest) != sha256.Size*2 {
+		return "", fmt.Errorf("malformed SHA-256 digest")
+	}
+	if _, err := hex.DecodeString(digest); err != nil {
+		return "", fmt.Errorf("malformed SHA-256 digest")
+	}
+	return digest, nil
+}
+
+func checksumMatches(data []byte, expected string) bool {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]) == expected
+}
+
+// smokeTestBinary runs `<path> version` and fails if it doesn't exit cleanly,
+// catching corrupted, truncated, or wrong-architecture binaries.
+func smokeTestBinary(path string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "version", "--no-color")
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run()
 }
