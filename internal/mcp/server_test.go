@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/scanner"
@@ -501,5 +502,52 @@ func TestSecretFilesAreRefused(t *testing.T) {
 		if err == nil {
 			t.Errorf("%s returned a credential file: %+v", tool, res)
 		}
+	}
+}
+
+// A minified file with one enormous line must not turn a tool call into a
+// giant response: references are clipped around the match and every tool's
+// output is size-capped with a visible marker.
+func TestHugeLinesDoNotFloodContext(t *testing.T) {
+	tempDir := t.TempDir()
+	line := strings.Repeat("var a=1;", 20000) + "callTarget(1);" + strings.Repeat("var b=2;", 20000)
+	if err := os.WriteFile(filepath.Join(tempDir, "bundle.min.js"), []byte(line+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	indexForTest(t, tempDir)
+	server := NewServer(tempDir, nil, "test")
+	defer server.Close()
+
+	call := func(name string, args map[string]any) string {
+		t.Helper()
+		args["workspace_path"] = tempDir
+		params, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
+		resp := server.handleRequest(context.Background(), JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: params})
+		return resp.Result.(*ToolCallResult).Content[0].Text
+	}
+
+	refs := call("find_references", map[string]any{"symbol": "callTarget"})
+	if !strings.Contains(refs, "callTarget(1)") || len(refs) > 2000 {
+		t.Errorf("reference snippet not clipped around the match (len %d):\n%.300s", len(refs), refs)
+	}
+	read := call("read_file_context", map[string]any{"path": "bundle.min.js"})
+	if len(read) > maxOutputChars+500 || !strings.Contains(read, "chars clipped from this line") {
+		t.Errorf("read_file_context output not capped: len %d", len(read))
+	}
+}
+
+func TestGuardOutput(t *testing.T) {
+	small := "short\nlines"
+	if guardOutput(small) != small {
+		t.Error("guardOutput changed small output")
+	}
+	long := strings.Repeat("é", maxOutputLineChars) // 2 bytes per rune
+	out := guardOutput(long)
+	if !utf8.ValidString(out) || !strings.Contains(out, "chars clipped") || len(out) > maxOutputLineChars+100 {
+		t.Errorf("long line not clipped cleanly: len %d valid %v", len(out), utf8.ValidString(out))
+	}
+	many := strings.Repeat(strings.Repeat("x", 100)+"\n", maxOutputChars/50)
+	if out := guardOutput(many); len(out) > maxOutputChars+300 || !strings.Contains(out, "Output truncated") {
+		t.Errorf("total output not capped: len %d", len(out))
 	}
 }

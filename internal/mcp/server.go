@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/git"
@@ -189,6 +190,52 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 	s.dbMutex.Unlock()
 
 	return dbConn, absPath, nil
+}
+
+const (
+	// maxOutputLineChars caps any single line in a tool response. Minified or
+	// generated files can have one line of hundreds of kilobytes; without a
+	// cap a single matching line becomes a six-figure-token response.
+	maxOutputLineChars = 2000
+	// maxOutputChars caps a whole tool response (~20k tokens).
+	maxOutputChars = 80000
+)
+
+// guardOutput enforces the per-line and total size caps on a tool response,
+// marking every cut so the agent knows the text is incomplete rather than
+// mistaking it for the real content.
+func guardOutput(text string) string {
+	if len(text) <= maxOutputLineChars && len(text) <= maxOutputChars {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if len(l) > maxOutputLineChars {
+			half := maxOutputLineChars / 2
+			head := truncateUTF8(l, half)
+			tail := l[len(l)-half:]
+			for len(tail) > 0 && !utf8.RuneStart(tail[0]) {
+				tail = tail[1:]
+			}
+			lines[i] = fmt.Sprintf("%s … [%d chars clipped from this line] … %s", head, len(l)-len(head)-len(tail), tail)
+		}
+	}
+	out := strings.Join(lines, "\n")
+	if len(out) > maxOutputChars {
+		out = truncateUTF8(out, maxOutputChars) + fmt.Sprintf("\n\n[Output truncated at %d characters. Narrow the request (a path, line range, directory_filter, or smaller limit) to see the rest.]", maxOutputChars)
+	}
+	return out
+}
+
+// truncateUTF8 cuts s to at most n bytes without splitting a UTF-8 sequence.
+func truncateUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // toolCallTimeout bounds how long a single tools/call may run.
@@ -668,6 +715,9 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 			}
 		}
 
+		for i := range result.Content {
+			result.Content[i].Text = guardOutput(result.Content[i].Text)
+		}
 		return &JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,

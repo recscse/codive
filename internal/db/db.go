@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 )
@@ -998,7 +999,7 @@ func scanReferences(ctx context.Context, database *sql.DB, symbol string, limit 
 			page.Refs = append(page.Refs, ReferenceResult{
 				FilePath:   path,
 				LineNumber: lineNo,
-				Snippet:    strings.TrimSpace(line),
+				Snippet:    clipAround(strings.TrimSpace(line), symbol, maxSnippetChars),
 			})
 		}
 	}
@@ -1466,4 +1467,44 @@ func containsWord(s, word string) bool {
 // identifier immediately followed by "(".
 func containsCall(s, name string) bool {
 	return wordMatches(s, name, func(end int) bool { return end < len(s) && s[end] == '(' })
+}
+
+// maxSnippetChars caps a reference snippet. Source lines are normally far
+// shorter; this only bites on minified or generated lines, which can be
+// hundreds of kilobytes long.
+const maxSnippetChars = 240
+
+// clipAround shortens line to about limit bytes, keeping a window centred on
+// the first occurrence of word and marking the cut ends with "…".
+func clipAround(line, word string, limit int) string {
+	if len(line) <= limit {
+		return line
+	}
+	i := strings.Index(line, word)
+	if i < 0 {
+		i = 0
+	}
+	start := i + len(word)/2 - limit/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + limit
+	if end > len(line) {
+		end = len(line)
+		start = max(0, end-limit)
+	}
+	for start > 0 && !utf8.RuneStart(line[start]) {
+		start--
+	}
+	for end < len(line) && !utf8.RuneStart(line[end]) {
+		end++
+	}
+	out := line[start:end]
+	if start > 0 {
+		out = "…" + out
+	}
+	if end < len(line) {
+		out += "…"
+	}
+	return out
 }
