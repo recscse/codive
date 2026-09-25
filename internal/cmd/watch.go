@@ -10,8 +10,7 @@ import (
 	"time"
 
 	"github.com/recscse/codive/internal/db"
-	"github.com/recscse/codive/internal/scanner"
-	"github.com/recscse/codive/internal/symbols"
+	"github.com/recscse/codive/internal/indexer"
 )
 
 // RunWatch starts a continuous watcher that automatically synchronizes index.db on file changes.
@@ -62,67 +61,12 @@ func RunWatch(targetDir string, pollInterval time.Duration) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			existing, err := db.GetAllFiles(ctx, database)
-			if err != nil {
+			incrResult, err := indexer.Sync(ctx, database, absDir)
+			if err != nil || incrResult == nil {
 				continue
 			}
-
-			incrResult, err := scanner.ScanIncremental(absDir, existing)
-			if err != nil {
+			if len(incrResult.Added) == 0 && len(incrResult.Modified) == 0 && len(incrResult.Deleted) == 0 {
 				continue
-			}
-
-			hasChanges := len(incrResult.Added) > 0 || len(incrResult.Modified) > 0 || len(incrResult.Deleted) > 0
-			if !hasChanges && len(incrResult.MetadataOnly) == 0 {
-				continue
-			}
-
-			if len(incrResult.MetadataOnly) > 0 {
-				// Content is unchanged, so no symbol/FTS re-extraction is needed —
-				// just refresh the stored mtime so these files stop being rehashed
-				// on every poll.
-				_ = db.SaveFiles(ctx, database, incrResult.MetadataOnly)
-			}
-			if !hasChanges {
-				continue
-			}
-
-			// Apply changes
-			toSave := append(incrResult.Added, incrResult.Modified...)
-			if len(toSave) > 0 {
-				_ = db.SaveFiles(ctx, database, toSave)
-
-				var changedPaths []string
-				for _, f := range toSave {
-					changedPaths = append(changedPaths, f.Path)
-				}
-				_ = db.DeleteSymbolsForFiles(ctx, database, changedPaths)
-
-				var newSymbols []db.SymbolRecord
-				ftsFiles := make(map[string]string)
-				for _, f := range toSave {
-					fullPath := filepath.Join(absDir, filepath.FromSlash(f.Path))
-					content, err := os.ReadFile(fullPath)
-					if err != nil {
-						continue
-					}
-					ftsFiles[f.Path] = string(content)
-					syms, err := symbols.ExtractSymbols(f.Path, f.Language, content)
-					if err == nil {
-						newSymbols = append(newSymbols, syms...)
-					}
-				}
-				if len(newSymbols) > 0 {
-					_ = db.SaveSymbols(ctx, database, newSymbols)
-				}
-				if len(ftsFiles) > 0 {
-					_ = db.SaveFTS(ctx, database, ftsFiles)
-				}
-			}
-
-			if len(incrResult.Deleted) > 0 {
-				_ = db.DeleteFiles(ctx, database, incrResult.Deleted)
-				_ = db.DeleteFTSForFiles(ctx, database, incrResult.Deleted)
 			}
 
 			nowStr := time.Now().Format("15:04:05")

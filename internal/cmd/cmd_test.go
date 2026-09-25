@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/recscse/codive/internal/db"
 )
@@ -62,5 +64,62 @@ func TestUpdateOnOutdatedSchema(t *testing.T) {
 	// Verify that search works on the updated database
 	if err := RunSearch(tempDir, "authenticate", 5, false); err != nil {
 		t.Fatalf("RunSearch failed after update: %v", err)
+	}
+}
+
+// Re-running init over an existing index must not leave stale rows behind:
+// symbols from deleted files, or a second copy of a symbol whose line moved.
+func TestReInitDropsStaleSymbols(t *testing.T) {
+	tempDir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(tempDir, name), []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write %s: %v", name, err)
+		}
+	}
+	write("a.go", "package p\n\nfunc Alpha() {}\n")
+	write("b.go", "package p\n\nfunc Beta() {}\n")
+
+	if err := RunInitSilent(tempDir); err != nil {
+		t.Fatalf("first init failed: %v", err)
+	}
+
+	if err := os.Remove(filepath.Join(tempDir, "b.go")); err != nil {
+		t.Fatalf("failed to remove b.go: %v", err)
+	}
+	write("a.go", "package p\n\n\n\n\nfunc Alpha() {}\n")
+
+	if err := RunInitSilent(tempDir); err != nil {
+		t.Fatalf("second init failed: %v", err)
+	}
+
+	database, err := db.Open(filepath.Join(tempDir, ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+
+	if syms, _ := db.FindSymbols(ctx, database, "Beta"); len(syms) != 0 {
+		t.Errorf("symbol from deleted file survived re-init: %+v", syms)
+	}
+	syms, _ := db.FindSymbolsInFile(ctx, database, "a.go")
+	if len(syms) != 1 || syms[0].LineNumber != 6 {
+		t.Errorf("expected exactly one Alpha at L6 after re-init, got %+v", syms)
+	}
+	if rec, ok, _ := db.GetFile(ctx, database, "b.go"); ok {
+		t.Errorf("deleted file still indexed: %+v", rec)
+	}
+}
+
+func TestNextSyncDelay(t *testing.T) {
+	for elapsed, want := range map[time.Duration]time.Duration{
+		10 * time.Millisecond:  minSyncInterval,
+		300 * time.Millisecond: 6 * time.Second,
+		5 * time.Second:        maxSyncInterval,
+	} {
+		if got := nextSyncDelay(elapsed); got != want {
+			t.Errorf("nextSyncDelay(%v) = %v, want %v", elapsed, got, want)
+		}
 	}
 }

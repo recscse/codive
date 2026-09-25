@@ -15,11 +15,13 @@ import (
 
 // BlastRadiusResult represents the impact analysis of changing a symbol or signature.
 type BlastRadiusResult struct {
-	Symbol       string   `json:"symbol"`
-	RiskLevel    string   `json:"risk_level"` // "HIGH", "MEDIUM", "LOW"
-	CallSites    int      `json:"call_sites"`
+	Symbol    string `json:"symbol"`
+	RiskLevel string `json:"risk_level"` // "HIGH", "MEDIUM", "LOW"
+	CallSites int    `json:"call_sites"`
+	// MoreCallSites is true when CallSites and AffectedFiles are a lower bound.
+	MoreCallSites bool     `json:"more_call_sites,omitempty"`
 	AffectedFiles []string `json:"affected_files"`
-	TestsToRun   []string `json:"tests_to_run"`
+	TestsToRun    []string `json:"tests_to_run"`
 }
 
 // RunBlast analyzes the blast radius and potential regressions when modifying a symbol.
@@ -66,7 +68,12 @@ func RunBlast(targetDir string, targetSymbol string, asJSON bool) error {
 
 	fmt.Println()
 	ui.Header(fmt.Sprintf("Blast Radius Analysis: %s", result.Symbol))
-	ui.KeyValue("Risk Level", fmt.Sprintf("%s (%s across %s)", riskBadge, ui.Count(result.CallSites, "direct caller", "direct callers"), ui.Count(len(result.AffectedFiles), "file", "files")))
+	refs := ui.Count(result.CallSites, "reference", "references")
+	files := ui.Count(len(result.AffectedFiles), "file", "files")
+	if result.MoreCallSites {
+		refs, files = "at least "+refs, "at least "+files
+	}
+	ui.KeyValue("Risk Level", fmt.Sprintf("%s (%s across %s)", riskBadge, refs, files))
 
 	if len(result.AffectedFiles) > 0 {
 		ui.KeyValue("Affected Files", strings.Join(result.AffectedFiles, ", "))
@@ -98,6 +105,7 @@ func AnalyzeBlastRadius(ctx context.Context, database *sql.DB, symbol string) (*
 		Symbol:        res.Symbol,
 		RiskLevel:     res.RiskLevel,
 		CallSites:     len(res.References),
+		MoreCallSites: res.MoreReferences,
 		AffectedFiles: res.AffectedFiles,
 		TestsToRun:    res.TestsToRun,
 	}, nil

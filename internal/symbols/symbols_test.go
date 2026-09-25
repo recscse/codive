@@ -128,12 +128,12 @@ export const fetchUsers = async () => {
 	}
 
 	want := map[string]string{
-		"User":         "interface",
-		"UserID":       "type",
-		"UserService":  "class",
-		"getUser":      "method",
-		"getUserById":  "function",
-		"fetchUsers":   "function",
+		"User":        "interface",
+		"UserID":      "type",
+		"UserService": "class",
+		"getUser":     "method",
+		"getUserById": "function",
+		"fetchUsers":  "function",
 	}
 	got := make(map[string]string, len(symbols))
 	for _, s := range symbols {

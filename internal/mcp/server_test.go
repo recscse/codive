@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/scanner"
+	"github.com/recscse/codive/internal/symbols"
 )
 
 func setupTestDB(t *testing.T) (string, func()) {
@@ -204,5 +206,282 @@ func TestMCPServer(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "package main") {
 		t.Errorf("expected read_file_context to return file content, got %s", out.String())
+	}
+}
+
+// indexForTest builds a real index for dir the same way init does, so file
+// records carry genuine sizes, mtimes, and content hashes.
+func indexForTest(t *testing.T, dir string) {
+	t.Helper()
+	res, err := scanner.Scan(dir)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	database, err := db.Open(filepath.Join(dir, ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	if err := db.SaveFiles(ctx, database, res.Files); err != nil {
+		t.Fatalf("failed to save files: %v", err)
+	}
+	fts := make(map[string]string)
+	for _, f := range res.Files {
+		content, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(f.Path)))
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", f.Path, err)
+		}
+		fts[f.Path] = string(content)
+		syms, _ := symbols.ExtractSymbols(f.Path, f.Language, content)
+		if err := db.SaveSymbols(ctx, database, syms); err != nil {
+			t.Fatalf("failed to save symbols: %v", err)
+		}
+	}
+	if err := db.SaveFTS(ctx, database, fts); err != nil {
+		t.Fatalf("failed to save fts: %v", err)
+	}
+}
+
+func TestEnsureFreshSymbols(t *testing.T) {
+	tempDir := t.TempDir()
+	srcPath := filepath.Join(tempDir, "a.go")
+	if err := os.WriteFile(srcPath, []byte("package p\n\nfunc Alpha() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write a.go: %v", err)
+	}
+	indexForTest(t, tempDir)
+
+	// An ignored file that exists on disk but was never indexed.
+	if err := os.MkdirAll(filepath.Join(tempDir, "node_modules"), 0755); err != nil {
+		t.Fatalf("failed to create node_modules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, "node_modules", "x.js"), []byte("const SECRETVALUE = 1\n"), 0644); err != nil {
+		t.Fatalf("failed to write x.js: %v", err)
+	}
+
+	database, err := db.Open(filepath.Join(tempDir, ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	defer database.Close()
+	server := NewServer(tempDir, database, "test")
+	defer server.Close()
+	ctx := context.Background()
+	call := func(name string, args map[string]any) string {
+		t.Helper()
+		args["workspace_path"] = tempDir
+		res, err := server.executeTool(ctx, name, args)
+		if err != nil {
+			t.Fatalf("%s failed: %v", name, err)
+		}
+		return res.Content[0].Text
+	}
+
+	t.Run("unindexed file is not pulled into the index", func(t *testing.T) {
+		call("read_file_context", map[string]any{"path": "node_modules/x.js"})
+		if _, ok, _ := db.GetFile(ctx, database, "node_modules/x.js"); ok {
+			t.Error("read_file_context indexed an ignored file")
+		}
+		if hits, _ := db.SearchFTS(ctx, database, "SECRETVALUE", 5); len(hits) != 0 {
+			t.Errorf("ignored file content leaked into FTS: %+v", hits)
+		}
+	})
+
+	t.Run("unchanged file is not rewritten", func(t *testing.T) {
+		before, _, _ := db.GetFile(ctx, database, "a.go")
+		call("find_symbol", map[string]any{"query": "Alpha"})
+		after, _, _ := db.GetFile(ctx, database, "a.go")
+		if !after.LastIndexed.Equal(before.LastIndexed) {
+			t.Errorf("unchanged file was re-indexed: LastIndexed %v -> %v", before.LastIndexed, after.LastIndexed)
+		}
+	})
+
+	t.Run("modified file is refreshed before results are printed", func(t *testing.T) {
+		newContent := []byte("package p\n\n\n\n\nfunc Alpha() {}\n")
+		if err := os.WriteFile(srcPath, newContent, 0644); err != nil {
+			t.Fatalf("failed to rewrite a.go: %v", err)
+		}
+		future := time.Now().Add(time.Minute)
+		if err := os.Chtimes(srcPath, future, future); err != nil {
+			t.Fatalf("failed to bump mtime: %v", err)
+		}
+
+		out := call("find_symbol", map[string]any{"query": "Alpha"})
+		if !strings.Contains(out, "(L6)") || strings.Contains(out, "(L3)") {
+			t.Errorf("expected only the refreshed location L6, got:\n%s", out)
+		}
+		rec, _, _ := db.GetFile(ctx, database, "a.go")
+		if rec.ContentHash != scanner.HashBytes(newContent) {
+			t.Errorf("refreshed record has stale/empty content hash %q", rec.ContentHash)
+		}
+	})
+}
+
+func TestNegotiateProtocolVersion(t *testing.T) {
+	for requested, want := range map[string]string{
+		"2024-11-05": "2024-11-05",
+		"2025-03-26": "2025-03-26",
+		"2025-06-18": "2025-06-18",
+		"1999-01-01": supportedProtocolVersions[0],
+		"":           supportedProtocolVersions[0],
+	} {
+		if got := negotiateProtocolVersion(requested); got != want {
+			t.Errorf("negotiateProtocolVersion(%q) = %q, want %q", requested, got, want)
+		}
+	}
+}
+
+func TestSelectLines(t *testing.T) {
+	content := "l1\nl2\nl3\nl4\nl5"
+	tests := []struct {
+		start, end, limit int
+		body              string
+		partial, wantErr  bool
+	}{
+		{0, 0, 10, "l1\nl2\nl3\nl4\nl5", false, false},
+		{0, 0, 2, "l1\nl2", true, false},
+		{2, 3, 10, "l2\nl3", true, false},
+		{4, 99, 10, "l4\nl5", true, false},
+		{3, 0, 2, "l3\nl4", true, false},
+		{6, 0, 10, "", false, true},
+		{3, 2, 10, "", false, true},
+	}
+	for _, tt := range tests {
+		body, note, err := selectLines(content, tt.start, tt.end, tt.limit)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("selectLines(%d,%d,%d) err = %v, wantErr %v", tt.start, tt.end, tt.limit, err, tt.wantErr)
+			continue
+		}
+		if tt.wantErr {
+			continue
+		}
+		if body != tt.body || (note != "") != tt.partial {
+			t.Errorf("selectLines(%d,%d,%d) = %q (note %q), want %q partial=%v", tt.start, tt.end, tt.limit, body, note, tt.body, tt.partial)
+		}
+	}
+}
+
+// An agent-supplied workspace_path that has no index must only be
+// auto-indexed when it is a git repository root.
+func TestAutoIndexRequiresGitRepo(t *testing.T) {
+	plain := t.TempDir()
+	if err := os.WriteFile(filepath.Join(plain, "x.go"), []byte("package x\n"), 0644); err != nil {
+		t.Fatalf("failed to write x.go: %v", err)
+	}
+	server := NewServer(t.TempDir(), nil, "test")
+	defer server.Close()
+
+	if _, err := server.executeTool(context.Background(), "find_symbol", map[string]any{"query": "x", "workspace_path": plain}); err == nil {
+		t.Error("expected a non-git directory to be refused for auto-indexing")
+	}
+	if _, err := os.Stat(filepath.Join(plain, ".codive")); !os.IsNotExist(err) {
+		t.Error("refused directory still got a .codive index created in it")
+	}
+
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0755); err != nil {
+		t.Fatalf("failed to create .git: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "y.go"), []byte("package y\n\nfunc Yes() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write y.go: %v", err)
+	}
+	res, err := server.executeTool(context.Background(), "find_symbol", map[string]any{"query": "Yes", "workspace_path": repo})
+	if err != nil {
+		t.Fatalf("expected git repo to be auto-indexed: %v", err)
+	}
+	if !strings.Contains(res.Content[0].Text, "y.go") {
+		t.Errorf("auto-indexed repo did not return its symbol: %s", res.Content[0].Text)
+	}
+}
+
+// MCP 2025-03-26 requires accepting JSON-RPC batches: requests in an array get
+// an array of responses, and notifications inside a batch get none.
+func TestServeBatch(t *testing.T) {
+	server := NewServer(t.TempDir(), nil, "test")
+	defer server.Close()
+
+	in := `[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"},{"jsonrpc":"2.0","id":2,"method":"ping"}]` + "\n" +
+		`[{"jsonrpc":"2.0","method":"notifications/initialized"}]` + "\n" +
+		`[]` + "\n"
+	var out bytes.Buffer
+	if err := server.Serve(strings.NewReader(in), &out); err != nil {
+		t.Fatalf("serve failed: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 output lines (batch reply + empty-batch error), got %d:\n%s", len(lines), out.String())
+	}
+	var batch []JSONRPCResponse
+	if err := json.Unmarshal([]byte(lines[0]), &batch); err != nil {
+		t.Fatalf("batch reply is not an array: %v\n%s", err, lines[0])
+	}
+	if len(batch) != 2 || batch[0].ID != float64(1) || batch[1].ID != float64(2) {
+		t.Errorf("expected responses for ids 1 and 2 only, got %+v", batch)
+	}
+	var empty JSONRPCResponse
+	if err := json.Unmarshal([]byte(lines[1]), &empty); err != nil || empty.Error == nil || empty.Error.Code != -32600 {
+		t.Errorf("expected -32600 for an empty batch, got %s", lines[1])
+	}
+}
+
+// Capped tool output must say it is capped instead of reading as complete.
+func TestCappedResultsAreDisclosed(t *testing.T) {
+	tempDir := t.TempDir()
+	src := "package p\n\nfunc HelperOne() {}\n\nfunc HelperTwo() { HelperOne(); HelperOne() }\n"
+	if err := os.WriteFile(filepath.Join(tempDir, "a.go"), []byte(src), 0644); err != nil {
+		t.Fatalf("failed to write a.go: %v", err)
+	}
+	indexForTest(t, tempDir)
+	server := NewServer(tempDir, nil, "test")
+	defer server.Close()
+	call := func(name string, args map[string]any) string {
+		t.Helper()
+		args["workspace_path"] = tempDir
+		res, err := server.executeTool(context.Background(), name, args)
+		if err != nil {
+			t.Fatalf("%s failed: %v", name, err)
+		}
+		return res.Content[0].Text
+	}
+
+	if out := call("find_symbol", map[string]any{"query": "Helper", "limit": float64(1)}); !strings.Contains(out, "showing 1 of 2") {
+		t.Errorf("find_symbol did not disclose its cap:\n%s", out)
+	}
+	if out := call("find_references", map[string]any{"symbol": "HelperOne", "limit": float64(1)}); !strings.Contains(out, "MORE EXIST") {
+		t.Errorf("find_references did not disclose its cap:\n%s", out)
+	}
+	if out := call("find_references", map[string]any{"symbol": "HelperOne"}); !strings.Contains(out, "complete") {
+		t.Errorf("uncapped find_references should say it is complete:\n%s", out)
+	}
+}
+
+// The freshness hook must run before index reads on the served workspace,
+// and not for decision tools or other workspaces.
+func TestFreshnessHook(t *testing.T) {
+	served := t.TempDir()
+	indexForTest(t, served)
+	other := t.TempDir()
+	indexForTest(t, other)
+
+	server := NewServer(served, nil, "test")
+	defer server.Close()
+	calls := 0
+	server.SetFreshnessHook(func(context.Context) { calls++ })
+
+	run := func(name string, args map[string]any) {
+		t.Helper()
+		if _, err := server.executeTool(context.Background(), name, args); err != nil {
+			t.Fatalf("%s failed: %v", name, err)
+		}
+	}
+	run("find_symbol", map[string]any{"query": "x", "workspace_path": served})
+	if calls != 1 {
+		t.Errorf("expected hook before find_symbol on served workspace, calls=%d", calls)
+	}
+	run("get_decisions", map[string]any{"workspace_path": served})
+	run("find_symbol", map[string]any{"query": "x", "workspace_path": other})
+	if calls != 1 {
+		t.Errorf("hook must not run for decisions or other workspaces, calls=%d", calls)
 	}
 }

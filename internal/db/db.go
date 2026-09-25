@@ -205,15 +205,36 @@ func Migrate(database *sql.DB) error {
 
 	for _, m := range Migrations {
 		if currentVersion < m.Version {
-			if _, err := database.Exec(m.SQL); err != nil {
-				return fmt.Errorf("migration %d failed (%s): %w", m.Version, m.Description, err)
-			}
-			if err := SetSchemaVersion(database, m.Version); err != nil {
+			if err := applyMigration(database, m); err != nil {
 				return err
 			}
 		}
 	}
 
+	return nil
+}
+
+// applyMigration runs a migration's SQL and records its version in a single
+// transaction (SQLite DDL and user_version are both transactional). Doing them
+// separately meant a crash in between left a non-idempotent migration such as
+// ALTER TABLE ADD COLUMN applied but unrecorded, so every later Open retried
+// it and failed with "duplicate column".
+func applyMigration(database *sql.DB, m Migration) error {
+	tx, err := database.Begin()
+	if err != nil {
+		return fmt.Errorf("migration %d: failed to begin transaction: %w", m.Version, err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(m.SQL); err != nil {
+		return fmt.Errorf("migration %d failed (%s): %w", m.Version, m.Description, err)
+	}
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d;", m.Version)); err != nil {
+		return fmt.Errorf("failed to set schema version to %d: %w", m.Version, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("migration %d: failed to commit: %w", m.Version, err)
+	}
 	return nil
 }
 
@@ -382,6 +403,147 @@ func GetAllFiles(ctx context.Context, database *sql.DB) (map[string]FileRecord, 
 	return records, nil
 }
 
+// GetFile returns the indexed record for a single file path. The bool result
+// is false (with a nil error) when the path isn't in the index.
+func GetFile(ctx context.Context, database *sql.DB, path string) (FileRecord, bool, error) {
+	var r FileRecord
+	var lastModStr, lastIdxStr string
+	err := database.QueryRowContext(ctx, `
+		SELECT path, language, size_bytes, content_hash, last_modified, last_indexed
+		FROM files
+		WHERE path = ?;
+	`, path).Scan(&r.Path, &r.Language, &r.SizeBytes, &r.ContentHash, &lastModStr, &lastIdxStr)
+	if err == sql.ErrNoRows {
+		return FileRecord{}, false, nil
+	}
+	if err != nil {
+		return FileRecord{}, false, fmt.Errorf("failed to query file %s: %w", path, err)
+	}
+	r.LastModified = parseTimestamp(lastModStr)
+	r.LastIndexed = parseTimestamp(lastIdxStr)
+	return r, true, nil
+}
+
+// IndexChanges is one batch of index updates, applied atomically by
+// ApplyIndexChanges.
+type IndexChanges struct {
+	// ReplaceAll clears every file, symbol, and FTS row first, making the
+	// batch a full rebuild. Decisions and telemetry are always kept: they
+	// aren't derived from the source.
+	ReplaceAll bool
+	// Files are added or modified files. Their existing symbols and FTS rows
+	// are replaced by the Symbols and FTS entries in this batch.
+	Files   []FileRecord
+	Symbols []SymbolRecord
+	FTS     map[string]string
+	// MetadataOnly are files whose content is unchanged but whose stored
+	// size/mtime must be refreshed. Their symbols and FTS rows are untouched.
+	MetadataOnly []FileRecord
+	// Deleted paths lose their file, symbol, and FTS rows.
+	Deleted []string
+}
+
+// ApplyIndexChanges writes a batch of index updates in a single transaction.
+// A file's record, symbols, and FTS content therefore always change together:
+// a crash can't leave a file marked as indexed at its new hash while still
+// holding the previous version's symbols, which no later incremental scan
+// would notice or repair.
+func ApplyIndexChanges(ctx context.Context, database *sql.DB, c IndexChanges) error {
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin index transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	exec := func(query string, args ...any) error {
+		_, err := tx.ExecContext(ctx, query, args...)
+		return err
+	}
+
+	if c.ReplaceAll {
+		for _, table := range []string{"files", "symbols", "file_fts"} {
+			if err := exec("DELETE FROM " + table + ";"); err != nil {
+				return fmt.Errorf("failed to clear %s: %w", table, err)
+			}
+		}
+	} else {
+		stale := make([]string, 0, len(c.Files)+len(c.Deleted))
+		for _, f := range c.Files {
+			stale = append(stale, f.Path)
+		}
+		stale = append(stale, c.Deleted...)
+		for _, p := range stale {
+			if err := exec("DELETE FROM symbols WHERE file_path = ?;", p); err != nil {
+				return fmt.Errorf("failed to delete symbols for %s: %w", p, err)
+			}
+			if err := exec("DELETE FROM file_fts WHERE path = ?;", p); err != nil {
+				return fmt.Errorf("failed to delete fts for %s: %w", p, err)
+			}
+		}
+		for _, p := range c.Deleted {
+			if err := exec("DELETE FROM files WHERE path = ?;", p); err != nil {
+				return fmt.Errorf("failed to delete record for %s: %w", p, err)
+			}
+		}
+	}
+
+	upsertFile, err := tx.PrepareContext(ctx, `
+		INSERT INTO files (path, language, size_bytes, content_hash, last_modified, last_indexed)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET
+			language = excluded.language,
+			size_bytes = excluded.size_bytes,
+			content_hash = excluded.content_hash,
+			last_modified = excluded.last_modified,
+			last_indexed = excluded.last_indexed;
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare file upsert: %w", err)
+	}
+	defer upsertFile.Close()
+	for _, batch := range [][]FileRecord{c.Files, c.MetadataOnly} {
+		for _, f := range batch {
+			if _, err := upsertFile.ExecContext(ctx, f.Path, f.Language, f.SizeBytes, f.ContentHash,
+				f.LastModified.UTC(), f.LastIndexed.UTC()); err != nil {
+				return fmt.Errorf("failed to upsert record for %s: %w", f.Path, err)
+			}
+		}
+	}
+
+	if len(c.Symbols) > 0 {
+		insSym, err := tx.PrepareContext(ctx, `
+			INSERT INTO symbols (file_path, name, kind, signature, line_number)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(file_path, name, kind, line_number) DO UPDATE SET
+				signature = excluded.signature;
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare symbol insert: %w", err)
+		}
+		defer insSym.Close()
+		for _, s := range c.Symbols {
+			if _, err := insSym.ExecContext(ctx, s.FilePath, s.Name, s.Kind, s.Signature, s.LineNumber); err != nil {
+				return fmt.Errorf("failed to insert symbol %s in %s: %w", s.Name, s.FilePath, err)
+			}
+		}
+	}
+
+	if len(c.FTS) > 0 {
+		insFTS, err := tx.PrepareContext(ctx, "INSERT INTO file_fts (path, content) VALUES (?, ?);")
+		if err != nil {
+			return fmt.Errorf("failed to prepare fts insert: %w", err)
+		}
+		defer insFTS.Close()
+		for p, content := range c.FTS {
+			if _, err := insFTS.ExecContext(ctx, p, content); err != nil {
+				return fmt.Errorf("failed to insert fts for %s: %w", p, err)
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
 // DeleteFiles removes records for the specified file paths and their associated symbols.
 func DeleteFiles(ctx context.Context, database *sql.DB, paths []string) error {
 	if len(paths) == 0 {
@@ -423,20 +585,6 @@ func SaveSymbols(ctx context.Context, database *sql.DB, symbols []SymbolRecord) 
 	if len(symbols) == 0 {
 		return nil
 	}
-
-	// Defensive check: ensure symbols table exists
-	_, _ = database.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS symbols (
-			file_path TEXT NOT NULL,
-			name TEXT NOT NULL,
-			kind TEXT NOT NULL,
-			signature TEXT NOT NULL,
-			line_number INTEGER NOT NULL,
-			PRIMARY KEY (file_path, name, kind, line_number)
-		);
-		CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
-		CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
-	`)
 
 	tx, err := database.BeginTx(ctx, nil)
 	if err != nil {
@@ -518,11 +666,11 @@ func GetAllSymbols(ctx context.Context, database *sql.DB) ([]SymbolRecord, error
 
 // FindSymbols searches for symbols matching the query string (case-insensitive substring or exact match).
 func FindSymbols(ctx context.Context, database *sql.DB, query string) ([]SymbolRecord, error) {
-	likePattern := "%" + query + "%"
+	likePattern := "%" + escapeLike(query) + "%"
 	rows, err := database.QueryContext(ctx, `
 		SELECT file_path, name, kind, signature, line_number
 		FROM symbols
-		WHERE name LIKE ? OR signature LIKE ?
+		WHERE name LIKE ? ESCAPE '\' OR signature LIKE ? ESCAPE '\'
 		ORDER BY (name = ?) DESC, name ASC, file_path ASC, line_number ASC;
 	`, likePattern, likePattern, query)
 	if err != nil {
@@ -580,15 +728,6 @@ func SaveFTS(ctx context.Context, database *sql.DB, files map[string]string) err
 	if len(files) == 0 {
 		return nil
 	}
-
-	// Defensive check: ensure file_fts exists
-	_, _ = database.ExecContext(ctx, `
-		CREATE VIRTUAL TABLE IF NOT EXISTS file_fts USING fts5(
-			path UNINDEXED,
-			content,
-			tokenize = 'porter unicode61'
-		);
-	`)
 
 	tx, err := database.BeginTx(ctx, nil)
 	if err != nil {
@@ -683,7 +822,7 @@ func SearchFTS(ctx context.Context, database *sql.DB, query string, limit int) (
 	// Apply Symbol-Boost: prioritize files where the query matches an actual symbol definition
 	for i := range results {
 		var count int
-		row := database.QueryRowContext(ctx, "SELECT COUNT(1) FROM symbols WHERE file_path = ? AND name LIKE ? LIMIT 1;", results[i].Path, "%"+query+"%")
+		row := database.QueryRowContext(ctx, `SELECT COUNT(1) FROM symbols WHERE file_path = ? AND name LIKE ? ESCAPE '\' LIMIT 1;`, results[i].Path, "%"+escapeLike(query)+"%")
 		_ = row.Scan(&count)
 		if count > 0 {
 			results[i].Rank -= 10.0
@@ -733,12 +872,29 @@ type ReferenceResult struct {
 	Snippet    string `json:"snippet"`
 }
 
+// ReferencePage is one page of reference or call-site results.
+type ReferencePage struct {
+	Refs []ReferenceResult
+	// More is true when at least one further match exists beyond Refs, so
+	// callers can say "N+ matches" instead of implying Refs is complete.
+	More bool
+}
+
 // FindCallers narrows FindReferences down to genuine call sites: it excludes the
 // symbol's own declaration (using the exact AST-derived location from the symbols
 // table, not a text-pattern guess, so this is precise across every supported
 // language), excludes comment lines, and keeps only lines that look like an actual
 // call expression (`symbol(`, optionally qualified by a receiver/package prefix).
 func FindCallers(ctx context.Context, database *sql.DB, symbol string, limit int) ([]ReferenceResult, error) {
+	page, err := FindCallersPage(ctx, database, symbol, limit)
+	if err != nil {
+		return nil, err
+	}
+	return page.Refs, nil
+}
+
+// FindCallersPage is FindCallers plus whether more callers exist past limit.
+func FindCallersPage(ctx context.Context, database *sql.DB, symbol string, limit int) (*ReferencePage, error) {
 	if limit <= 0 {
 		limit = 30
 	}
@@ -754,69 +910,99 @@ func FindCallers(ctx context.Context, database *sql.DB, symbol string, limit int
 		}
 	}
 
-	// Over-fetch from the broader reference search since most of what it finds
-	// (imports, comments, type references, the declaration itself) isn't a call.
-	refs, err := FindReferences(ctx, database, symbol, limit*4)
-	if err != nil {
-		return nil, err
-	}
-
-	callPattern := symbol + "("
-	var callers []ReferenceResult
-	for _, r := range refs {
-		if declSites[fmt.Sprintf("%s:%d", r.FilePath, r.LineNumber)] {
-			continue
+	// Filtering happens during the scan (rather than over-fetching references
+	// and filtering afterwards), so a symbol mentioned mostly in comments or
+	// imports can't crowd real call sites out of the result.
+	return scanReferences(ctx, database, symbol, limit, func(path string, lineNo int, line string) bool {
+		if declSites[fmt.Sprintf("%s:%d", path, lineNo)] {
+			return false
 		}
-		trimmed := strings.TrimSpace(r.Snippet)
+		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") ||
 			strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "/*") {
-			continue
+			return false
 		}
-		if !strings.Contains(r.Snippet, callPattern) {
-			continue
-		}
-		callers = append(callers, r)
-		if len(callers) >= limit {
-			break
-		}
-	}
-	return callers, nil
+		return containsCall(line, symbol)
+	})
 }
 
 // FindReferences scans indexed file contents to locate call sites, imports, and usages of a symbol.
 func FindReferences(ctx context.Context, database *sql.DB, symbol string, limit int) ([]ReferenceResult, error) {
+	page, err := FindReferencesPage(ctx, database, symbol, limit)
+	if err != nil {
+		return nil, err
+	}
+	return page.Refs, nil
+}
+
+// FindReferencesPage is FindReferences plus whether more references exist past limit.
+func FindReferencesPage(ctx context.Context, database *sql.DB, symbol string, limit int) (*ReferencePage, error) {
 	if limit <= 0 {
 		limit = 50
 	}
+	return scanReferences(ctx, database, symbol, limit, func(_ string, _ int, line string) bool {
+		return containsWord(line, symbol)
+	})
+}
 
-	searchRes, err := SearchFTS(ctx, database, symbol, limit)
+// scanReferences streams files whose full-text index matches symbol and
+// collects lines accepted by keep, stopping as soon as limit+1 lines are
+// found (the extra one only sets More). Each candidate file's content comes
+// back with the match in a single query: the previous implementation built
+// an FTS snippet for every candidate, ran a symbol-boost query per candidate,
+// and re-fetched each file's content, which could take minutes on common
+// identifiers in large repositories. The FTS match (tokenized, stemmed) only
+// narrows candidates; keep decides what actually counts on each line.
+func scanReferences(ctx context.Context, database *sql.DB, symbol string, limit int, keep func(path string, lineNo int, line string) bool) (*ReferencePage, error) {
+	if strings.TrimSpace(symbol) == "" {
+		return &ReferencePage{}, nil
+	}
+	rows, err := database.QueryContext(ctx, `
+		SELECT path, content
+		FROM file_fts
+		WHERE file_fts MATCH ?
+		ORDER BY rank;
+	`, formatFTSQuery(symbol))
 	if err != nil {
 		return nil, fmt.Errorf("failed to search references: %w", err)
 	}
+	defer rows.Close()
 
-	var refs []ReferenceResult
-	for _, res := range searchRes {
-		content, err := GetFileContent(ctx, database, res.Path)
-		if err != nil {
+	page := &ReferencePage{}
+	for rows.Next() {
+		var path, content string
+		if err := rows.Scan(&path, &content); err != nil {
+			return nil, fmt.Errorf("failed to read reference candidate: %w", err)
+		}
+		// Cheap pre-check before splitting the file into lines.
+		if !strings.Contains(content, symbol) {
 			continue
 		}
-
-		lines := strings.Split(content, "\n")
-		for idx, line := range lines {
-			if strings.Contains(line, symbol) {
-				refs = append(refs, ReferenceResult{
-					FilePath:   res.Path,
-					LineNumber: idx + 1,
-					Snippet:    strings.TrimSpace(strings.TrimRight(line, "\r")),
-				})
-				if len(refs) >= limit {
-					return refs, nil
-				}
+		lineNo := 0
+		for rest := content; rest != ""; {
+			lineNo++
+			line := rest
+			if i := strings.IndexByte(rest, '\n'); i >= 0 {
+				line, rest = rest[:i], rest[i+1:]
+			} else {
+				rest = ""
 			}
+			line = strings.TrimRight(line, "\r")
+			if !strings.Contains(line, symbol) || !keep(path, lineNo, line) {
+				continue
+			}
+			if len(page.Refs) == limit {
+				page.More = true
+				return page, nil
+			}
+			page.Refs = append(page.Refs, ReferenceResult{
+				FilePath:   path,
+				LineNumber: lineNo,
+				Snippet:    strings.TrimSpace(line),
+			})
 		}
 	}
-
-	return refs, nil
+	return page, rows.Err()
 }
 
 // TestLocation represents a test file and its test functions/methods.
@@ -871,10 +1057,10 @@ func FindTestsFor(ctx context.Context, database *sql.DB, target string) ([]TestL
 
 	var results []TestLocation
 	for _, tf := range testFiles {
-		syms, _ := FindSymbols(ctx, database, tf)
+		syms, _ := FindSymbolsInFile(ctx, database, tf)
 		var testNames []string
 		for _, s := range syms {
-			if s.FilePath == tf && (strings.HasPrefix(s.Name, "Test") || strings.HasPrefix(s.Name, "test_") || strings.HasPrefix(s.Name, "it(") || strings.HasPrefix(s.Name, "describe(")) {
+			if strings.HasPrefix(s.Name, "Test") || strings.HasPrefix(s.Name, "test_") || strings.HasPrefix(s.Name, "it(") || strings.HasPrefix(s.Name, "describe(") {
 				testNames = append(testNames, fmt.Sprintf("%s (L%d)", s.Name, s.LineNumber))
 			}
 		}
@@ -906,7 +1092,7 @@ func FindCallees(ctx context.Context, database *sql.DB, symbol string) ([]Symbol
 		startLine = 0
 	}
 
-	allSymbols, err := GetAllSymbols(ctx, database)
+	fileSyms, err := FindSymbolsInFile(ctx, database, targetSym.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -918,8 +1104,8 @@ func FindCallees(ctx context.Context, database *sql.DB, symbol string) ([]Symbol
 	// This mirrors the same conservative next-declaration boundary heuristic
 	// GenerateSkeleton already uses.
 	endLine := len(lines)
-	for _, s := range allSymbols {
-		if s.FilePath == targetSym.FilePath && s.LineNumber > targetSym.LineNumber && s.LineNumber-1 < endLine {
+	for _, s := range fileSyms {
+		if s.LineNumber > targetSym.LineNumber && s.LineNumber-1 < endLine {
 			endLine = s.LineNumber - 1
 		}
 	}
@@ -941,42 +1127,106 @@ func FindCallees(ctx context.Context, database *sql.DB, symbol string) ([]Symbol
 		bodyOnly = strings.Join(bodyLines[1:], "\n")
 	}
 
+	// Look up only the identifiers that actually occur in the body, instead of
+	// loading every symbol in the repository (96k+ rows on a large codebase)
+	// and substring-testing each one against the body.
+	words, calls := bodyIdentifiers(bodyOnly)
+	var names []any
+	for w := range words {
+		if w != symbol && len(w) > 3 {
+			names = append(names, w)
+		}
+	}
+	if len(names) == 0 {
+		return nil, nil
+	}
+	sort.Slice(names, func(i, j int) bool { return names[i].(string) < names[j].(string) })
+
 	var callees []SymbolRecord
 	seen := make(map[string]bool)
-	for _, s := range allSymbols {
-		if s.Name == symbol || len(s.Name) <= 3 || seen[s.Name] {
-			continue
+	// Chunk to stay well under SQLite's bound-parameter limit.
+	for start := 0; start < len(names); start += 500 {
+		chunk := names[start:min(start+500, len(names))]
+		rows, err := database.QueryContext(ctx, `
+			SELECT file_path, name, kind, signature, line_number
+			FROM symbols
+			WHERE name IN (?`+strings.Repeat(",?", len(chunk)-1)+`)
+			ORDER BY file_path ASC, line_number ASC;
+		`, chunk...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to look up callees: %w", err)
 		}
-		// A callable symbol (function/method) must appear as an actual call or
-		// instantiation — `Name(` — to count; a bare mention elsewhere in the
-		// body (e.g. in a comment, or as part of a longer identifier) doesn't
-		// mean it's called. Non-callable symbols (types/structs/interfaces)
-		// have no equivalent call syntax, so a plain reference still counts —
-		// e.g. `Type{...}` composite literals or a variable's declared type.
-		if s.Kind == "function" || s.Kind == "method" {
-			if strings.Contains(bodyOnly, s.Name+"(") {
-				seen[s.Name] = true
-				callees = append(callees, s)
+		for rows.Next() {
+			var s SymbolRecord
+			if err := rows.Scan(&s.FilePath, &s.Name, &s.Kind, &s.Signature, &s.LineNumber); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("failed to scan symbol: %w", err)
 			}
-			continue
-		}
-		if strings.Contains(bodyOnly, s.Name) {
+			if seen[s.Name] {
+				continue
+			}
+			// A callable symbol (function/method) must appear as an actual call or
+			// instantiation — `Name(` — to count; a bare mention elsewhere in the
+			// body (e.g. in a comment, or as part of a longer identifier) doesn't
+			// mean it's called. Non-callable symbols (types/structs/interfaces)
+			// have no equivalent call syntax, so a plain reference still counts —
+			// e.g. `Type{...}` composite literals or a variable's declared type.
+			if (s.Kind == "function" || s.Kind == "method") && !calls[s.Name] {
+				continue
+			}
 			seen[s.Name] = true
 			callees = append(callees, s)
 		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
 	}
-
+	sort.SliceStable(callees, func(i, j int) bool {
+		if callees[i].FilePath != callees[j].FilePath {
+			return callees[i].FilePath < callees[j].FilePath
+		}
+		return callees[i].LineNumber < callees[j].LineNumber
+	})
 	return callees, nil
+}
+
+// bodyIdentifiers returns every whole identifier in body (same boundary rules
+// as containsWord) and the subset immediately followed by "(" (containsCall).
+func bodyIdentifiers(body string) (words, calls map[string]bool) {
+	words, calls = make(map[string]bool), make(map[string]bool)
+	for i := 0; i < len(body); {
+		if !isIdentByte(body[i]) {
+			i++
+			continue
+		}
+		j := i
+		for j < len(body) && isIdentByte(body[j]) {
+			j++
+		}
+		w := body[i:j]
+		words[w] = true
+		if j < len(body) && body[j] == '(' {
+			calls[w] = true
+		}
+		i = j
+	}
+	return words, calls
 }
 
 // BlastRadiusResult represents the impact analysis of changing a symbol.
 type BlastRadiusResult struct {
-	Symbol        string
-	RiskLevel     string // "HIGH", "MEDIUM", "LOW"
-	References    []ReferenceResult
-	AffectedFiles []string
-	TestsToRun    []string
+	Symbol     string
+	RiskLevel  string // "HIGH", "MEDIUM", "LOW"
+	References []ReferenceResult
+	// MoreReferences is true when the reference scan hit its cap, so
+	// References and AffectedFiles are a lower bound, not the full set.
+	MoreReferences bool
+	AffectedFiles  []string
+	TestsToRun     []string
 }
+
+// blastReferenceLimit caps the reference scan behind blast radius analysis.
+const blastReferenceLimit = 500
 
 // AnalyzeBlastRadius performs call graph and test suite impact analysis for a
 // symbol: it finds every reference, the files they live in, and any test
@@ -991,10 +1241,11 @@ func AnalyzeBlastRadius(ctx context.Context, database *sql.DB, symbol string) (*
 		cleanSymbol = parts[len(parts)-1]
 	}
 
-	refs, err := FindReferences(ctx, database, cleanSymbol, 50)
+	page, err := FindReferencesPage(ctx, database, cleanSymbol, blastReferenceLimit)
 	if err != nil {
 		return nil, err
 	}
+	refs := page.Refs
 
 	fileMap := make(map[string]bool)
 	for _, r := range refs {
@@ -1005,6 +1256,7 @@ func AnalyzeBlastRadius(ctx context.Context, database *sql.DB, symbol string) (*
 	for f := range fileMap {
 		affectedFiles = append(affectedFiles, f)
 	}
+	sort.Strings(affectedFiles)
 
 	tests, _ := FindTestsFor(ctx, database, cleanSymbol)
 	var testsToRun []string
@@ -1023,11 +1275,12 @@ func AnalyzeBlastRadius(ctx context.Context, database *sql.DB, symbol string) (*
 	}
 
 	return &BlastRadiusResult{
-		Symbol:        cleanSymbol,
-		RiskLevel:     riskLevel,
-		References:    refs,
-		AffectedFiles: affectedFiles,
-		TestsToRun:    testsToRun,
+		Symbol:         cleanSymbol,
+		RiskLevel:      riskLevel,
+		References:     refs,
+		MoreReferences: page.More,
+		AffectedFiles:  affectedFiles,
+		TestsToRun:     testsToRun,
 	}, nil
 }
 
@@ -1074,9 +1327,9 @@ func GetDecisions(ctx context.Context, database *sql.DB, topic string) ([]Decisi
 		rows, err = database.QueryContext(ctx, `
 			SELECT id, topic, summary, created_at
 			FROM decisions
-			WHERE topic LIKE ? OR summary LIKE ?
+			WHERE topic LIKE ? ESCAPE '\' OR summary LIKE ? ESCAPE '\'
 			ORDER BY created_at DESC;
-		`, "%"+topic+"%", "%"+topic+"%")
+		`, "%"+escapeLike(topic)+"%", "%"+escapeLike(topic)+"%")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query decisions: %w", err)
@@ -1097,11 +1350,11 @@ func GetDecisions(ctx context.Context, database *sql.DB, topic string) ([]Decisi
 
 // SavingsReport contains aggregate metrics on time and token efficiency.
 type SavingsReport struct {
-	TotalQueriesServed int64   `json:"total_queries_served"`
-	TotalTokensSaved   int64   `json:"total_tokens_saved"`
-	TotalLatencySavedMs int64  `json:"total_latency_saved_ms"`
+	TotalQueriesServed    int64   `json:"total_queries_served"`
+	TotalTokensSaved      int64   `json:"total_tokens_saved"`
+	TotalLatencySavedMs   int64   `json:"total_latency_saved_ms"`
 	EstimatedCostSavedUSD float64 `json:"estimated_cost_saved_usd"`
-	SpeedMultiplier    float64 `json:"speed_multiplier"`
+	SpeedMultiplier       float64 `json:"speed_multiplier"`
 }
 
 // RecordTelemetry records token and latency savings for an MCP query.
@@ -1164,4 +1417,53 @@ func GetSavingsReport(ctx context.Context, database *sql.DB) (*SavingsReport, er
 		EstimatedCostSavedUSD: costUSD,
 		SpeedMultiplier:       speedMultiplier,
 	}, nil
+}
+
+// escapeLike escapes LIKE wildcards so a query is matched literally (used with
+// ESCAPE '\'). Without it, the '_' in a snake_case name matches any character.
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(s)
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || b == '$' || b >= 0x80 ||
+		('0' <= b && b <= '9') || ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z')
+}
+
+// wordMatches calls match for each occurrence of word in s that isn't part of
+// a longer identifier, so "Scan" doesn't match inside "ScanIncremental" or
+// "rescan". Boundaries are only enforced on edges where word itself starts or
+// ends with an identifier character. match receives the index just past the
+// occurrence and stops the search by returning true.
+func wordMatches(s, word string, match func(end int) bool) bool {
+	if word == "" {
+		return false
+	}
+	checkStart := isIdentByte(word[0])
+	checkEnd := isIdentByte(word[len(word)-1])
+	for from := 0; from <= len(s)-len(word); {
+		i := strings.Index(s[from:], word)
+		if i < 0 {
+			return false
+		}
+		start := from + i
+		end := start + len(word)
+		if (!checkStart || start == 0 || !isIdentByte(s[start-1])) &&
+			(!checkEnd || end == len(s) || !isIdentByte(s[end])) && match(end) {
+			return true
+		}
+		from = start + 1
+	}
+	return false
+}
+
+// containsWord reports whether s mentions word as a whole identifier.
+func containsWord(s, word string) bool {
+	return wordMatches(s, word, func(int) bool { return true })
+}
+
+// containsCall reports whether s contains a call to name: the whole
+// identifier immediately followed by "(".
+func containsCall(s, name string) bool {
+	return wordMatches(s, name, func(end int) bool { return end < len(s) && s[end] == '(' })
 }

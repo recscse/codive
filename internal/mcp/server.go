@@ -17,6 +17,7 @@ import (
 
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/git"
+	"github.com/recscse/codive/internal/indexer"
 	"github.com/recscse/codive/internal/scanner"
 	"github.com/recscse/codive/internal/symbols"
 )
@@ -69,6 +70,17 @@ type Server struct {
 	database *sql.DB
 	dbMutex  sync.RWMutex
 	dbCache  map[string]*sql.DB
+	// freshen, when set, brings the served workspace's index up to date
+	// before a tool reads it (see SetFreshnessHook).
+	freshen func(ctx context.Context)
+}
+
+// SetFreshnessHook registers fn to run before any index-reading tool call
+// that targets the server's own workspace, so answers reflect recent edits
+// even when the background sync hasn't run yet. fn should be cheap when the
+// index is already fresh.
+func (s *Server) SetFreshnessHook(fn func(ctx context.Context)) {
+	s.freshen = fn
 }
 
 // NewServer creates a new MCP Server instance. version is reported to MCP
@@ -84,6 +96,20 @@ func NewServer(rootDir string, database *sql.DB, version string) *Server {
 		version:  version,
 		database: database,
 		dbCache:  make(map[string]*sql.DB),
+	}
+}
+
+// Close closes every database connection the server opened on demand for
+// workspaces it resolved. The database passed to NewServer is owned by the
+// caller and is left open.
+func (s *Server) Close() {
+	s.dbMutex.Lock()
+	defer s.dbMutex.Unlock()
+	for dir, conn := range s.dbCache {
+		if conn != nil && conn != s.database {
+			_ = conn.Close()
+		}
+		delete(s.dbCache, dir)
 	}
 }
 
@@ -118,42 +144,29 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 		curr = parent
 	}
 
-	// If no index exists anywhere, auto-index the target workspace on-the-fly!
+	// If no index exists anywhere, auto-index the target workspace on-the-fly.
+	// Only the configured workspace or a git repository qualifies:
+	// workspace_path comes from the agent, and auto-indexing something like a
+	// drive root or home directory would walk (and copy into FTS) everything
+	// under it.
 	if resolvedDir == "" {
+		if err := checkAutoIndexable(searchDir, s.rootDir); err != nil {
+			return nil, searchDir, err
+		}
 		resolvedDir = searchDir
 		dbPath := filepath.Join(resolvedDir, ".codive", "index.db")
 		_ = os.MkdirAll(filepath.Dir(dbPath), 0755)
 
-		// Quick scan & index
-		scanRes, scanErr := scanner.Scan(resolvedDir)
-		if scanErr == nil && len(scanRes.Files) > 0 {
-			dbConn, openErr := db.Open(dbPath)
-			if openErr == nil {
-				_ = db.InitSchema(dbConn)
-				ctx := context.Background()
-				_ = db.SaveFiles(ctx, dbConn, scanRes.Files)
-				var syms []db.SymbolRecord
-				ftsMap := make(map[string]string)
-				for _, f := range scanRes.Files {
-					full := filepath.Join(resolvedDir, filepath.FromSlash(f.Path))
-					c, _ := os.ReadFile(full)
-					if len(c) > 0 {
-						ftsMap[f.Path] = string(c)
-						extracted, _ := symbols.ExtractSymbols(f.Path, f.Language, c)
-						syms = append(syms, extracted...)
-					}
-				}
-				if len(syms) > 0 {
-					_ = db.SaveSymbols(ctx, dbConn, syms)
-				}
-				if len(ftsMap) > 0 {
-					_ = db.SaveFTS(ctx, dbConn, ftsMap)
-				}
-				s.dbMutex.Lock()
-				s.dbCache[resolvedDir] = dbConn
-				s.dbMutex.Unlock()
-				return dbConn, resolvedDir, nil
+		dbConn, openErr := db.Open(dbPath)
+		if openErr == nil {
+			if _, err := indexer.Rebuild(context.Background(), dbConn, resolvedDir, nil); err != nil {
+				dbConn.Close()
+				return nil, resolvedDir, fmt.Errorf("failed to auto-index %s: %w", resolvedDir, err)
 			}
+			s.dbMutex.Lock()
+			s.dbCache[resolvedDir] = dbConn
+			s.dbMutex.Unlock()
+			return dbConn, resolvedDir, nil
 		}
 	}
 
@@ -178,6 +191,51 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 	return dbConn, absPath, nil
 }
 
+// toolCallTimeout bounds how long a single tools/call may run.
+const toolCallTimeout = 60 * time.Second
+
+// supportedProtocolVersions lists the MCP revisions this server can speak,
+// newest first. It only uses tools with text content, which all of them
+// share; 2025-03-26 additionally requires accepting JSON-RPC batches, which
+// Serve handles.
+var supportedProtocolVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
+
+// negotiateProtocolVersion follows the MCP lifecycle rule: echo the client's
+// requested version when supported, otherwise offer the newest one we have
+// and let the client decide whether to disconnect.
+func negotiateProtocolVersion(requested string) string {
+	for _, v := range supportedProtocolVersions {
+		if v == requested {
+			return v
+		}
+	}
+	return supportedProtocolVersions[0]
+}
+
+// isServedWorkspace reports whether dir is the workspace this server was
+// started for (the only one its freshness hook keeps in sync).
+func (s *Server) isServedWorkspace(dir string) bool {
+	absRoot, err := filepath.Abs(s.rootDir)
+	return err == nil && filepath.Clean(dir) == filepath.Clean(absRoot)
+}
+
+// checkAutoIndexable reports whether dir may be indexed on demand: it must be
+// an existing directory that is either the server's configured workspace or
+// the root of a git repository (.git is a directory, or a file in worktrees).
+func checkAutoIndexable(dir, rootDir string) error {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("workspace %s is not an accessible directory", dir)
+	}
+	if absRoot, err := filepath.Abs(rootDir); err == nil && filepath.Clean(dir) == filepath.Clean(absRoot) {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		return nil
+	}
+	return fmt.Errorf("no codive index found for %s, and it is not a git repository root, so it won't be auto-indexed; run `codive init %s` to index it explicitly", dir, dir)
+}
+
 // Serve reads JSON-RPC messages from in and writes responses to out until EOF.
 func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	reader := bufio.NewReader(in)
@@ -197,13 +255,41 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 			continue
 		}
 
+		// JSON-RPC batch (an array of requests): part of MCP 2025-03-26, which
+		// this server advertises, so it must be accepted.
+		if line[0] == '[' {
+			var batch []json.RawMessage
+			if err := json.Unmarshal(line, &batch); err != nil {
+				_ = encoder.Encode(parseErrorResponse())
+				continue
+			}
+			if len(batch) == 0 {
+				_ = encoder.Encode(JSONRPCResponse{JSONRPC: "2.0", Error: &JSONRPCError{Code: -32600, Message: "Invalid Request: empty batch"}})
+				continue
+			}
+			var responses []*JSONRPCResponse
+			for _, raw := range batch {
+				var req JSONRPCRequest
+				if err := json.Unmarshal(raw, &req); err != nil {
+					responses = append(responses, &JSONRPCResponse{JSONRPC: "2.0", Error: &JSONRPCError{Code: -32600, Message: "Invalid Request"}})
+					continue
+				}
+				if resp := s.handleRequest(context.Background(), req); resp != nil {
+					responses = append(responses, resp)
+				}
+			}
+			// A batch of only notifications gets no response at all.
+			if len(responses) > 0 {
+				if err := encoder.Encode(responses); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
 		var req JSONRPCRequest
 		if err := json.Unmarshal(line, &req); err != nil {
-			resp := JSONRPCResponse{
-				JSONRPC: "2.0",
-				Error:   &JSONRPCError{Code: -32700, Message: "Parse error"},
-			}
-			_ = encoder.Encode(resp)
+			_ = encoder.Encode(parseErrorResponse())
 			continue
 		}
 
@@ -216,6 +302,13 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	}
 }
 
+func parseErrorResponse() JSONRPCResponse {
+	return JSONRPCResponse{
+		JSONRPC: "2.0",
+		Error:   &JSONRPCError{Code: -32700, Message: "Parse error"},
+	}
+}
+
 func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPCResponse {
 	if strings.HasPrefix(req.Method, "notifications/") {
 		return nil
@@ -223,11 +316,15 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 
 	switch req.Method {
 	case "initialize":
+		var initParams struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		}
+		_ = json.Unmarshal(req.Params, &initParams)
 		return &JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Result: map[string]any{
-				"protocolVersion": "2024-11-05",
+				"protocolVersion": negotiateProtocolVersion(initParams.ProtocolVersion),
 				"capabilities": map[string]any{
 					"tools": map[string]any{},
 				},
@@ -504,13 +601,21 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 			},
 			{
 				Name:        "read_file_context",
-				Description: "Reads the verified content of a source file along with its AST metadata and declared symbol outline.",
+				Description: "Reads the verified content of a source file along with its AST metadata and declared symbol outline. Returns at most 1000 lines per call; use start_line/end_line to page through larger files.",
 				InputSchema: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"path": map[string]any{
 							"type":        "string",
 							"description": "Relative path to the source file in the repository",
+						},
+						"start_line": map[string]any{
+							"type":        "integer",
+							"description": "Optional first line to return (1-based, inclusive). Defaults to 1.",
+						},
+						"end_line": map[string]any{
+							"type":        "integer",
+							"description": "Optional last line to return (1-based, inclusive). Defaults to start_line + 999.",
 						},
 						"workspace_path": map[string]any{
 							"type":        "string",
@@ -542,7 +647,16 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 			}
 		}
 
-		result, err := s.executeTool(ctx, callParams.Name, callParams.Arguments)
+		// Requests are served one at a time, so a single runaway call (a huge
+		// git diff, a slow query on a giant index) must not block every call
+		// after it. Context-aware work (SQLite queries, git subprocesses) is
+		// cancelled at the deadline and the call reports an error instead.
+		callCtx, cancel := context.WithTimeout(ctx, toolCallTimeout)
+		defer cancel()
+		result, err := s.executeTool(callCtx, callParams.Name, callParams.Arguments)
+		if err == nil && callCtx.Err() != nil {
+			err = fmt.Errorf("%s did not finish within %v: %w", callParams.Name, toolCallTimeout, callCtx.Err())
+		}
 		if err != nil {
 			return &JSONRPCResponse{
 				JSONRPC: "2.0",
@@ -574,6 +688,11 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 	targetDB, targetDir, err := s.getDBForPath(wsPath)
 	if err != nil {
 		return nil, err
+	}
+
+	// Decisions don't come from source files, so they don't need a fresh index.
+	if s.freshen != nil && name != "save_decision" && name != "get_decisions" && s.isServedWorkspace(targetDir) {
+		s.freshen(ctx)
 	}
 
 	switch name {
@@ -704,9 +823,32 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		if strings.TrimSpace(query) == "" {
 			return nil, fmt.Errorf("query argument is required")
 		}
+		limit := 30
+		if l, ok := args["limit"].(float64); ok && l > 0 {
+			limit = int(l)
+		}
 		syms, err := db.FindSymbols(ctx, targetDB, query)
 		if err != nil {
 			return nil, err
+		}
+
+		// Line-number drift protection: refresh each file that will actually
+		// be shown (once per file, not per match), then re-query if anything
+		// was re-parsed so the locations printed below are the current ones.
+		refreshed := false
+		checked := make(map[string]bool)
+		for _, sym := range syms[:min(limit, len(syms))] {
+			if !checked[sym.FilePath] {
+				checked[sym.FilePath] = true
+				if s.ensureFreshSymbols(ctx, targetDB, targetDir, sym.FilePath) {
+					refreshed = true
+				}
+			}
+		}
+		if refreshed {
+			if fresh, err := db.FindSymbols(ctx, targetDB, query); err == nil {
+				syms = fresh
+			}
 		}
 
 		if len(syms) == 0 {
@@ -715,8 +857,17 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			}, nil
 		}
 
+		total := len(syms)
+		syms = syms[:min(limit, total)]
+
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("### Symbol Matches for `%s` (Found: %d)\n\n", query, len(syms)))
+		if total > len(syms) {
+			// Exact name matches sort first, so the most likely targets are
+			// always inside the shown slice.
+			sb.WriteString(fmt.Sprintf("### Symbol Matches for `%s` (showing %d of %d — exact name matches first; use a more specific query or raise `limit` to see more)\n\n", query, len(syms), total))
+		} else {
+			sb.WriteString(fmt.Sprintf("### Symbol Matches for `%s` (Found: %d)\n\n", query, total))
+		}
 
 		// Auto-recall: inject matching architectural decisions before results
 		decisions, _ := db.GetDecisions(ctx, targetDB, query)
@@ -731,8 +882,6 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 		rawTokenEstimate := 0
 		for i, sym := range syms {
-			s.ensureFreshSymbols(ctx, targetDB, targetDir, sym.FilePath)
-
 			// Semantic classification
 			role := classifySymbolRole(sym.FilePath, sym.Kind)
 
@@ -771,21 +920,22 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			limit = int(l)
 		}
 
-		var refs []db.ReferenceResult
+		var page *db.ReferencePage
 		var err error
 		var heading, emptyMsg, telemetryName string
 		if name == "find_callers" {
 			// Genuinely narrower than find_references: excludes the symbol's own
 			// declaration and anything that isn't a real call expression.
-			refs, err = db.FindCallers(ctx, targetDB, symbol, limit)
+			page, err = db.FindCallersPage(ctx, targetDB, symbol, limit)
 			heading, emptyMsg, telemetryName = "Callers", "No callers found for '%s'", "find_callers"
 		} else {
-			refs, err = db.FindReferences(ctx, targetDB, symbol, limit)
+			page, err = db.FindReferencesPage(ctx, targetDB, symbol, limit)
 			heading, emptyMsg, telemetryName = "References", "No references found for '%s'", "find_references"
 		}
 		if err != nil {
 			return nil, err
 		}
+		refs := page.Refs
 
 		if len(refs) == 0 {
 			return &ToolCallResult{
@@ -794,15 +944,24 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}
 
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("### %s for `%s` (Found: %d)\n\n", heading, symbol, len(refs)))
+		if page.More {
+			// Never let a capped list read as the complete set: an agent that
+			// believes "30 references" when there are 3,000 will under-scope a
+			// refactor.
+			sb.WriteString(fmt.Sprintf("### %s for `%s` (showing first %d — MORE EXIST; raise `limit` for the full list)\n\n", heading, symbol, len(refs)))
+		} else {
+			sb.WriteString(fmt.Sprintf("### %s for `%s` (Found: %d, complete)\n\n", heading, symbol, len(refs)))
+		}
 
-		for i, ref := range refs {
-			role := classifyRefRole(ref.FilePath)
-			sb.WriteString(fmt.Sprintf("%d. **[%s]** `%s:%d`\n", i+1, role, ref.FilePath, ref.LineNumber))
-			if strings.TrimSpace(ref.Snippet) != "" {
-				sb.WriteString(fmt.Sprintf("   ```\n   %s\n   ```\n", strings.TrimSpace(ref.Snippet)))
+		// Grouped by file (results already arrive file by file), so each path
+		// is written once instead of once per hit.
+		currentFile := ""
+		for _, ref := range refs {
+			if ref.FilePath != currentFile {
+				currentFile = ref.FilePath
+				sb.WriteString(fmt.Sprintf("**%s** [%s]\n", ref.FilePath, classifyRefRole(ref.FilePath)))
 			}
-			sb.WriteString("\n")
+			sb.WriteString(fmt.Sprintf("  L%d: %s\n", ref.LineNumber, strings.TrimSpace(ref.Snippet)))
 		}
 
 		used := estimateTokens(sb.String())
@@ -895,7 +1054,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		rawLineCount := strings.Count(string(contentBytes), "\n") + 1
 		rawTokenEstimate := rawLineCount * 5 // ~5 tokens per line of code
 
-		syms, _ := db.FindSymbols(ctx, targetDB, relPath)
+		syms, _ := db.FindSymbolsInFile(ctx, targetDB, relPath)
 		lang := scanner.DetectLanguage(relPath)
 		skel := symbols.GenerateSkeleton(relPath, lang, contentBytes, syms)
 
@@ -971,10 +1130,17 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			}
 		}
 		if len(relSyms) > 0 {
-			allSymbolsForRel, _ := db.GetAllSymbols(ctx, targetDB)
+			// Symbols are loaded only for files that actually contain a caller,
+			// not for the whole repository (a full load per call is ~100k rows
+			// on a large codebase).
 			symbolsByFile := make(map[string][]db.SymbolRecord)
-			for _, s := range allSymbolsForRel {
-				symbolsByFile[s.FilePath] = append(symbolsByFile[s.FilePath], s)
+			fileSymbols := func(path string) []db.SymbolRecord {
+				if syms, ok := symbolsByFile[path]; ok {
+					return syms
+				}
+				syms, _ := db.FindSymbolsInFile(ctx, targetDB, path)
+				symbolsByFile[path] = syms
+				return syms
 			}
 
 			sb.WriteString("## 🔗 Call Relationships\n")
@@ -988,7 +1154,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 					seen := make(map[string]bool)
 					var names []string
 					for _, c := range callers {
-						label := symbols.EnclosingFunctionName(symbolsByFile[c.FilePath], c.LineNumber)
+						label := symbols.EnclosingFunctionName(fileSymbols(c.FilePath), c.LineNumber)
 						if label == "" {
 							label = fmt.Sprintf("%s:%d", c.FilePath, c.LineNumber)
 						}
@@ -1151,7 +1317,14 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("💥 Blast Radius Analysis for '%s':\n\n", res.Symbol))
-		sb.WriteString(fmt.Sprintf("  • Risk Level: %s (%d direct callers across %d files)\n", res.RiskLevel, len(res.References), len(res.AffectedFiles)))
+		plus := ""
+		if res.MoreReferences {
+			plus = "+"
+		}
+		sb.WriteString(fmt.Sprintf("  • Risk Level: %s (%d%s references across %d%s files)\n", res.RiskLevel, len(res.References), plus, len(res.AffectedFiles), plus))
+		if res.MoreReferences {
+			sb.WriteString("  • Note: reference scan capped — counts and file list below are a lower bound, not the full set.\n")
+		}
 		if len(res.AffectedFiles) > 0 {
 			sb.WriteString("  • Affected Files:\n")
 			for _, f := range res.AffectedFiles {
@@ -1240,21 +1413,28 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			contentBytes = []byte(ftsContent)
 		}
 
-		syms, _ := db.FindSymbols(ctx, targetDB, relPath)
+		syms, _ := db.FindSymbolsInFile(ctx, targetDB, relPath)
 
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("=== File: %s (%d bytes) ===\n", relPath, len(contentBytes)))
 		if len(syms) > 0 {
 			sb.WriteString("Declared Symbols:\n")
 			for _, sym := range syms {
-				if sym.FilePath == relPath {
-					sb.WriteString(fmt.Sprintf(" - [%s] %s (L%d)\n", sym.Kind, sym.Name, sym.LineNumber))
-				}
+				sb.WriteString(fmt.Sprintf(" - [%s] %s (L%d)\n", sym.Kind, sym.Name, sym.LineNumber))
 			}
 			sb.WriteString("\n")
 		}
+		startLine, _ := args["start_line"].(float64)
+		endLine, _ := args["end_line"].(float64)
+		body, note, err := selectLines(string(contentBytes), int(startLine), int(endLine), maxReadLines)
+		if err != nil {
+			return nil, err
+		}
 		sb.WriteString("--- Content ---\n")
-		sb.WriteString(string(contentBytes))
+		sb.WriteString(body)
+		if note != "" {
+			sb.WriteString("\n" + note)
+		}
 		sb.WriteString("\n=== End of File ===")
 
 		return &ToolCallResult{
@@ -1264,6 +1444,43 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
+}
+
+// maxReadLines caps how much of a file read_file_context returns when no
+// explicit range is requested, so one call on a generated or vendored file
+// can't dump megabytes into the agent's context.
+const maxReadLines = 1000
+
+// selectLines returns lines [start, end] (1-based, inclusive) of content. A
+// zero start means line 1 and a zero end means start+limit-1; the range is
+// clamped to the file and to limit lines. note, when non-empty, tells the
+// agent the output is partial and how to fetch the rest.
+func selectLines(content string, start, end, limit int) (body, note string, err error) {
+	lines := strings.Split(content, "\n")
+	total := len(lines)
+	if start < 0 || end < 0 {
+		return "", "", fmt.Errorf("start_line and end_line must be positive")
+	}
+	if start == 0 {
+		start = 1
+	}
+	if start > total {
+		return "", "", fmt.Errorf("start_line %d is past the end of the file (%d lines)", start, total)
+	}
+	if end == 0 || end > start+limit-1 {
+		end = start + limit - 1
+	}
+	if end > total {
+		end = total
+	}
+	if end < start {
+		return "", "", fmt.Errorf("end_line %d is before start_line %d", end, start)
+	}
+	body = strings.Join(lines[start-1:end], "\n")
+	if start > 1 || end < total {
+		note = fmt.Sprintf("[Showing lines %d-%d of %d. Pass start_line/end_line (max %d lines per call) to read more.]", start, end, total, limit)
+	}
+	return body, note, nil
 }
 
 // validateSafeRelPath ensures that relPath does not escape the root repository directory.
@@ -1291,43 +1508,56 @@ func validateSafeRelPath(rootDir string, relPath string) (string, error) {
 	return absTargetClean, nil
 }
 
-// ensureFreshSymbols checks if the file on disk was modified after index time and micro-reparses on-the-fly.
-func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootDir string, relPath string) {
+// ensureFreshSymbols re-parses an already-indexed file whose size or mtime on
+// disk no longer matches the index, so line numbers don't drift between
+// background syncs. It reports whether symbols were rewritten. Files that
+// aren't in the index are left alone: they're either ignored (node_modules,
+// .codiveignore, binaries) or not yet picked up by a scan, and indexing them
+// here would bypass those filters.
+func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootDir string, relPath string) bool {
+	rec, indexed, err := db.GetFile(ctx, database, relPath)
+	if err != nil || !indexed {
+		return false
+	}
 	fullPath, err := validateSafeRelPath(rootDir, relPath)
 	if err != nil {
-		return
+		return false
 	}
 	info, err := os.Stat(fullPath)
-	if err != nil {
-		return
+	if err != nil || info.IsDir() {
+		return false
+	}
+	modTime := info.ModTime().UTC()
+	if rec.SizeBytes == info.Size() && rec.LastModified.Equal(modTime) {
+		return false
 	}
 
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
-		return
+		return false
 	}
+	rec.SizeBytes = info.Size()
+	rec.LastModified = modTime
+	rec.LastIndexed = time.Now().UTC()
 
-	lang := scanner.DetectLanguage(relPath)
-	syms, err := symbols.ExtractSymbols(relPath, lang, content)
+	hash := scanner.HashBytes(content)
+	if hash == rec.ContentHash {
+		// Only the mtime changed: refresh it so the next check short-circuits.
+		_ = db.ApplyIndexChanges(ctx, database, db.IndexChanges{MetadataOnly: []db.FileRecord{rec}})
+		return false
+	}
+	rec.ContentHash = hash
+
+	syms, err := symbols.ExtractSymbols(relPath, rec.Language, content)
 	if err != nil {
-		return
+		return false
 	}
-
-	// Update symbols and FTS dynamically in milliseconds
-	_ = db.DeleteSymbolsForFiles(ctx, database, []string{relPath})
-	if len(syms) > 0 {
-		_ = db.SaveSymbols(ctx, database, syms)
-	}
-	_ = db.SaveFTS(ctx, database, map[string]string{relPath: string(content)})
-	_ = db.SaveFiles(ctx, database, []db.FileRecord{
-		{
-			Path:         relPath,
-			Language:     lang,
-			SizeBytes:    info.Size(),
-			LastModified: info.ModTime(),
-			LastIndexed:  time.Now().UTC(),
-		},
+	err = db.ApplyIndexChanges(ctx, database, db.IndexChanges{
+		Files:   []db.FileRecord{rec},
+		Symbols: syms,
+		FTS:     map[string]string{relPath: string(content)},
 	})
+	return err == nil
 }
 
 // ── LLM-output helpers ─────────────────────────────────────────────────────

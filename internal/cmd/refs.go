@@ -35,10 +35,11 @@ func RunRefs(targetDir string, symbol string, limit int, asJSON bool) error {
 	defer database.Close()
 
 	ctx := context.Background()
-	refs, err := db.FindReferences(ctx, database, symbol, limit)
+	page, err := db.FindReferencesPage(ctx, database, symbol, limit)
 	if err != nil {
 		return fmt.Errorf("failed to find references: %w", err)
 	}
+	refs := page.Refs
 
 	if asJSON {
 		return ui.PrintJSON(refs)
@@ -53,6 +54,9 @@ func RunRefs(targetDir string, symbol string, limit int, asJSON bool) error {
 	for i, ref := range refs {
 		fmt.Printf("%2d. 📍 %s:%s\n", i+1, ui.GreenBold.Sprint(ref.FilePath), ui.Yellow.Sprintf("%d", ref.LineNumber))
 		fmt.Printf("    %s %s\n\n", ui.Dim.Sprint("│"), ref.Snippet)
+	}
+	if page.More {
+		ui.Warning(fmt.Sprintf("More references exist beyond these %d. Re-run with a higher limit to see them all.", len(refs)))
 	}
 
 	return nil

@@ -76,11 +76,11 @@ func StartWebServer(targetDir string, database *sql.DB, port int) error {
 		symID := fmt.Sprintf("sym:%s:%s", sym.FilePath, sym.Name)
 		if !nodeMap[symID] {
 			nodes = append(nodes, GraphNode{
-				ID:       symID,
-				Label:    sym.Name,
-				Kind:     sym.Kind,
-				File:     sym.FilePath,
-				Line:     sym.LineNumber,
+				ID:    symID,
+				Label: sym.Name,
+				Kind:  sym.Kind,
+				File:  sym.FilePath,
+				Line:  sym.LineNumber,
 			})
 			nodeMap[symID] = true
 		}

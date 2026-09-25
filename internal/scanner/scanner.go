@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/recscse/codive/internal/db"
@@ -184,6 +186,32 @@ func IsBinary(filePath string) (bool, error) {
 	return false, nil
 }
 
+type fileStamp struct {
+	size    int64
+	modTime time.Time
+}
+
+// binaryCache remembers files found to be binary, keyed by absolute path, so
+// repeated scans (the serve/watch loops) don't reopen them while their size
+// and mtime are unchanged. It only holds binary files, so it stays small.
+var binaryCache = struct {
+	sync.Mutex
+	m map[string]fileStamp
+}{m: make(map[string]fileStamp)}
+
+func knownBinary(path string, info fs.FileInfo) bool {
+	binaryCache.Lock()
+	defer binaryCache.Unlock()
+	st, ok := binaryCache.m[path]
+	return ok && st.size == info.Size() && st.modTime.Equal(info.ModTime())
+}
+
+func rememberBinary(path string, info fs.FileInfo) {
+	binaryCache.Lock()
+	defer binaryCache.Unlock()
+	binaryCache.m[path] = fileStamp{size: info.Size(), modTime: info.ModTime()}
+}
+
 // HashFile computes the hex SHA-256 hash of a file's content.
 func HashFile(filePath string) (string, error) {
 	f, err := os.Open(filePath)
@@ -198,6 +226,12 @@ func HashFile(filePath string) (string, error) {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// HashBytes computes the hex SHA-256 hash of in-memory content, matching HashFile.
+func HashBytes(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }
 
 // ScanResult contains the collection of scanned files and language summary.
@@ -262,9 +296,18 @@ func ScanIncremental(rootDir string, existing map[string]db.FileRecord) (*Increm
 
 	seenOnDisk := make(map[string]bool)
 
-	err = filepath.Walk(cleanRoot, func(path string, info os.FileInfo, walkErr error) error {
+	err = filepath.WalkDir(cleanRoot, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			// The root itself being unreadable is fatal; anything below it
+			// (a permission-denied subdirectory, a file removed mid-walk) is
+			// skipped rather than aborting the whole scan.
+			if path == cleanRoot {
+				return walkErr
+			}
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		relPath, err := filepath.Rel(cleanRoot, path)
@@ -273,9 +316,8 @@ func ScanIncremental(rootDir string, existing map[string]db.FileRecord) (*Increm
 		}
 		relPath = filepath.ToSlash(relPath)
 
-		if info.IsDir() {
-			dirName := info.Name()
-			if DefaultIgnoredDirectories[dirName] {
+		if d.IsDir() {
+			if DefaultIgnoredDirectories[d.Name()] {
 				return filepath.SkipDir
 			}
 			for _, pat := range customPatterns {
@@ -286,8 +328,14 @@ func ScanIncremental(rootDir string, existing map[string]db.FileRecord) (*Increm
 			return nil
 		}
 
+		// Skip sockets, devices, and named pipes (opening a FIFO to sniff it
+		// would block the scan). Symlinked files are still indexed, as before.
+		if t := d.Type(); !t.IsRegular() && t&fs.ModeSymlink == 0 {
+			return nil
+		}
+
 		// Check default file ignore
-		if DefaultIgnoredFiles[info.Name()] {
+		if DefaultIgnoredFiles[d.Name()] {
 			return nil
 		}
 
@@ -298,31 +346,53 @@ func ScanIncremental(rootDir string, existing map[string]db.FileRecord) (*Increm
 			}
 		}
 
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+
 		// Skip files larger than 5MB
 		if info.Size() > MaxFileSize {
 			return nil
 		}
 
-		// Check if file is binary (unless 0 bytes)
+		existingRec, exists := existing[relPath]
+		lang := DetectLanguage(path)
+
+		// Check if file is unchanged based on size and modtime. This runs
+		// before the binary sniff on purpose: an indexed file already passed
+		// that check, and skipping it here means a no-op rescan (the serve
+		// watcher runs one every few seconds) stats files without opening them.
+		if exists && existingRec.SizeBytes == info.Size() && existingRec.LastModified.Equal(info.ModTime().UTC()) {
+			seenOnDisk[relPath] = true
+			result.LanguageCounts[lang]++
+			result.TotalSizeBytes += info.Size()
+			result.UnchangedCount++
+			return nil
+		}
+
+		// Check if file is binary (unless 0 bytes). Files already known to be
+		// binary at this size/mtime are skipped without being reopened: they
+		// never enter the index, so the unchanged check above can't catch
+		// them, and re-sniffing every one on each watcher pass dominated
+		// no-op rescans of large repos.
 		if info.Size() > 0 {
+			if knownBinary(path, info) {
+				return nil
+			}
 			binary, err := IsBinary(path)
-			if err != nil || binary {
+			if err != nil {
+				return nil
+			}
+			if binary {
+				rememberBinary(path, info)
 				return nil
 			}
 		}
 
 		seenOnDisk[relPath] = true
-		lang := DetectLanguage(path)
 		result.LanguageCounts[lang]++
 		result.TotalSizeBytes += info.Size()
-
-		existingRec, exists := existing[relPath]
-
-		// Check if file is unchanged based on size and modtime
-		if exists && existingRec.SizeBytes == info.Size() && existingRec.LastModified.Equal(info.ModTime().UTC()) {
-			result.UnchangedCount++
-			return nil
-		}
 
 		// Compute hash
 		var hash string

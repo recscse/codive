@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -201,4 +202,265 @@ func TestSchemaMigration(t *testing.T) {
 	}
 }
 
+// FindTestsFor must list the test functions inside a matched test file, not
+// just the file itself.
+func TestFindTestsForListsTestNames(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
 
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if err := SaveFiles(ctx, database, []FileRecord{
+		{Path: "pkg/auth.go", Language: "Go", SizeBytes: 1, ContentHash: "a", LastModified: now, LastIndexed: now},
+		{Path: "pkg/auth_test.go", Language: "Go", SizeBytes: 1, ContentHash: "b", LastModified: now, LastIndexed: now},
+	}); err != nil {
+		t.Fatalf("failed to save files: %v", err)
+	}
+	if err := SaveSymbols(ctx, database, []SymbolRecord{
+		{FilePath: "pkg/auth_test.go", Name: "TestLogin", Kind: "function", Signature: "func TestLogin(t *testing.T)", LineNumber: 5},
+		{FilePath: "pkg/auth_test.go", Name: "helper", Kind: "function", Signature: "func helper()", LineNumber: 9},
+	}); err != nil {
+		t.Fatalf("failed to save symbols: %v", err)
+	}
+
+	tests, err := FindTestsFor(ctx, database, "pkg/auth.go")
+	if err != nil {
+		t.Fatalf("FindTestsFor failed: %v", err)
+	}
+	if len(tests) != 1 || tests[0].TestFilePath != "pkg/auth_test.go" {
+		t.Fatalf("expected pkg/auth_test.go, got %+v", tests)
+	}
+	if len(tests[0].TestNames) != 1 || tests[0].TestNames[0] != "TestLogin (L5)" {
+		t.Errorf("expected [TestLogin (L5)], got %v", tests[0].TestNames)
+	}
+}
+
+// A failure part-way through ApplyIndexChanges must roll back the whole batch,
+// so a file's record never moves to a new hash without its symbols.
+func TestApplyIndexChangesIsAtomic(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if err := ApplyIndexChanges(ctx, database, IndexChanges{
+		Files:   []FileRecord{{Path: "a.go", Language: "Go", SizeBytes: 1, ContentHash: "old", LastModified: now, LastIndexed: now}},
+		Symbols: []SymbolRecord{{FilePath: "a.go", Name: "Old", Kind: "function", Signature: "func Old()", LineNumber: 1}},
+		FTS:     map[string]string{"a.go": "func Old()"},
+	}); err != nil {
+		t.Fatalf("seed failed: %v", err)
+	}
+
+	// Make the final (FTS) step fail after files and symbols were written.
+	if _, err := database.Exec("DROP TABLE file_fts;"); err != nil {
+		t.Fatalf("failed to drop fts: %v", err)
+	}
+	err = ApplyIndexChanges(ctx, database, IndexChanges{
+		Files:   []FileRecord{{Path: "a.go", Language: "Go", SizeBytes: 2, ContentHash: "new", LastModified: now, LastIndexed: now}},
+		Symbols: []SymbolRecord{{FilePath: "a.go", Name: "New", Kind: "function", Signature: "func New()", LineNumber: 1}},
+		FTS:     map[string]string{"a.go": "func New()"},
+	})
+	if err == nil {
+		t.Fatal("expected ApplyIndexChanges to fail without file_fts")
+	}
+
+	rec, _, _ := GetFile(ctx, database, "a.go")
+	if rec.ContentHash != "old" {
+		t.Errorf("file record changed despite failed batch: hash=%q", rec.ContentHash)
+	}
+	syms, _ := FindSymbolsInFile(ctx, database, "a.go")
+	if len(syms) != 1 || syms[0].Name != "Old" {
+		t.Errorf("symbols changed despite failed batch: %+v", syms)
+	}
+}
+
+// A migration that fails part-way must leave neither its partial DDL nor a
+// bumped schema version behind, so the next Open can simply retry it.
+func TestMigrationIsAtomic(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	orig := Migrations
+	t.Cleanup(func() { Migrations = orig })
+	Migrations = append(append([]Migration{}, orig...), Migration{
+		Version:     CurrentSchemaVersion + 1,
+		Description: "deliberately fails after its first statement",
+		SQL:         "CREATE TABLE half_applied (x INTEGER); SELECT * FROM no_such_table;",
+	})
+
+	if err := Migrate(database); err == nil {
+		t.Fatal("expected the broken migration to fail")
+	}
+	if v, _ := GetSchemaVersion(database); v != CurrentSchemaVersion {
+		t.Errorf("schema version moved to %d despite failed migration", v)
+	}
+	var n int
+	if err := database.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE name = 'half_applied';").Scan(&n); err != nil {
+		t.Fatalf("failed to inspect schema: %v", err)
+	}
+	if n != 0 {
+		t.Error("partial DDL from failed migration was not rolled back")
+	}
+}
+
+func TestWordMatching(t *testing.T) {
+	tests := []struct {
+		s, name            string
+		wantWord, wantCall bool
+	}{
+		{"x := Scan(dir)", "Scan", true, true},
+		{"x := ScanIncremental(dir)", "Scan", false, false},
+		{"x := rescan(dir)", "scan", false, false},
+		{"s.Scan(dir)", "Scan", true, true},
+		{"var s Scanner", "Scan", false, false},
+		{"// uses Scan here", "Scan", true, false},
+		{"Scan", "Scan", true, false},
+		{"save_decision(x)", "save_decision", true, true},
+		{"save_decisions(x)", "save_decision", false, false},
+	}
+	for _, tt := range tests {
+		if got := containsWord(tt.s, tt.name); got != tt.wantWord {
+			t.Errorf("containsWord(%q, %q) = %v, want %v", tt.s, tt.name, got, tt.wantWord)
+		}
+		if got := containsCall(tt.s, tt.name); got != tt.wantCall {
+			t.Errorf("containsCall(%q, %q) = %v, want %v", tt.s, tt.name, got, tt.wantCall)
+		}
+	}
+}
+
+// References and callers must match whole identifiers, and symbol search must
+// treat '_' and '%' literally.
+func TestReferencesMatchWholeIdentifiers(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	content := "package p\n\nfunc Scan() {}\n\nfunc ScanIncremental() {}\n\nfunc run() {\n\tScan()\n\tScanIncremental()\n}\n"
+	if err := ApplyIndexChanges(ctx, database, IndexChanges{
+		Files: []FileRecord{{Path: "p.go", Language: "Go", SizeBytes: int64(len(content)), ContentHash: "h", LastModified: now, LastIndexed: now}},
+		Symbols: []SymbolRecord{
+			{FilePath: "p.go", Name: "Scan", Kind: "function", Signature: "func Scan()", LineNumber: 3},
+			{FilePath: "p.go", Name: "ScanIncremental", Kind: "function", Signature: "func ScanIncremental()", LineNumber: 5},
+			{FilePath: "p.go", Name: "axb", Kind: "function", Signature: "func axb()", LineNumber: 12},
+		},
+		FTS: map[string]string{"p.go": content},
+	}); err != nil {
+		t.Fatalf("seed failed: %v", err)
+	}
+
+	refs, err := FindReferences(ctx, database, "Scan", 50)
+	if err != nil {
+		t.Fatalf("FindReferences failed: %v", err)
+	}
+	var lines []int
+	for _, r := range refs {
+		lines = append(lines, r.LineNumber)
+	}
+	if len(lines) != 2 || lines[0] != 3 || lines[1] != 8 {
+		t.Errorf("expected references to Scan on L3 and L8 only, got %v", lines)
+	}
+
+	callers, err := FindCallers(ctx, database, "Scan", 10)
+	if err != nil {
+		t.Fatalf("FindCallers failed: %v", err)
+	}
+	if len(callers) != 1 || callers[0].LineNumber != 8 {
+		t.Errorf("expected one caller of Scan on L8, got %+v", callers)
+	}
+
+	if syms, _ := FindSymbols(ctx, database, "a_b"); len(syms) != 0 {
+		t.Errorf("'_' was treated as a LIKE wildcard: %+v", syms)
+	}
+}
+
+// FindCallees must keep its matching rules: functions count only when called,
+// types count when mentioned, the signature line and the symbol itself are
+// ignored, and the body ends at the next declaration in the file.
+func TestFindCallees(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	main := "package p\n\nfunc Target(c *Config) Result {\n\tHelper()\n\t// OtherFunc is only mentioned\n\tv := Settings{}\n\tTarget(nil)\n\treturn v\n}\n\nfunc After() { Unrelated() }\n"
+	syms := []SymbolRecord{
+		{FilePath: "main.go", Name: "Target", Kind: "function", Signature: "func Target(c *Config) Result", LineNumber: 3},
+		{FilePath: "main.go", Name: "After", Kind: "function", Signature: "func After()", LineNumber: 11},
+		{FilePath: "lib.go", Name: "Helper", Kind: "function", Signature: "func Helper()", LineNumber: 3},
+		{FilePath: "lib.go", Name: "OtherFunc", Kind: "function", Signature: "func OtherFunc()", LineNumber: 5},
+		{FilePath: "lib.go", Name: "Unrelated", Kind: "function", Signature: "func Unrelated()", LineNumber: 7},
+		{FilePath: "types.go", Name: "Settings", Kind: "struct", Signature: "type Settings struct", LineNumber: 3},
+		{FilePath: "types.go", Name: "Config", Kind: "struct", Signature: "type Config struct", LineNumber: 5},
+		{FilePath: "types.go", Name: "Result", Kind: "struct", Signature: "type Result struct", LineNumber: 7},
+	}
+	if err := ApplyIndexChanges(ctx, database, IndexChanges{
+		Files: []FileRecord{
+			{Path: "main.go", Language: "Go", SizeBytes: int64(len(main)), ContentHash: "m", LastModified: now, LastIndexed: now},
+		},
+		Symbols: syms,
+		FTS:     map[string]string{"main.go": main},
+	}); err != nil {
+		t.Fatalf("seed failed: %v", err)
+	}
+
+	callees, err := FindCallees(ctx, database, "Target")
+	if err != nil {
+		t.Fatalf("FindCallees failed: %v", err)
+	}
+	var got []string
+	for _, c := range callees {
+		got = append(got, c.Name)
+	}
+	if strings.Join(got, ",") != "Helper,Settings" {
+		t.Errorf("expected callees [Helper Settings], got %v", got)
+	}
+}
+
+// A capped reference page must report that more matches exist, and an
+// uncapped one must not.
+func TestFindReferencesPageReportsMore(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), ".codive", "index.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	content := "Hit()\nHit()\nHit()\n"
+	if err := ApplyIndexChanges(ctx, database, IndexChanges{
+		Files: []FileRecord{{Path: "a.go", Language: "Go", SizeBytes: 1, ContentHash: "h", LastModified: now, LastIndexed: now}},
+		FTS:   map[string]string{"a.go": content},
+	}); err != nil {
+		t.Fatalf("seed failed: %v", err)
+	}
+
+	page, err := FindReferencesPage(ctx, database, "Hit", 2)
+	if err != nil || len(page.Refs) != 2 || !page.More {
+		t.Errorf("limit 2 of 3: expected 2 refs with More, got %+v err=%v", page, err)
+	}
+	page, err = FindReferencesPage(ctx, database, "Hit", 3)
+	if err != nil || len(page.Refs) != 3 || page.More {
+		t.Errorf("limit 3 of 3: expected 3 refs without More, got %+v err=%v", page, err)
+	}
+	callers, err := FindCallersPage(ctx, database, "Hit", 1)
+	if err != nil || len(callers.Refs) != 1 || !callers.More {
+		t.Errorf("callers limit 1 of 3: expected More, got %+v err=%v", callers, err)
+	}
+}

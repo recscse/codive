@@ -7,14 +7,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/recscse/codive/internal/db"
-	"github.com/recscse/codive/internal/scanner"
-	"github.com/recscse/codive/internal/symbols"
+	"github.com/recscse/codive/internal/indexer"
 	"github.com/recscse/codive/internal/ui"
 )
 
@@ -47,112 +44,25 @@ type IndexResult struct {
 // no output of its own — onFile (may be nil) is invoked once per file as
 // results come in, so callers where stdout must carry nothing but a protocol
 // stream (like the MCP server) can safely pass nil.
-func indexRepository(absDir string, onFile func(processed, total int, path string)) (*IndexResult, error) {
+func indexRepository(absDir string, onFile indexer.ProgressFunc) (*IndexResult, error) {
 	startTime := time.Now()
 
-	scanResult, err := scanner.Scan(absDir)
-	if err != nil {
-		return nil, fmt.Errorf("scan failed: %w", err)
-	}
-
-	codiveDir := filepath.Join(absDir, ".codive")
-	dbPath := filepath.Join(codiveDir, "index.db")
-
+	dbPath := filepath.Join(absDir, ".codive", "index.db")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open index database: %w", err)
 	}
 	defer database.Close()
 
-	if err := db.InitSchema(database); err != nil {
-		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+	// init is a full rebuild, replacing the old index in one transaction:
+	// otherwise files deleted since the last index, and symbols whose line
+	// number moved (line_number is part of the symbols primary key), would
+	// survive alongside the fresh rows.
+	rebuilt, err := indexer.Rebuild(context.Background(), database, absDir, onFile)
+	if err != nil {
+		return nil, fmt.Errorf("indexing failed: %w", err)
 	}
-
-	ctx := context.Background()
-	if err := db.SaveFiles(ctx, database, scanResult.Files); err != nil {
-		return nil, fmt.Errorf("failed to save file records: %w", err)
-	}
-
-	totalFiles := len(scanResult.Files)
-	allSymbols := make([]db.SymbolRecord, 0, totalFiles*5)
-	ftsFiles := make(map[string]string, totalFiles)
-
-	if totalFiles > 0 {
-		numWorkers := runtime.NumCPU() * 2
-		if numWorkers < 4 {
-			numWorkers = 4
-		}
-		if numWorkers > 32 {
-			numWorkers = 32
-		}
-
-		type parseResult struct {
-			path    string
-			content string
-			symbols []db.SymbolRecord
-		}
-
-		fileChan := make(chan db.FileRecord, totalFiles)
-		resultChan := make(chan parseResult, totalFiles)
-
-		var wg sync.WaitGroup
-		for w := 0; w < numWorkers; w++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for f := range fileChan {
-					fullPath := filepath.Join(absDir, filepath.FromSlash(f.Path))
-					content, err := os.ReadFile(fullPath)
-					if err != nil {
-						resultChan <- parseResult{path: f.Path}
-						continue
-					}
-					syms, _ := symbols.ExtractSymbols(f.Path, f.Language, content)
-					resultChan <- parseResult{
-						path:    f.Path,
-						content: string(content),
-						symbols: syms,
-					}
-				}
-			}()
-		}
-
-		for _, f := range scanResult.Files {
-			fileChan <- f
-		}
-		close(fileChan)
-
-		go func() {
-			wg.Wait()
-			close(resultChan)
-		}()
-
-		processed := 0
-		for res := range resultChan {
-			processed++
-			if onFile != nil {
-				onFile(processed, totalFiles, res.path)
-			}
-			if res.content != "" {
-				ftsFiles[res.path] = res.content
-			}
-			if len(res.symbols) > 0 {
-				allSymbols = append(allSymbols, res.symbols...)
-			}
-		}
-	}
-
-	if len(allSymbols) > 0 {
-		if err := db.SaveSymbols(ctx, database, allSymbols); err != nil {
-			return nil, fmt.Errorf("failed to save symbols: %w", err)
-		}
-	}
-
-	if len(ftsFiles) > 0 {
-		if err := db.SaveFTS(ctx, database, ftsFiles); err != nil {
-			return nil, fmt.Errorf("failed to save full-text search index: %w", err)
-		}
-	}
+	scanResult := rebuilt.Scan
 
 	// Determine primary language(s)
 	type langCount struct {
@@ -176,9 +86,9 @@ func indexRepository(absDir string, onFile func(processed, total int, path strin
 	}
 
 	return &IndexResult{
-		TotalFiles:     totalFiles,
+		TotalFiles:     rebuilt.FileCount,
 		TotalSizeBytes: scanResult.TotalSizeBytes,
-		SymbolCount:    len(allSymbols),
+		SymbolCount:    rebuilt.SymbolCount,
 		LanguageCounts: scanResult.LanguageCounts,
 		PrimaryLang:    primaryLang,
 		DBPath:         dbPath,

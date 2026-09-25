@@ -18,6 +18,9 @@ dist/
 
 # Local SQLite databases and logs
 .codive/
+# index/log folders from the project's previous names (devctx, ctxd)
+.devctx/
+.ctxd/
 *.db
 *.db-wal
 *.db-shm
