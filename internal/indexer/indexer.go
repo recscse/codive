@@ -162,7 +162,34 @@ func Rebuild(ctx context.Context, database *sql.DB, rootDir string, onFile Progr
 	}); err != nil {
 		return nil, err
 	}
+	if err := db.SetMeta(ctx, database, extractorVersionKey, symbols.ExtractorVersion); err != nil {
+		return nil, err
+	}
 	return &RebuildResult{Scan: scanRes, FileCount: len(ext.Files), SymbolCount: len(ext.Symbols)}, nil
+}
+
+const extractorVersionKey = "extractor_version"
+
+// NeedsReextract reports whether the index was built by a different version
+// of the symbol extractor, so its symbols are stale even for unchanged files.
+func NeedsReextract(ctx context.Context, database *sql.DB) bool {
+	v, err := db.GetMeta(ctx, database, extractorVersionKey)
+	return err == nil && v != symbols.ExtractorVersion
+}
+
+// RebuildIfOutdated rebuilds the index when NeedsReextract says so and
+// reports whether it did. A full rebuild can take minutes on a large
+// repository, so callers must not run it inside a deadline-bound request:
+// the MCP server runs it from its background loop, and queries keep being
+// answered from the existing index meanwhile.
+func RebuildIfOutdated(ctx context.Context, database *sql.DB, rootDir string) (bool, error) {
+	if !NeedsReextract(ctx, database) {
+		return false, nil
+	}
+	if _, err := Rebuild(ctx, database, rootDir, nil); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Freshener serializes syncs of one workspace and remembers when the last one

@@ -43,7 +43,7 @@ type RepoStats struct {
 }
 
 // CurrentSchemaVersion is the latest database schema version.
-const CurrentSchemaVersion = 6
+const CurrentSchemaVersion = 7
 
 // Open initializes and opens the SQLite database at dbPath, creating parent dirs and migrating schema.
 func Open(dbPath string) (*sql.DB, error) {
@@ -195,6 +195,35 @@ var Migrations = []Migration{
 		ALTER TABLE telemetry ADD COLUMN raw_estimate INTEGER NOT NULL DEFAULT 0;
 		`,
 	},
+	{
+		Version:     7,
+		Description: "Create meta table for index-wide settings such as the extractor version",
+		SQL: `
+		CREATE TABLE IF NOT EXISTS meta (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		);
+		`,
+	},
+}
+
+// GetMeta returns an index-wide setting, or "" if it has never been set.
+func GetMeta(ctx context.Context, database *sql.DB, key string) (string, error) {
+	var v string
+	err := database.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = ?;", key).Scan(&v)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetMeta stores an index-wide setting.
+func SetMeta(ctx context.Context, database *sql.DB, key, value string) error {
+	_, err := database.ExecContext(ctx, `
+		INSERT INTO meta (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+	`, key, value)
+	return err
 }
 
 // Migrate applies all pending schema migrations up to CurrentSchemaVersion.
@@ -688,6 +717,31 @@ func FindSymbols(ctx context.Context, database *sql.DB, query string) ([]SymbolR
 		symbols = append(symbols, s)
 	}
 	return symbols, rows.Err()
+}
+
+// FindSymbolsByName returns symbols whose name is exactly name (case
+// sensitive), ordered by file and line.
+func FindSymbolsByName(ctx context.Context, database *sql.DB, name string) ([]SymbolRecord, error) {
+	rows, err := database.QueryContext(ctx, `
+		SELECT file_path, name, kind, signature, line_number
+		FROM symbols
+		WHERE name = ?
+		ORDER BY file_path ASC, line_number ASC;
+	`, name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find symbol %s: %w", name, err)
+	}
+	defer rows.Close()
+
+	var syms []SymbolRecord
+	for rows.Next() {
+		var s SymbolRecord
+		if err := rows.Scan(&s.FilePath, &s.Name, &s.Kind, &s.Signature, &s.LineNumber); err != nil {
+			return nil, fmt.Errorf("failed to scan symbol: %w", err)
+		}
+		syms = append(syms, s)
+	}
+	return syms, rows.Err()
 }
 
 // FindSymbolsInFile returns every symbol declared in exactly the given file
