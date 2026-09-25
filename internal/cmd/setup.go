@@ -22,7 +22,7 @@ const mcpServerName = "codive"
 // only read the index or the working tree.
 var readOnlyTools = []string{
 	"get_repo_map", "find_symbol", "find_references", "find_callers", "find_callees",
-	"find_tests_for", "get_file_skeleton", "read_file_context", "search_code",
+	"find_tests_for", "get_file_skeleton", "read_file_context", "read_symbol", "search_code",
 	"pack_feature_context", "blast_radius", "get_git_changes", "get_decisions",
 }
 
