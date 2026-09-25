@@ -3,12 +3,15 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/scanner"
@@ -466,8 +469,13 @@ func TestFreshnessHook(t *testing.T) {
 
 	server := NewServer(served, nil, "test")
 	defer server.Close()
-	calls := 0
-	server.SetFreshnessHook(func(context.Context) { calls++ })
+	var dirs []string
+	server.SetFreshnessHook(func(_ context.Context, dir string, database *sql.DB) {
+		if database == nil {
+			t.Error("hook called without a database")
+		}
+		dirs = append(dirs, filepath.Clean(dir))
+	})
 
 	run := func(name string, args map[string]any) {
 		t.Helper()
@@ -476,12 +484,145 @@ func TestFreshnessHook(t *testing.T) {
 		}
 	}
 	run("find_symbol", map[string]any{"query": "x", "workspace_path": served})
-	if calls != 1 {
-		t.Errorf("expected hook before find_symbol on served workspace, calls=%d", calls)
-	}
 	run("get_decisions", map[string]any{"workspace_path": served})
 	run("find_symbol", map[string]any{"query": "x", "workspace_path": other})
-	if calls != 1 {
-		t.Errorf("hook must not run for decisions or other workspaces, calls=%d", calls)
+
+	// Decisions don't need a fresh index; every other call refreshes the
+	// workspace it actually targets.
+	want := []string{filepath.Clean(served), filepath.Clean(other)}
+	if strings.Join(dirs, "|") != strings.Join(want, "|") {
+		t.Errorf("hook calls = %v, want %v", dirs, want)
+	}
+}
+
+func TestFileURIToPath(t *testing.T) {
+	tests := map[string]string{
+		"file:///home/me/proj":        filepath.FromSlash("/home/me/proj"),
+		"file:///C:/work/my%20proj":   filepath.FromSlash("C:/work/my proj"),
+		"file://localhost/srv/code":   filepath.FromSlash("/srv/code"),
+		"file://server/share/project": filepath.FromSlash("//server/share/project"),
+	}
+	for uri, want := range tests {
+		if got, ok := fileURIToPath(uri); !ok || got != filepath.Clean(want) {
+			t.Errorf("fileURIToPath(%q) = %q, %v; want %q", uri, got, ok, filepath.Clean(want))
+		}
+	}
+	if _, ok := fileURIToPath("https://example.com/x"); ok {
+		t.Error("non-file URI accepted")
+	}
+}
+
+// With a roots-capable client, the server must ask for the workspace after
+// initialization, switch to the first local root it gets back, and not
+// answer the client's response as if it were a request.
+func TestRootsSwitchWorkspace(t *testing.T) {
+	started := t.TempDir()
+	open := t.TempDir()
+	if err := os.Mkdir(filepath.Join(open, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(open, "w.go"), []byte("package w\n\nfunc InOpenWorkspace() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	uri := "file://" + filepath.ToSlash(open)
+	if !strings.HasPrefix(filepath.ToSlash(open), "/") {
+		uri = "file:///" + filepath.ToSlash(open)
+	}
+
+	server := NewServer(started, nil, "test")
+	defer server.Close()
+
+	pr, pw := io.Pipe()
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(pr, &out) }()
+	send := func(s string) {
+		if _, err := pw.Write([]byte(s + "\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{"listChanged":true}}}}`)
+	send(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	send(`{"jsonrpc":"2.0","id":"codive-roots-1","result":{"roots":[{"uri":"` + uri + `","name":"open"}]}}`)
+	send(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"find_symbol","arguments":{"query":"InOpenWorkspace"}}}`)
+	pw.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("serve failed: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected initialize reply, roots/list request, tool reply; got %d lines:\n%s", len(lines), out.String())
+	}
+	if !strings.Contains(lines[1], `"method":"roots/list"`) {
+		t.Errorf("server did not request roots after initialization: %s", lines[1])
+	}
+	if !strings.Contains(lines[2], "w.go") {
+		t.Errorf("tool call was not answered from the client's workspace: %s", lines[2])
+	}
+}
+
+// Credential files must be refused by the file-reading tools even though they
+// exist inside the workspace.
+func TestSecretFilesAreRefused(t *testing.T) {
+	tempDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte("API_KEY=sk_live_x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	indexForTest(t, tempDir)
+	server := NewServer(tempDir, nil, "test")
+	defer server.Close()
+	for _, tool := range []string{"read_file_context", "get_file_skeleton"} {
+		res, err := server.executeTool(context.Background(), tool, map[string]any{"path": ".env", "workspace_path": tempDir})
+		if err == nil {
+			t.Errorf("%s returned a credential file: %+v", tool, res)
+		}
+	}
+}
+
+// A minified file with one enormous line must not turn a tool call into a
+// giant response: references are clipped around the match and every tool's
+// output is size-capped with a visible marker.
+func TestHugeLinesDoNotFloodContext(t *testing.T) {
+	tempDir := t.TempDir()
+	line := strings.Repeat("var a=1;", 20000) + "callTarget(1);" + strings.Repeat("var b=2;", 20000)
+	if err := os.WriteFile(filepath.Join(tempDir, "bundle.min.js"), []byte(line+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	indexForTest(t, tempDir)
+	server := NewServer(tempDir, nil, "test")
+	defer server.Close()
+
+	call := func(name string, args map[string]any) string {
+		t.Helper()
+		args["workspace_path"] = tempDir
+		params, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
+		resp := server.handleRequest(context.Background(), JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: params})
+		return resp.Result.(*ToolCallResult).Content[0].Text
+	}
+
+	refs := call("find_references", map[string]any{"symbol": "callTarget"})
+	if !strings.Contains(refs, "callTarget(1)") || len(refs) > 2000 {
+		t.Errorf("reference snippet not clipped around the match (len %d):\n%.300s", len(refs), refs)
+	}
+	read := call("read_file_context", map[string]any{"path": "bundle.min.js"})
+	if len(read) > maxOutputChars+500 || !strings.Contains(read, "chars clipped from this line") {
+		t.Errorf("read_file_context output not capped: len %d", len(read))
+	}
+}
+
+func TestGuardOutput(t *testing.T) {
+	small := "short\nlines"
+	if guardOutput(small) != small {
+		t.Error("guardOutput changed small output")
+	}
+	long := strings.Repeat("é", maxOutputLineChars) // 2 bytes per rune
+	out := guardOutput(long)
+	if !utf8.ValidString(out) || !strings.Contains(out, "chars clipped") || len(out) > maxOutputLineChars+100 {
+		t.Errorf("long line not clipped cleanly: len %d valid %v", len(out), utf8.ValidString(out))
+	}
+	many := strings.Repeat(strings.Repeat("x", 100)+"\n", maxOutputChars/50)
+	if out := guardOutput(many); len(out) > maxOutputChars+300 || !strings.Contains(out, "Output truncated") {
+		t.Errorf("total output not capped: len %d", len(out))
 	}
 }

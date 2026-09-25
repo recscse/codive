@@ -107,11 +107,28 @@ Indexing Codebase [████████████████████�
 ```bash
 codive setup
 ```
-`codive setup` automatically registers the MCP server configuration into:
-- **Google Antigravity**: `~/.gemini/config/mcp_config.json`
-- **Cursor IDE**: `~/.cursor/mcp.json`
-- **Claude Desktop**: `~/Library/Application Support/Claude/claude_desktop_config.json` or `%APPDATA%\Claude\claude_desktop_config.json`
-- **VS Code**: `.vscode/mcp.json` / `~/.continue/config.json`
+`codive setup` registers the MCP server with every AI client it detects on your machine. It doesn't configure clients you don't have installed.
+
+| Client | Where codive is registered |
+| :--- | :--- |
+| **Claude Code** | `.mcp.json` in the project |
+| **Cursor** | `.cursor/mcp.json` in the project |
+| **VS Code (Copilot agent mode)** | `.vscode/mcp.json` in the project |
+| **Claude Desktop** | `claude_desktop_config.json` |
+| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` |
+| **Gemini CLI** | `~/.gemini/settings.json` |
+| **Google Antigravity** | `~/.gemini/config/mcp_config.json` |
+| **Cline / Roo Code** | their `cline_mcp_settings.json` |
+| **Codex CLI** | `~/.codex/config.toml` |
+
+It edits only codive's own entry, so your other MCP servers, their `env` settings, and every other setting are left exactly as they were. Before first changing an existing file, it saves the original next to it as `*.codive-backup`. If a config file contains comments, setup leaves it alone and prints the entry for you to add by hand. Continue is not edited automatically.
+
+It also adds a short "how to use codive" section to your agent instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/codive.mdc`, …), inside `<!-- codive:start -->` / `<!-- codive:end -->` markers. Your own instructions in those files are not touched.
+
+```bash
+codive setup --dry-run   # show what would change, without writing anything
+codive setup --undo      # remove everything setup added
+```
 
 ---
 

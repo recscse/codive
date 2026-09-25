@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/git"
@@ -28,6 +30,10 @@ type JSONRPCRequest struct {
 	ID      any             `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	// Result and Error are set when the message is the client's response to
+	// a request the server sent (such as roots/list); Method is then empty.
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  *JSONRPCError   `json:"error,omitempty"`
 }
 
 // JSONRPCResponse represents an outgoing JSON-RPC 2.0 response.
@@ -70,17 +76,87 @@ type Server struct {
 	database *sql.DB
 	dbMutex  sync.RWMutex
 	dbCache  map[string]*sql.DB
-	// freshen, when set, brings the served workspace's index up to date
-	// before a tool reads it (see SetFreshnessHook).
-	freshen func(ctx context.Context)
+	// freshen, when set, brings a workspace's index up to date before a
+	// tool reads it (see SetFreshnessHook).
+	freshen func(ctx context.Context, dir string, database *sql.DB)
+
+	// clientSupportsRoots is set when the client declares the MCP roots
+	// capability; the server then asks it which workspace is open instead of
+	// relying on the path it was started with.
+	clientSupportsRoots bool
+	// rootFromClient is true once rootDir came from the client's roots.
+	rootFromClient bool
+	rootsRequests  int
+	// outbound holds server-initiated messages (requests to the client),
+	// written by Serve after the message currently being handled.
+	outbound []any
 }
 
-// SetFreshnessHook registers fn to run before any index-reading tool call
-// that targets the server's own workspace, so answers reflect recent edits
-// even when the background sync hasn't run yet. fn should be cheap when the
-// index is already fresh.
-func (s *Server) SetFreshnessHook(fn func(ctx context.Context)) {
+// SetFreshnessHook registers fn to run before any index-reading tool call,
+// with the target workspace and its database, so answers reflect recent
+// edits even when no background sync has run yet. fn should be cheap when
+// the index is already fresh.
+func (s *Server) SetFreshnessHook(fn func(ctx context.Context, dir string, database *sql.DB)) {
 	s.freshen = fn
+}
+
+// rootsRequestPrefix identifies codive's roots/list requests among responses.
+const rootsRequestPrefix = "codive-roots-"
+
+// requestRoots queues a roots/list request to the client.
+func (s *Server) requestRoots() {
+	s.rootsRequests++
+	s.outbound = append(s.outbound, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      fmt.Sprintf("%s%d", rootsRequestPrefix, s.rootsRequests),
+		"method":  "roots/list",
+	})
+}
+
+// handleResponse processes the client's reply to a server-initiated request.
+func (s *Server) handleResponse(req JSONRPCRequest) {
+	id, _ := req.ID.(string)
+	if !strings.HasPrefix(id, rootsRequestPrefix) || req.Error != nil {
+		return
+	}
+	var result struct {
+		Roots []struct {
+			URI string `json:"uri"`
+		} `json:"roots"`
+	}
+	if err := json.Unmarshal(req.Result, &result); err != nil {
+		return
+	}
+	// The first local root is the workspace; other roots stay reachable via
+	// the tools' workspace_path argument.
+	for _, r := range result.Roots {
+		dir, ok := fileURIToPath(r.URI)
+		if !ok {
+			continue
+		}
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			s.rootDir = dir
+			s.rootFromClient = true
+			return
+		}
+	}
+}
+
+// fileURIToPath converts a file:// URI (as sent in MCP roots) to a local path.
+func fileURIToPath(uri string) (string, bool) {
+	u, err := url.Parse(uri)
+	if err != nil || u.Scheme != "file" {
+		return "", false
+	}
+	p := u.Path
+	// file:///C:/work -> /C:/work: drop the slash before a drive letter.
+	if len(p) >= 3 && p[0] == '/' && p[2] == ':' {
+		p = p[1:]
+	}
+	if u.Host != "" && u.Host != "localhost" {
+		p = "//" + u.Host + p // UNC share
+	}
+	return filepath.Clean(filepath.FromSlash(p)), p != ""
 }
 
 // NewServer creates a new MCP Server instance. version is reported to MCP
@@ -119,8 +195,9 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 		if abs, err := filepath.Abs(targetPath); err == nil {
 			searchDir = abs
 		}
-	} else {
-		// If no explicit path is passed, check current working directory first
+	} else if !s.rootFromClient {
+		// Without client roots, prefer the current working directory if it
+		// has an index: some clients start servers in the open workspace.
 		if cwd, err := os.Getwd(); err == nil && cwd != "" {
 			if _, err := os.Stat(filepath.Join(cwd, ".codive", "index.db")); err == nil {
 				searchDir = cwd
@@ -191,6 +268,52 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 	return dbConn, absPath, nil
 }
 
+const (
+	// maxOutputLineChars caps any single line in a tool response. Minified or
+	// generated files can have one line of hundreds of kilobytes; without a
+	// cap a single matching line becomes a six-figure-token response.
+	maxOutputLineChars = 2000
+	// maxOutputChars caps a whole tool response (~20k tokens).
+	maxOutputChars = 80000
+)
+
+// guardOutput enforces the per-line and total size caps on a tool response,
+// marking every cut so the agent knows the text is incomplete rather than
+// mistaking it for the real content.
+func guardOutput(text string) string {
+	if len(text) <= maxOutputLineChars && len(text) <= maxOutputChars {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if len(l) > maxOutputLineChars {
+			half := maxOutputLineChars / 2
+			head := truncateUTF8(l, half)
+			tail := l[len(l)-half:]
+			for len(tail) > 0 && !utf8.RuneStart(tail[0]) {
+				tail = tail[1:]
+			}
+			lines[i] = fmt.Sprintf("%s … [%d chars clipped from this line] … %s", head, len(l)-len(head)-len(tail), tail)
+		}
+	}
+	out := strings.Join(lines, "\n")
+	if len(out) > maxOutputChars {
+		out = truncateUTF8(out, maxOutputChars) + fmt.Sprintf("\n\n[Output truncated at %d characters. Narrow the request (a path, line range, directory_filter, or smaller limit) to see the rest.]", maxOutputChars)
+	}
+	return out
+}
+
+// truncateUTF8 cuts s to at most n bytes without splitting a UTF-8 sequence.
+func truncateUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
 // toolCallTimeout bounds how long a single tools/call may run.
 const toolCallTimeout = 60 * time.Second
 
@@ -210,13 +333,6 @@ func negotiateProtocolVersion(requested string) string {
 		}
 	}
 	return supportedProtocolVersions[0]
-}
-
-// isServedWorkspace reports whether dir is the workspace this server was
-// started for (the only one its freshness hook keeps in sync).
-func (s *Server) isServedWorkspace(dir string) bool {
-	absRoot, err := filepath.Abs(s.rootDir)
-	return err == nil && filepath.Clean(dir) == filepath.Clean(absRoot)
 }
 
 // checkAutoIndexable reports whether dir may be indexed on demand: it must be
@@ -242,6 +358,15 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	encoder := json.NewEncoder(out)
 
 	for {
+		// Send any requests queued while handling the previous message (e.g.
+		// roots/list) before blocking on the next read.
+		for _, msg := range s.outbound {
+			if err := encoder.Encode(msg); err != nil {
+				return err
+			}
+		}
+		s.outbound = s.outbound[:0]
+
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
@@ -310,7 +435,15 @@ func parseErrorResponse() JSONRPCResponse {
 }
 
 func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPCResponse {
+	if req.Method == "" && req.ID != nil {
+		// A response to a request the server sent, not a request itself.
+		s.handleResponse(req)
+		return nil
+	}
 	if strings.HasPrefix(req.Method, "notifications/") {
+		if s.clientSupportsRoots && (req.Method == "notifications/initialized" || req.Method == "notifications/roots/list_changed") {
+			s.requestRoots()
+		}
 		return nil
 	}
 
@@ -318,8 +451,12 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 	case "initialize":
 		var initParams struct {
 			ProtocolVersion string `json:"protocolVersion"`
+			Capabilities    struct {
+				Roots *json.RawMessage `json:"roots"`
+			} `json:"capabilities"`
 		}
 		_ = json.Unmarshal(req.Params, &initParams)
+		s.clientSupportsRoots = initParams.Capabilities.Roots != nil
 		return &JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
@@ -668,6 +805,9 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 			}
 		}
 
+		for i := range result.Content {
+			result.Content[i].Text = guardOutput(result.Content[i].Text)
+		}
 		return &JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
@@ -691,8 +831,8 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 	}
 
 	// Decisions don't come from source files, so they don't need a fresh index.
-	if s.freshen != nil && name != "save_decision" && name != "get_decisions" && s.isServedWorkspace(targetDir) {
-		s.freshen(ctx)
+	if s.freshen != nil && name != "save_decision" && name != "get_decisions" {
+		s.freshen(ctx, targetDir, targetDB)
 	}
 
 	switch name {
@@ -1488,6 +1628,11 @@ func validateSafeRelPath(rootDir string, relPath string) (string, error) {
 	cleanRel := filepath.Clean(filepath.FromSlash(relPath))
 	if filepath.IsAbs(cleanRel) {
 		return "", fmt.Errorf("absolute paths are not permitted: %s", relPath)
+	}
+	// Anything returned here goes into the agent's context and on to its
+	// model provider, so credential files are refused outright.
+	if scanner.IsSecretPath(cleanRel) {
+		return "", fmt.Errorf("refusing to read %s: the file name suggests it contains credentials", relPath)
 	}
 	if strings.HasPrefix(cleanRel, "..") || strings.Contains(cleanRel, filepath.FromSlash("/../")) {
 		return "", fmt.Errorf("directory traversal outside repository boundary is prohibited: %s", relPath)
