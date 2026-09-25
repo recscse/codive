@@ -1489,6 +1489,11 @@ func validateSafeRelPath(rootDir string, relPath string) (string, error) {
 	if filepath.IsAbs(cleanRel) {
 		return "", fmt.Errorf("absolute paths are not permitted: %s", relPath)
 	}
+	// Anything returned here goes into the agent's context and on to its
+	// model provider, so credential files are refused outright.
+	if scanner.IsSecretPath(cleanRel) {
+		return "", fmt.Errorf("refusing to read %s: the file name suggests it contains credentials", relPath)
+	}
 	if strings.HasPrefix(cleanRel, "..") || strings.Contains(cleanRel, filepath.FromSlash("/../")) {
 		return "", fmt.Errorf("directory traversal outside repository boundary is prohibited: %s", relPath)
 	}

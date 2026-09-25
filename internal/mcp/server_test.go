@@ -485,3 +485,21 @@ func TestFreshnessHook(t *testing.T) {
 		t.Errorf("hook must not run for decisions or other workspaces, calls=%d", calls)
 	}
 }
+
+// Credential files must be refused by the file-reading tools even though they
+// exist inside the workspace.
+func TestSecretFilesAreRefused(t *testing.T) {
+	tempDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte("API_KEY=sk_live_x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	indexForTest(t, tempDir)
+	server := NewServer(tempDir, nil, "test")
+	defer server.Close()
+	for _, tool := range []string{"read_file_context", "get_file_skeleton"} {
+		res, err := server.executeTool(context.Background(), tool, map[string]any{"path": ".env", "workspace_path": tempDir})
+		if err == nil {
+			t.Errorf("%s returned a credential file: %+v", tool, res)
+		}
+	}
+}
