@@ -9,7 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Local secrets and ignored files were indexed and could be sent to the AI model.** The scanner ignored `.gitignore`, so files such as `.env`, private keys, and gitignored build output were indexed, and `search_code` could return their contents to the agent, and from there to its model provider. codive now follows `.gitignore` (nested files, `.git/info/exclude`, negation, `**`), checked against git's own output. It also never indexes credential-like files (`.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `.npmrc`, `*.tfstate`, …) even when they aren't gitignored. `.env.example` and similar template files are still indexed. The file-reading tools refuse credential files too. Existing indexes drop these files on the next sync.
+- **`codive setup` could wipe settings in AI client configs.** It rewrote each client config and dropped anything it didn't recognise, including other MCP servers' `env` blocks (often API keys), remote server URLs and headers, and all of Continue's settings. A config containing comments was replaced entirely. setup now edits only codive's own entry and keeps a one-time `*.codive-backup` of the original. It leaves configs with comments untouched and prints the entry to add by hand.
+- **`codive init-rules` overwrote `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules` and `.windsurfrules`, and `codive install-hooks` overwrote existing git hooks.** Both now edit only a marked codive block. Hooks follow `core.hooksPath`.
+- **`codive upgrade` installed downloads without checking them.** It now verifies the SHA-256 checksum when the release publishes one, and test-runs the new binary before replacing the current one.
+
+### Added
+- `--dry-run` and `--undo` for `setup`, `init-rules` and `install-hooks`.
+- The MCP server supports **roots**: it answers from the workspace the client actually has open, instead of the repository that `setup` was last run in.
+- `setup` supports Claude Code (`.mcp.json`), per-project Cursor configs, VS Code's `servers` format, Gemini CLI and Codex CLI, and only configures clients that are installed. `doctor` checks that each detected client really has codive registered.
+
 ### Fixed
+- A symbol used inside a minified file (one line of hundreds of kilobytes) made `find_references` return the whole line. Reference snippets are now trimmed around the match, and every tool response is size-capped, with a visible marker wherever text was cut.
 - `find_references`, `find_callers`, and `blast_radius` could return **nothing at all** for common identifiers on large repositories (e.g. `Fprintf` with ~2,900 references in the Go standard library): the reference scan built an FTS snippet for every candidate file, ran one extra query per candidate, and re-fetched each file's content, so it ran past the tool-call deadline. References are now streamed straight from the full-text index and stop at the requested limit (`find_references` on a 10k-file repo: 1.3s → under 10ms). Measured against `grep -w` on five common symbols: 0 missed, 0 extra.
 - Capped results no longer read as complete. `find_references`/`find_callers` say "MORE EXIST" when the limit was hit (previously an agent was told e.g. "Found: 30" for a symbol with thousands of references), `blast_radius` reports "N+" with an explicit lower-bound note, and `find_symbol` returns at most 30 matches (configurable via `limit`) with a "showing N of M" header — a broad query like `New` previously returned ~100,000 tokens in one response.
 - `find_references` matched substrings (`Scan` matched `ScanIncremental`, `rescan`), and `find_callers` could miss real callers when a symbol was mostly mentioned in comments or imports. Both now match whole identifiers and filter during the scan.
