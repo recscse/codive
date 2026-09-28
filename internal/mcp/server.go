@@ -762,6 +762,7 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 					"required": []string{"path"},
 				},
 			},
+			readSymbolTool,
 		}
 		return &JSONRPCResponse{
 			JSONRPC: "2.0",
@@ -1528,6 +1529,9 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		return &ToolCallResult{
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
 		}, nil
+
+	case "read_symbol":
+		return s.readSymbol(ctx, targetDB, targetDir, args)
 
 	case "read_file_context":
 		relPath, _ := args["path"].(string)

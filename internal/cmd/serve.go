@@ -45,7 +45,17 @@ func RunServe(targetDir string, version string) error {
 	fresh := indexer.NewFreshener(database, absDir)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go startBackgroundWatcher(ctx, fresh)
+	go func() {
+		// An index built by an older extractor is rebuilt here, off the
+		// request path: it can take minutes on a large repository, and tool
+		// calls keep being answered from the existing index meanwhile.
+		if rebuilt, err := indexer.RebuildIfOutdated(ctx, database, absDir); err != nil {
+			slog.Warn("Re-indexing for the updated symbol extractor failed", "error", err)
+		} else if rebuilt {
+			slog.Info("Re-indexed for the updated symbol extractor", "path", absDir)
+		}
+		startBackgroundWatcher(ctx, fresh)
+	}()
 
 	server := mcp.NewServer(absDir, database, version)
 	defer server.Close()

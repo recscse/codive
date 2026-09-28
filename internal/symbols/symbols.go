@@ -18,6 +18,15 @@ import (
 	"github.com/recscse/codive/internal/db"
 )
 
+// ExtractorVersion identifies what ExtractSymbols produces. Bump it whenever
+// extraction output changes (a new language, a fixed signature, a new
+// symbol kind): indexes built with a different version are rebuilt once in
+// the background, since incremental sync only re-parses files that changed.
+//
+//	1: initial
+//	2: Go method signatures include their receiver
+const ExtractorVersion = "2"
+
 // ExtractSymbols parses source code based on its language and returns declared symbols.
 func ExtractSymbols(relPath string, language string, content []byte) ([]db.SymbolRecord, error) {
 	base := strings.ToLower(filepath.Base(relPath))
@@ -65,9 +74,18 @@ func extractGoSymbols(relPath string, content []byte) ([]db.SymbolRecord, error)
 			var recvStr string
 			if d.Recv != nil && len(d.Recv.List) > 0 {
 				kind = "method"
+				// Print the receiver's type expression and name ourselves:
+				// go/printer renders a bare *ast.FieldList as nothing, which
+				// left every method signature as "func  Name(...)" with no
+				// receiver at all.
+				field := d.Recv.List[0]
 				var buf bytes.Buffer
-				printer.Fprint(&buf, fset, d.Recv)
-				recvStr = buf.String() + " "
+				printer.Fprint(&buf, fset, field.Type)
+				if len(field.Names) > 0 {
+					recvStr = "(" + field.Names[0].Name + " " + buf.String() + ") "
+				} else {
+					recvStr = "(" + buf.String() + ") "
+				}
 			}
 
 			var sigBuf bytes.Buffer
