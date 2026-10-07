@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/ranker"
 	"github.com/recscse/codive/internal/scanner"
 	"github.com/recscse/codive/internal/symbols"
 )
@@ -26,10 +27,13 @@ const (
 	// listed after the definitions shown.
 	intentCandidates   = 30
 	maxOtherCandidates = 5
-	// testDemotion scales the (negative) bm25 score of definitions in test
-	// files, so a test named after the behavior doesn't outrank the code.
-	testDemotion = 0.5
 )
+
+// typeDeclKinds are the symbol kinds that declare a type.
+var typeDeclKinds = map[string]bool{
+	"class": true, "struct": true, "interface": true, "record": true,
+	"enum": true, "trait": true, "impl": true, "type": true,
+}
 
 var readSymbolTool = Tool{
 	Name:        "read_symbol",
@@ -208,8 +212,9 @@ func (s *Server) readIntent(ctx context.Context, targetDB *sql.DB, targetDir, in
 		limit = 1
 	}
 	dir := strings.Trim(strings.TrimPrefix(filepath.ToSlash(pathArg), "./"), "/")
+	model := loadRanker(ctx, targetDB)
 
-	matches, err := rankIntent(ctx, targetDB, terms, dir)
+	matches, err := rankIntent(ctx, targetDB, terms, dir, model)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +231,7 @@ func (s *Server) readIntent(ctx context.Context, targetDB *sql.DB, targetDir, in
 		}
 	}
 	if refreshed {
-		if matches, err = rankIntent(ctx, targetDB, terms, dir); err != nil {
+		if matches, err = rankIntent(ctx, targetDB, terms, dir, model); err != nil {
 			return nil, err
 		}
 	}
@@ -250,9 +255,10 @@ func (s *Server) readIntent(ctx context.Context, targetDB *sql.DB, targetDir, in
 		if i > 0 {
 			sb.WriteString("\n")
 		}
-		rawTokens += writeDefinition(&sb, m, files)
+		rawTokens += writeDefinition(&sb, m.SymbolRecord, files)
 	}
-	if others := matches[len(shown):min(len(matches), len(shown)+maxOtherCandidates)]; len(others) > 0 {
+	others := matches[len(shown):min(len(matches), len(shown)+maxOtherCandidates)]
+	if len(others) > 0 {
 		sb.WriteString("\nOther candidates (read one with `symbol` set to `path:Name`):\n")
 		for _, m := range others {
 			sig := m.Signature
@@ -265,18 +271,49 @@ func (s *Server) readIntent(ctx context.Context, targetDB *sql.DB, targetDir, in
 
 	text := sb.String()
 	db.RecordTelemetry(ctx, targetDB, "read_symbol", estimateTokens(text), rawTokens, 3)
+	if ranker.Enabled() {
+		s.logIntent(ctx, targetDB, targetDir, intent, matches, len(shown)+len(others), files)
+	}
 	return &ToolCallResult{Content: []ContentItem{{Type: "text", Text: text}}}, nil
 }
 
+// logIntent records an answered intent query and starts collecting feedback
+// on which of its first shown results the agent uses.
+func (s *Server) logIntent(ctx context.Context, database *sql.DB, dir, intent string, matches []rankedIntent, shown int, files *fileCache) {
+	now := s.learn.clock()
+	logged := make([]db.IntentCandidate, len(matches))
+	tracked := make([]intentCand, len(matches))
+	for i, m := range matches {
+		logged[i] = db.IntentCandidate{FilePath: m.FilePath, Name: m.Name, Kind: m.Kind, LineNumber: m.LineNumber, Features: m.features}
+		tracked[i] = intentCand{path: m.FilePath, name: m.Name, kind: m.Kind}
+		if i < shown {
+			if f, err := files.get(m.FilePath); err == nil {
+				tracked[i].start, tracked[i].end, tracked[i].bodyHash = definitionText(f, m.SymbolRecord)
+			}
+		}
+	}
+	id, err := db.LogIntent(ctx, database, intent, logged, shown, now)
+	if err != nil {
+		return
+	}
+	s.learn.add(&pendingIntent{id: id, dir: dir, at: now, cands: tracked, positives: make(map[int]bool)})
+}
+
+// rankedIntent is an intent search result with the features it was ranked by.
+type rankedIntent struct {
+	db.SymbolRecord
+	features []float64
+}
+
 // rankIntent returns the definitions best matching terms, optionally only
-// those in the file or directory dir, with definitions in test files ranked
-// below code that scores similarly.
-func rankIntent(ctx context.Context, database *sql.DB, terms []string, dir string) ([]db.SymbolRecord, error) {
+// those in the file or directory dir, ordered by model.
+func rankIntent(ctx context.Context, database *sql.DB, terms []string, dir string, model ranker.Model) ([]rankedIntent, error) {
 	hits, err := db.SearchSymbols(ctx, database, terms, intentCandidates)
 	if err != nil {
 		return nil, err
 	}
-	kept := hits[:0]
+	var out []rankedIntent
+	best := 0.0
 	for _, h := range hits {
 		if !symbols.IsDefinition(h.Kind) {
 			continue
@@ -284,16 +321,23 @@ func rankIntent(ctx context.Context, database *sql.DB, terms []string, dir strin
 		if dir != "" && h.FilePath != dir && !strings.HasSuffix(h.FilePath, "/"+dir) && !strings.HasPrefix(h.FilePath, dir+"/") {
 			continue
 		}
-		if strings.HasPrefix(classifySymbolRole(h.FilePath, h.Kind), "Test") {
-			h.Score *= testDemotion
+		if len(out) == 0 {
+			best = h.Score // hits come best first
 		}
-		kept = append(kept, h)
+		out = append(out, rankedIntent{SymbolRecord: h.SymbolRecord, features: ranker.Features(terms, ranker.Candidate{
+			Score:     h.Score,
+			BestScore: best,
+			NameTerms: h.NameTerms,
+			DocTerms:  h.DocTerms,
+			BodyTerms: h.BodyTerms,
+			IsTest:    strings.HasPrefix(classifySymbolRole(h.FilePath, h.Kind), "Test"),
+			IsType:    typeDeclKinds[h.Kind],
+			Uses:      db.SymbolUses(ctx, database, h.FilePath, h.Name, h.Kind),
+		})})
 	}
-	sort.SliceStable(kept, func(i, j int) bool { return kept[i].Score < kept[j].Score })
-	out := make([]db.SymbolRecord, len(kept))
-	for i, h := range kept {
-		out[i] = h.SymbolRecord
-	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return model.Weights.Score(out[i].features) > model.Weights.Score(out[j].features)
+	})
 	return out, nil
 }
 
@@ -337,8 +381,7 @@ func enclosedBy(sym db.SymbolRecord, qualifier string, files *fileCache) bool {
 		if t.Name != qualifier || t.LineNumber >= sym.LineNumber {
 			continue
 		}
-		switch t.Kind {
-		case "class", "struct", "interface", "record", "enum", "trait", "impl", "type":
+		if typeDeclKinds[t.Kind] {
 			_, end, _ := symbols.SymbolExtent(f.lang, f.content, t, 0)
 			if end >= sym.LineNumber {
 				return true

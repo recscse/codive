@@ -90,6 +90,8 @@ type Server struct {
 	// outbound holds server-initiated messages (requests to the client),
 	// written by Serve after the message currently being handled.
 	outbound []any
+	// learn collects feedback on read_symbol intent results.
+	learn learner
 }
 
 // SetFreshnessHook registers fn to run before any index-reading tool call,
@@ -179,6 +181,8 @@ func NewServer(rootDir string, database *sql.DB, version string) *Server {
 // workspaces it resolved. The database passed to NewServer is owned by the
 // caller and is left open.
 func (s *Server) Close() {
+	// Record feedback gathered so far before the databases close.
+	s.resolveIntents(context.Background(), true)
 	s.dbMutex.Lock()
 	defer s.dbMutex.Unlock()
 	for dir, conn := range s.dbCache {
@@ -835,6 +839,11 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 	if s.freshen != nil && name != "save_decision" && name != "get_decisions" {
 		s.freshen(ctx, targetDir, targetDB)
 	}
+
+	// Feedback for intent ranking: note which earlier results this call
+	// uses, then record queries whose feedback window has closed.
+	s.learn.observe(name, args, targetDir)
+	s.resolveIntents(ctx, false)
 
 	switch name {
 	case "get_repo_map":

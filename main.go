@@ -66,6 +66,7 @@ func printUsage() {
 				{"status        ", "[path]  ", "Display index status and language breakdown"},
 				{"doctor        ", "[path]  ", "Diagnose index health and agent configurations"},
 				{"stats         ", "[path]  ", "Token savings and efficiency metrics"},
+				{"ranker        ", "[reset] ", "What read_symbol intent ranking has learned (or forget it)"},
 				{"decisions     ", "[topic] ", "View recorded architectural decisions"},
 				{"logs          ", "[path]  ", "Tail recent log entries"},
 			},
@@ -259,6 +260,20 @@ func main() {
 			targetDir = args[1]
 		}
 		if err := cmd.RunStats(targetDir, asJSON); err != nil {
+			ui.Error(err.Error())
+			os.Exit(1)
+		}
+
+	case "ranker":
+		action, targetDir := "status", "."
+		rest := args[1:]
+		if len(rest) > 0 && (rest[0] == "status" || rest[0] == "reset") {
+			action, rest = rest[0], rest[1:]
+		}
+		if len(rest) > 0 {
+			targetDir = rest[0]
+		}
+		if err := cmd.RunRanker(targetDir, action, asJSON); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}

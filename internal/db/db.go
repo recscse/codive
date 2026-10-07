@@ -57,7 +57,7 @@ type RepoStats struct {
 }
 
 // CurrentSchemaVersion is the latest database schema version.
-const CurrentSchemaVersion = 8
+const CurrentSchemaVersion = 9
 
 // Open initializes and opens the SQLite database at dbPath, creating parent dirs and migrating schema.
 func Open(dbPath string) (*sql.DB, error) {
@@ -232,6 +232,29 @@ var Migrations = []Migration{
 			doc_terms,
 			body_terms,
 			tokenize = 'porter unicode61'
+		);
+		`,
+	},
+	{
+		Version:     9,
+		Description: "Create intent_log and symbol_usage tables so intent ranking can learn from use",
+		SQL: `
+		CREATE TABLE IF NOT EXISTS intent_log (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			created_at TIMESTAMP NOT NULL,
+			query TEXT NOT NULL,
+			candidates TEXT NOT NULL,
+			shown INTEGER NOT NULL,
+			positives TEXT,
+			resolved_at TIMESTAMP
+		);
+		CREATE TABLE IF NOT EXISTS symbol_usage (
+			file_path TEXT NOT NULL,
+			name TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			uses INTEGER NOT NULL,
+			last_used TIMESTAMP NOT NULL,
+			PRIMARY KEY (file_path, name, kind)
 		);
 		`,
 	},
@@ -950,7 +973,10 @@ func SearchFTS(ctx context.Context, database *sql.DB, query string, limit int) (
 // lower (more negative) is a better match.
 type SymbolMatch struct {
 	SymbolRecord
-	Score float64
+	Score     float64
+	NameTerms string
+	DocTerms  string
+	BodyTerms string
 }
 
 // SearchSymbols ranks definitions by how many of terms (lowercase words, as
@@ -972,7 +998,8 @@ func SearchSymbols(ctx context.Context, database *sql.DB, terms []string, limit 
 	// file_path, name, kind, line_number, name_terms, doc_terms, body_terms.
 	rows, err := database.QueryContext(ctx, `
 		SELECT s.file_path, s.name, s.kind, s.signature, s.line_number,
-		       bm25(symbol_fts, 0, 0, 0, 0, 10.0, 4.0, 1.0) AS score
+		       bm25(symbol_fts, 0, 0, 0, 0, 10.0, 4.0, 1.0) AS score,
+		       f.name_terms, f.doc_terms, f.body_terms
 		FROM symbol_fts f
 		JOIN symbols s ON s.file_path = f.file_path AND s.name = f.name
 			AND s.kind = f.kind AND s.line_number = f.line_number
@@ -988,7 +1015,8 @@ func SearchSymbols(ctx context.Context, database *sql.DB, terms []string, limit 
 	var out []SymbolMatch
 	for rows.Next() {
 		var m SymbolMatch
-		if err := rows.Scan(&m.FilePath, &m.Name, &m.Kind, &m.Signature, &m.LineNumber, &m.Score); err != nil {
+		if err := rows.Scan(&m.FilePath, &m.Name, &m.Kind, &m.Signature, &m.LineNumber, &m.Score,
+			&m.NameTerms, &m.DocTerms, &m.BodyTerms); err != nil {
 			return nil, fmt.Errorf("failed to scan symbol search result: %w", err)
 		}
 		out = append(out, m)
