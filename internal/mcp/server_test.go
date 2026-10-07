@@ -14,8 +14,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/indexer"
 	"github.com/recscse/codive/internal/scanner"
-	"github.com/recscse/codive/internal/symbols"
 )
 
 func setupTestDB(t *testing.T) (string, func()) {
@@ -216,33 +216,13 @@ func TestMCPServer(t *testing.T) {
 // records carry genuine sizes, mtimes, and content hashes.
 func indexForTest(t *testing.T, dir string) {
 	t.Helper()
-	res, err := scanner.Scan(dir)
-	if err != nil {
-		t.Fatalf("scan failed: %v", err)
-	}
 	database, err := db.Open(filepath.Join(dir, ".codive", "index.db"))
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
 	defer database.Close()
-	ctx := context.Background()
-	if err := db.SaveFiles(ctx, database, res.Files); err != nil {
-		t.Fatalf("failed to save files: %v", err)
-	}
-	fts := make(map[string]string)
-	for _, f := range res.Files {
-		content, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(f.Path)))
-		if err != nil {
-			t.Fatalf("failed to read %s: %v", f.Path, err)
-		}
-		fts[f.Path] = string(content)
-		syms, _ := symbols.ExtractSymbols(f.Path, f.Language, content)
-		if err := db.SaveSymbols(ctx, database, syms); err != nil {
-			t.Fatalf("failed to save symbols: %v", err)
-		}
-	}
-	if err := db.SaveFTS(ctx, database, fts); err != nil {
-		t.Fatalf("failed to save fts: %v", err)
+	if _, err := indexer.Rebuild(context.Background(), database, dir, nil); err != nil {
+		t.Fatalf("failed to index %s: %v", dir, err)
 	}
 }
 

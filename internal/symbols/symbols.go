@@ -25,7 +25,8 @@ import (
 //
 //	1: initial
 //	2: Go method signatures include their receiver
-const ExtractorVersion = "2"
+//	3: definitions are indexed for search by the words they contain
+const ExtractorVersion = "3"
 
 // ExtractSymbols parses source code based on its language and returns declared symbols.
 func ExtractSymbols(relPath string, language string, content []byte) ([]db.SymbolRecord, error) {

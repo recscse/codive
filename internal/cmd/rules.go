@@ -167,6 +167,7 @@ const codiveGuidance = "## Code navigation with codive (MCP)\n" +
 	"Prefer codive's MCP tools to understand code: they answer from a live index of this repository and return exact, compact results instead of whole files.\n" +
 	"- Where is X defined? → `find_symbol`\n" +
 	"- Show me the code of X → `read_symbol` (just that function or type, not the whole file)\n" +
+	"- Where is the code that does Y? → `read_symbol` with `intent` (include identifier words and synonyms you expect the code to use)\n" +
 	"- What's in this file? → `get_file_skeleton`, then `read_file_context` with `start_line`/`end_line` for just the part you need\n" +
 	"- Who calls X? What breaks if X changes? → `find_callers`, `blast_radius`\n" +
 	"- Which tests cover this? → `find_tests_for`\n" +

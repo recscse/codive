@@ -1697,14 +1697,12 @@ func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootD
 	}
 	rec.ContentHash = hash
 
-	syms, err := symbols.ExtractSymbols(relPath, rec.Language, content)
-	if err != nil {
-		return false
-	}
+	syms, terms := indexer.ParseFile(relPath, rec.Language, content)
 	err = db.ApplyIndexChanges(ctx, database, db.IndexChanges{
-		Files:   []db.FileRecord{rec},
-		Symbols: syms,
-		FTS:     map[string]string{relPath: string(content)},
+		Files:       []db.FileRecord{rec},
+		Symbols:     syms,
+		FTS:         map[string]string{relPath: string(content)},
+		SymbolTerms: terms,
 	})
 	return err == nil
 }

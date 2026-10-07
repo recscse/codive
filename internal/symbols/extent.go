@@ -20,35 +20,48 @@ const maxLeadingContextLines = 40
 // the language-specific boundary can't be determined. exact reports whether
 // the range came from a real parser (Go) rather than a lexical heuristic.
 func SymbolExtent(language string, content []byte, sym db.SymbolRecord, nextDecl int) (start, end int, exact bool) {
-	lines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+	return newExtentFinder(language, content).extent(sym, nextDecl)
+}
+
+// extentFinder computes extents of many symbols in one file, splitting (and,
+// for Go, parsing) the file only once.
+type extentFinder struct {
+	language string
+	lines    []string
+	goExt    map[int][2]int
+}
+
+func newExtentFinder(language string, content []byte) *extentFinder {
+	f := &extentFinder{
+		language: language,
+		lines:    strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n"),
+	}
+	if language == "Go" {
+		f.goExt = goExtents(content)
+	}
+	return f
+}
+
+func (f *extentFinder) extent(sym db.SymbolRecord, nextDecl int) (start, end int, exact bool) {
 	decl := sym.LineNumber
-	if decl < 1 || decl > len(lines) {
+	if decl < 1 || decl > len(f.lines) {
 		return 0, 0, false
 	}
 
-	if language == "Go" {
-		if s, e, ok := goExtent(content, decl); ok {
-			return s, e, true
-		}
+	if ext, ok := f.goExt[decl]; ok {
+		return ext[0], ext[1], true
 	}
 
-	end = 0
-	switch language {
+	switch f.language {
 	case "Python":
-		end = indentExtent(lines, decl)
+		end = indentExtent(f.lines, decl)
 	case "Go", "JavaScript", "TypeScript", "Java", "C#", "Rust", "C", "C++", "Kotlin", "Swift", "PHP", "Scala":
-		end = braceExtent(lines, decl, language)
+		end = braceExtent(f.lines, decl, f.language)
 	}
 	if end == 0 {
-		end = fallbackExtent(lines, decl, nextDecl)
+		end = fallbackExtent(f.lines, decl, nextDecl)
 	}
-	return leadingContextStart(lines, decl, language), end, false
-}
-
-// goExtent finds the exact extent of the Go declaration starting on line decl.
-func goExtent(content []byte, decl int) (int, int, bool) {
-	ext, ok := goExtents(content)[decl]
-	return ext[0], ext[1], ok
+	return leadingContextStart(f.lines, decl, f.language), end, false
 }
 
 // goExtents parses a Go file once and maps each function, method, and type
