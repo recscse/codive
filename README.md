@@ -16,7 +16,7 @@ When AI coding assistants (Claude Desktop, Cursor, Google Antigravity, VS Code, 
 1. **Token Exhaustion**: Dumping multi-thousand-line files into the context window burns 8,000+ tokens per turn ($0.05–$0.25 per query) and leads to LLM "lost-in-the-middle" hallucinations.
 2. **Slow, Blind Grep**: Raw file regex searches take seconds on large repos and lack cross-file caller awareness, causing agents to break downstream API contracts.
 
-`codive` solves this by indexing your repository's Abstract Syntax Tree (AST), symbol declarations, and call graphs into an embedded, high-concurrency SQLite database (WAL mode). It exposes **14 specialized MCP tools** that return exact function signatures, structural file skeletons, caller graphs, and test pairings in **< 2ms**.
+`codive` solves this by indexing your repository's Abstract Syntax Tree (AST), symbol declarations, and call graphs into an embedded, high-concurrency SQLite database (WAL mode). It exposes **15 specialized MCP tools** that return exact function bodies and signatures, structural file skeletons, caller graphs, and test pairings, typically in milliseconds.
 
 ---
 
@@ -107,15 +107,32 @@ Indexing Codebase [████████████████████�
 ```bash
 codive setup
 ```
-`codive setup` automatically registers the MCP server configuration into:
-- **Google Antigravity**: `~/.gemini/config/mcp_config.json`
-- **Cursor IDE**: `~/.cursor/mcp.json`
-- **Claude Desktop**: `~/Library/Application Support/Claude/claude_desktop_config.json` or `%APPDATA%\Claude\claude_desktop_config.json`
-- **VS Code**: `.vscode/mcp.json` / `~/.continue/config.json`
+`codive setup` registers the MCP server with every AI client it detects on your machine. It doesn't configure clients you don't have installed.
+
+| Client | Where codive is registered |
+| :--- | :--- |
+| **Claude Code** | `.mcp.json` in the project |
+| **Cursor** | `.cursor/mcp.json` in the project |
+| **VS Code (Copilot agent mode)** | `.vscode/mcp.json` in the project |
+| **Claude Desktop** | `claude_desktop_config.json` |
+| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` |
+| **Gemini CLI** | `~/.gemini/settings.json` |
+| **Google Antigravity** | `~/.gemini/config/mcp_config.json` |
+| **Cline / Roo Code** | their `cline_mcp_settings.json` |
+| **Codex CLI** | `~/.codex/config.toml` |
+
+It edits only codive's own entry, so your other MCP servers, their `env` settings, and every other setting are left exactly as they were. Before first changing an existing file, it saves the original next to it as `*.codive-backup`. If a config file contains comments, setup leaves it alone and prints the entry for you to add by hand. Continue is not edited automatically.
+
+It also adds a short "how to use codive" section to your agent instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/codive.mdc`, …), inside `<!-- codive:start -->` / `<!-- codive:end -->` markers. Your own instructions in those files are not touched.
+
+```bash
+codive setup --dry-run   # show what would change, without writing anything
+codive setup --undo      # remove everything setup added
+```
 
 ---
 
-## 🛠️ The 14 Production MCP Tools
+## 🛠️ The 15 Production MCP Tools
 
 When running as an MCP server (`codive serve`), your AI coding agent has access to:
 
@@ -132,7 +149,8 @@ When running as an MCP server (`codive serve`), your AI coding agent has access 
 | **`get_repo_map`** | `workspace_path`, `max_depth`, `directory_filter`, `include_symbols`, `token_budget` *(all opt)* | Emits a token-budgeted structural architecture map with declared symbols. |
 | **`get_git_changes`** | `workspace_path` *(opt)* | Summarizes uncommitted git diffs mapped to enclosing AST functions. |
 | **`search_code`** | `query` *(string)*, `limit` *(opt)*, `workspace_path` *(opt)* | Sub-millisecond FTS5 full-text search across all indexed files. |
-| **`read_file_context`** | `path` *(string)*, `workspace_path` *(opt)* | Reads a file's full content plus its declared symbol outline, with automatic line-drift verification. |
+| **`read_symbol`** | `symbol` *(string: `Name`, `Type.Method`, or `path:Name`)*, `path` *(opt)*, `limit` *(opt)* | Returns just one definition — doc comment, signature, and full body — instead of the whole file. Typically 10–80× fewer tokens than reading the file. |
+| **`read_file_context`** | `path` *(string)*, `start_line`/`end_line` *(opt)*, `workspace_path` *(opt)* | Reads a file (up to 1,000 lines per call) plus its declared symbol outline, with automatic line-drift verification. |
 | **`save_decision`** | `topic` *(string)*, `summary` *(string)*, `workspace_path` *(opt)* | Stores persistent architectural invariants and decisions in SQLite. |
 | **`get_decisions`** | `topic` *(opt)*, `workspace_path` *(opt)* | Retrieves architectural memory and past decisions matching a topic. |
 

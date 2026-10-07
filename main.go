@@ -66,6 +66,7 @@ func printUsage() {
 				{"status        ", "[path]  ", "Display index status and language breakdown"},
 				{"doctor        ", "[path]  ", "Diagnose index health and agent configurations"},
 				{"stats         ", "[path]  ", "Token savings and efficiency metrics"},
+				{"ranker        ", "[reset] ", "What read_symbol intent ranking has learned (or forget it)"},
 				{"decisions     ", "[topic] ", "View recorded architectural decisions"},
 				{"logs          ", "[path]  ", "Tail recent log entries"},
 			},
@@ -98,6 +99,8 @@ func printUsage() {
 	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--json     "), "Output results in machine-readable JSON")
 	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--no-color "), "Disable ANSI color output")
 	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--verbose  "), "Stream structured logs to stderr")
+	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--dry-run  "), "setup, init-rules, install-hooks: show changes without writing")
+	fmt.Printf("    %s  %s\n", ui.Bold.Sprint("--undo     "), "setup, init-rules, install-hooks: remove what codive added")
 	fmt.Println()
 	fmt.Printf("  %s\n", ui.Dim.Sprint("Examples"))
 	fmt.Printf("    %s\n", ui.Dim.Sprint("codive setup"))
@@ -119,9 +122,15 @@ func main() {
 	asJSON := false
 	noColor := false
 	verbose := false
+	dryRun := false
+	undo := false
 
 	for _, arg := range os.Args[1:] {
 		switch arg {
+		case "--dry-run":
+			dryRun = true
+		case "--undo":
+			undo = true
 		case "--no-color":
 			noColor = true
 		case "--json":
@@ -166,7 +175,7 @@ func main() {
 		if len(args) >= 2 {
 			targetDir = args[1]
 		}
-		if err := cmd.RunInitRules(targetDir); err != nil {
+		if err := cmd.RunInitRules(targetDir, dryRun, undo); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}
@@ -176,7 +185,7 @@ func main() {
 		if len(args) >= 2 {
 			targetDir = args[1]
 		}
-		if err := cmd.RunInstallHooks(targetDir); err != nil {
+		if err := cmd.RunInstallHooks(targetDir, dryRun, undo); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}
@@ -251,6 +260,20 @@ func main() {
 			targetDir = args[1]
 		}
 		if err := cmd.RunStats(targetDir, asJSON); err != nil {
+			ui.Error(err.Error())
+			os.Exit(1)
+		}
+
+	case "ranker":
+		action, targetDir := "status", "."
+		rest := args[1:]
+		if len(rest) > 0 && (rest[0] == "status" || rest[0] == "reset") {
+			action, rest = rest[0], rest[1:]
+		}
+		if len(rest) > 0 {
+			targetDir = rest[0]
+		}
+		if err := cmd.RunRanker(targetDir, action, asJSON); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}
@@ -372,7 +395,7 @@ func main() {
 		if len(args) >= 2 {
 			targetDir = args[1]
 		}
-		if err := cmd.RunSetup(targetDir); err != nil {
+		if err := cmd.RunSetup(targetDir, dryRun, undo); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}

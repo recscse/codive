@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 )
@@ -33,6 +34,20 @@ type SymbolRecord struct {
 	LineNumber int
 }
 
+// SymbolTerms is what the symbol search index holds for one definition: the
+// words of its name, of its signature and doc comment, and of its body, each
+// already split into lowercase words ("processPaymentError" → "process
+// payment error"). The fields other than the terms identify the symbol.
+type SymbolTerms struct {
+	FilePath   string
+	Name       string
+	Kind       string
+	LineNumber int
+	NameTerms  string
+	DocTerms   string
+	BodyTerms  string
+}
+
 // RepoStats contains aggregate statistics from the index.
 type RepoStats struct {
 	TotalFiles     int
@@ -42,7 +57,7 @@ type RepoStats struct {
 }
 
 // CurrentSchemaVersion is the latest database schema version.
-const CurrentSchemaVersion = 6
+const CurrentSchemaVersion = 9
 
 // Open initializes and opens the SQLite database at dbPath, creating parent dirs and migrating schema.
 func Open(dbPath string) (*sql.DB, error) {
@@ -194,6 +209,74 @@ var Migrations = []Migration{
 		ALTER TABLE telemetry ADD COLUMN raw_estimate INTEGER NOT NULL DEFAULT 0;
 		`,
 	},
+	{
+		Version:     7,
+		Description: "Create meta table for index-wide settings such as the extractor version",
+		SQL: `
+		CREATE TABLE IF NOT EXISTS meta (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		);
+		`,
+	},
+	{
+		Version:     8,
+		Description: "Create symbol_fts virtual table for searching definitions by what they do",
+		SQL: `
+		CREATE VIRTUAL TABLE IF NOT EXISTS symbol_fts USING fts5(
+			file_path UNINDEXED,
+			name UNINDEXED,
+			kind UNINDEXED,
+			line_number UNINDEXED,
+			name_terms,
+			doc_terms,
+			body_terms,
+			tokenize = 'porter unicode61'
+		);
+		`,
+	},
+	{
+		Version:     9,
+		Description: "Create intent_log and symbol_usage tables so intent ranking can learn from use",
+		SQL: `
+		CREATE TABLE IF NOT EXISTS intent_log (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			created_at TIMESTAMP NOT NULL,
+			query TEXT NOT NULL,
+			candidates TEXT NOT NULL,
+			shown INTEGER NOT NULL,
+			positives TEXT,
+			resolved_at TIMESTAMP
+		);
+		CREATE TABLE IF NOT EXISTS symbol_usage (
+			file_path TEXT NOT NULL,
+			name TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			uses INTEGER NOT NULL,
+			last_used TIMESTAMP NOT NULL,
+			PRIMARY KEY (file_path, name, kind)
+		);
+		`,
+	},
+}
+
+// GetMeta returns an index-wide setting, or "" if it has never been set.
+func GetMeta(ctx context.Context, database *sql.DB, key string) (string, error) {
+	var v string
+	err := database.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = ?;", key).Scan(&v)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetMeta stores an index-wide setting.
+func SetMeta(ctx context.Context, database *sql.DB, key, value string) error {
+	_, err := database.ExecContext(ctx, `
+		INSERT INTO meta (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+	`, key, value)
+	return err
 }
 
 // Migrate applies all pending schema migrations up to CurrentSchemaVersion.
@@ -436,6 +519,8 @@ type IndexChanges struct {
 	Files   []FileRecord
 	Symbols []SymbolRecord
 	FTS     map[string]string
+	// SymbolTerms are the symbol search entries for Files, replacing theirs.
+	SymbolTerms []SymbolTerms
 	// MetadataOnly are files whose content is unchanged but whose stored
 	// size/mtime must be refreshed. Their symbols and FTS rows are untouched.
 	MetadataOnly []FileRecord
@@ -461,7 +546,7 @@ func ApplyIndexChanges(ctx context.Context, database *sql.DB, c IndexChanges) er
 	}
 
 	if c.ReplaceAll {
-		for _, table := range []string{"files", "symbols", "file_fts"} {
+		for _, table := range []string{"files", "symbols", "file_fts", "symbol_fts"} {
 			if err := exec("DELETE FROM " + table + ";"); err != nil {
 				return fmt.Errorf("failed to clear %s: %w", table, err)
 			}
@@ -478,6 +563,9 @@ func ApplyIndexChanges(ctx context.Context, database *sql.DB, c IndexChanges) er
 			}
 			if err := exec("DELETE FROM file_fts WHERE path = ?;", p); err != nil {
 				return fmt.Errorf("failed to delete fts for %s: %w", p, err)
+			}
+			if err := exec("DELETE FROM symbol_fts WHERE file_path = ?;", p); err != nil {
+				return fmt.Errorf("failed to delete symbol search terms for %s: %w", p, err)
 			}
 		}
 		for _, p := range c.Deleted {
@@ -537,6 +625,22 @@ func ApplyIndexChanges(ctx context.Context, database *sql.DB, c IndexChanges) er
 		for p, content := range c.FTS {
 			if _, err := insFTS.ExecContext(ctx, p, content); err != nil {
 				return fmt.Errorf("failed to insert fts for %s: %w", p, err)
+			}
+		}
+	}
+
+	if len(c.SymbolTerms) > 0 {
+		insTerms, err := tx.PrepareContext(ctx, `
+			INSERT INTO symbol_fts (file_path, name, kind, line_number, name_terms, doc_terms, body_terms)
+			VALUES (?, ?, ?, ?, ?, ?, ?);
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare symbol search insert: %w", err)
+		}
+		defer insTerms.Close()
+		for _, t := range c.SymbolTerms {
+			if _, err := insTerms.ExecContext(ctx, t.FilePath, t.Name, t.Kind, t.LineNumber, t.NameTerms, t.DocTerms, t.BodyTerms); err != nil {
+				return fmt.Errorf("failed to insert search terms for %s in %s: %w", t.Name, t.FilePath, err)
 			}
 		}
 	}
@@ -689,6 +793,31 @@ func FindSymbols(ctx context.Context, database *sql.DB, query string) ([]SymbolR
 	return symbols, rows.Err()
 }
 
+// FindSymbolsByName returns symbols whose name is exactly name (case
+// sensitive), ordered by file and line.
+func FindSymbolsByName(ctx context.Context, database *sql.DB, name string) ([]SymbolRecord, error) {
+	rows, err := database.QueryContext(ctx, `
+		SELECT file_path, name, kind, signature, line_number
+		FROM symbols
+		WHERE name = ?
+		ORDER BY file_path ASC, line_number ASC;
+	`, name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find symbol %s: %w", name, err)
+	}
+	defer rows.Close()
+
+	var syms []SymbolRecord
+	for rows.Next() {
+		var s SymbolRecord
+		if err := rows.Scan(&s.FilePath, &s.Name, &s.Kind, &s.Signature, &s.LineNumber); err != nil {
+			return nil, fmt.Errorf("failed to scan symbol: %w", err)
+		}
+		syms = append(syms, s)
+	}
+	return syms, rows.Err()
+}
+
 // FindSymbolsInFile returns every symbol declared in exactly the given file
 // path, ordered by line number. Unlike FindSymbols (a fuzzy name/signature
 // search), this is an exact file lookup — the right tool when you already
@@ -838,6 +967,61 @@ func SearchFTS(ctx context.Context, database *sql.DB, query string, limit int) (
 	}
 
 	return results, nil
+}
+
+// SymbolMatch is a definition found by SearchSymbols. Score is FTS5's bm25:
+// lower (more negative) is a better match.
+type SymbolMatch struct {
+	SymbolRecord
+	Score     float64
+	NameTerms string
+	DocTerms  string
+	BodyTerms string
+}
+
+// SearchSymbols ranks definitions by how many of terms (lowercase words, as
+// produced by symbols.QueryTerms) appear in their name, signature and doc
+// comment, or body, weighted in that order. Any term may match, so a
+// definition that shares more and rarer words with the query ranks higher.
+func SearchSymbols(ctx context.Context, database *sql.DB, terms []string, limit int) ([]SymbolMatch, error) {
+	if len(terms) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	quoted := make([]string, len(terms))
+	for i, t := range terms {
+		quoted[i] = `"` + strings.ReplaceAll(t, `"`, `""`) + `"`
+	}
+	// bm25 takes one weight per column, unindexed ones included:
+	// file_path, name, kind, line_number, name_terms, doc_terms, body_terms.
+	rows, err := database.QueryContext(ctx, `
+		SELECT s.file_path, s.name, s.kind, s.signature, s.line_number,
+		       bm25(symbol_fts, 0, 0, 0, 0, 10.0, 4.0, 1.0) AS score,
+		       f.name_terms, f.doc_terms, f.body_terms
+		FROM symbol_fts f
+		JOIN symbols s ON s.file_path = f.file_path AND s.name = f.name
+			AND s.kind = f.kind AND s.line_number = f.line_number
+		WHERE symbol_fts MATCH ?
+		ORDER BY score ASC
+		LIMIT ?;
+	`, strings.Join(quoted, " OR "), limit)
+	if err != nil {
+		return nil, fmt.Errorf("symbol search failed: %w", err)
+	}
+	defer rows.Close()
+
+	var out []SymbolMatch
+	for rows.Next() {
+		var m SymbolMatch
+		if err := rows.Scan(&m.FilePath, &m.Name, &m.Kind, &m.Signature, &m.LineNumber, &m.Score,
+			&m.NameTerms, &m.DocTerms, &m.BodyTerms); err != nil {
+			return nil, fmt.Errorf("failed to scan symbol search result: %w", err)
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 // formatFTSQuery prepares a safe FTS5 MATCH query string.
@@ -998,7 +1182,7 @@ func scanReferences(ctx context.Context, database *sql.DB, symbol string, limit 
 			page.Refs = append(page.Refs, ReferenceResult{
 				FilePath:   path,
 				LineNumber: lineNo,
-				Snippet:    strings.TrimSpace(line),
+				Snippet:    clipAround(strings.TrimSpace(line), symbol, maxSnippetChars),
 			})
 		}
 	}
@@ -1466,4 +1650,44 @@ func containsWord(s, word string) bool {
 // identifier immediately followed by "(".
 func containsCall(s, name string) bool {
 	return wordMatches(s, name, func(end int) bool { return end < len(s) && s[end] == '(' })
+}
+
+// maxSnippetChars caps a reference snippet. Source lines are normally far
+// shorter; this only bites on minified or generated lines, which can be
+// hundreds of kilobytes long.
+const maxSnippetChars = 240
+
+// clipAround shortens line to about limit bytes, keeping a window centred on
+// the first occurrence of word and marking the cut ends with "…".
+func clipAround(line, word string, limit int) string {
+	if len(line) <= limit {
+		return line
+	}
+	i := strings.Index(line, word)
+	if i < 0 {
+		i = 0
+	}
+	start := i + len(word)/2 - limit/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + limit
+	if end > len(line) {
+		end = len(line)
+		start = max(0, end-limit)
+	}
+	for start > 0 && !utf8.RuneStart(line[start]) {
+		start--
+	}
+	for end < len(line) && !utf8.RuneStart(line[end]) {
+		end++
+	}
+	out := line[start:end]
+	if start > 0 {
+		out = "…" + out
+	}
+	if end < len(line) {
+		out += "…"
+	}
+	return out
 }

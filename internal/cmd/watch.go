@@ -50,6 +50,13 @@ func RunWatch(targetDir string, pollInterval time.Duration) error {
 		cancel()
 	}()
 
+	if indexer.NeedsReextract(ctx, database) {
+		fmt.Println("The symbol extractor changed since this index was built; re-indexing all files...")
+		if _, err := indexer.Rebuild(ctx, database, absDir, nil); err != nil {
+			return fmt.Errorf("re-index failed: %w", err)
+		}
+	}
+
 	fmt.Printf("👀 Watching for file changes at %s (polling every %v)...\n", absDir, pollInterval)
 	fmt.Println("Press Ctrl+C to stop.")
 
