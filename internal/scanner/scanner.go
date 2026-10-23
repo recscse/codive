@@ -58,6 +58,25 @@ var DefaultIgnoredFiles = map[string]bool{
 	".codiveignore": true,
 }
 
+// IsIndexable reports whether a relative file path is suitable for indexing (not secret, not in default ignored dirs/files).
+func IsIndexable(relPath string) bool {
+	if IsSecretPath(relPath) {
+		return false
+	}
+	norm := filepath.ToSlash(relPath)
+	parts := strings.Split(norm, "/")
+	for _, part := range parts[:len(parts)-1] {
+		if DefaultIgnoredDirectories[part] {
+			return false
+		}
+	}
+	base := filepath.Base(norm)
+	if DefaultIgnoredFiles[base] {
+		return false
+	}
+	return true
+}
+
 // ExtensionLanguageMap maps file extensions to language names.
 var ExtensionLanguageMap = map[string]string{
 	".go":       "Go",

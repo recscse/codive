@@ -1728,18 +1728,31 @@ func validateSafeRelPath(rootDir string, relPath string) (string, error) {
 // .codiveignore, binaries) or not yet picked up by a scan, and indexing them
 // here would bypass those filters.
 func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootDir string, relPath string) bool {
-	rec, indexed, err := db.GetFile(ctx, database, relPath)
-	if err != nil || !indexed {
-		return false
-	}
 	fullPath, err := validateSafeRelPath(rootDir, relPath)
 	if err != nil {
 		return false
 	}
-	info, err := os.Stat(fullPath)
-	if err != nil || info.IsDir() {
+	info, statErr := os.Stat(fullPath)
+	rec, indexed, err := db.GetFile(ctx, database, relPath)
+
+	// If file was deleted on disk, clean it from the index immediately
+	if os.IsNotExist(statErr) {
+		if indexed {
+			_ = db.ApplyIndexChanges(ctx, database, db.IndexChanges{
+				Deleted: []string{relPath},
+			})
+			return true
+		}
 		return false
 	}
+	if statErr != nil || info.IsDir() {
+		return false
+	}
+
+	if !indexed {
+		return false
+	}
+
 	modTime := info.ModTime().UTC()
 	if rec.SizeBytes == info.Size() && rec.LastModified.Equal(modTime) {
 		return false
