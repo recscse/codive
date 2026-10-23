@@ -599,19 +599,28 @@ func ApplyIndexChanges(ctx context.Context, database *sql.DB, c IndexChanges) er
 	}
 
 	if len(c.Symbols) > 0 {
-		insSym, err := tx.PrepareContext(ctx, `
-			INSERT INTO symbols (file_path, name, kind, signature, line_number)
-			VALUES (?, ?, ?, ?, ?)
-			ON CONFLICT(file_path, name, kind, line_number) DO UPDATE SET
-				signature = excluded.signature;
-		`)
-		if err != nil {
-			return fmt.Errorf("failed to prepare symbol insert: %w", err)
-		}
-		defer insSym.Close()
-		for _, s := range c.Symbols {
-			if _, err := insSym.ExecContext(ctx, s.FilePath, s.Name, s.Kind, s.Signature, s.LineNumber); err != nil {
-				return fmt.Errorf("failed to insert symbol %s in %s: %w", s.Name, s.FilePath, err)
+		const batchSize = 100
+		for i := 0; i < len(c.Symbols); i += batchSize {
+			end := i + batchSize
+			if end > len(c.Symbols) {
+				end = len(c.Symbols)
+			}
+			batch := c.Symbols[i:end]
+
+			var query strings.Builder
+			query.WriteString("INSERT INTO symbols (file_path, name, kind, signature, line_number) VALUES ")
+			args := make([]any, 0, len(batch)*5)
+			for j, s := range batch {
+				if j > 0 {
+					query.WriteString(",")
+				}
+				query.WriteString("(?, ?, ?, ?, ?)")
+				args = append(args, s.FilePath, s.Name, s.Kind, s.Signature, s.LineNumber)
+			}
+			query.WriteString(" ON CONFLICT(file_path, name, kind, line_number) DO UPDATE SET signature = excluded.signature;")
+
+			if _, err := tx.ExecContext(ctx, query.String(), args...); err != nil {
+				return fmt.Errorf("failed to batch insert symbols: %w", err)
 			}
 		}
 	}
@@ -630,17 +639,28 @@ func ApplyIndexChanges(ctx context.Context, database *sql.DB, c IndexChanges) er
 	}
 
 	if len(c.SymbolTerms) > 0 {
-		insTerms, err := tx.PrepareContext(ctx, `
-			INSERT INTO symbol_fts (file_path, name, kind, line_number, name_terms, doc_terms, body_terms)
-			VALUES (?, ?, ?, ?, ?, ?, ?);
-		`)
-		if err != nil {
-			return fmt.Errorf("failed to prepare symbol search insert: %w", err)
-		}
-		defer insTerms.Close()
-		for _, t := range c.SymbolTerms {
-			if _, err := insTerms.ExecContext(ctx, t.FilePath, t.Name, t.Kind, t.LineNumber, t.NameTerms, t.DocTerms, t.BodyTerms); err != nil {
-				return fmt.Errorf("failed to insert search terms for %s in %s: %w", t.Name, t.FilePath, err)
+		const batchSize = 100
+		for i := 0; i < len(c.SymbolTerms); i += batchSize {
+			end := i + batchSize
+			if end > len(c.SymbolTerms) {
+				end = len(c.SymbolTerms)
+			}
+			batch := c.SymbolTerms[i:end]
+
+			var query strings.Builder
+			query.WriteString("INSERT INTO symbol_fts (file_path, name, kind, line_number, name_terms, doc_terms, body_terms) VALUES ")
+			args := make([]any, 0, len(batch)*7)
+			for j, t := range batch {
+				if j > 0 {
+					query.WriteString(",")
+				}
+				query.WriteString("(?, ?, ?, ?, ?, ?, ?)")
+				args = append(args, t.FilePath, t.Name, t.Kind, t.LineNumber, t.NameTerms, t.DocTerms, t.BodyTerms)
+			}
+			query.WriteString(";")
+
+			if _, err := tx.ExecContext(ctx, query.String(), args...); err != nil {
+				return fmt.Errorf("failed to batch insert symbol search terms: %w", err)
 			}
 		}
 	}

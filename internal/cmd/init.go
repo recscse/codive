@@ -45,6 +45,10 @@ type IndexResult struct {
 // results come in, so callers where stdout must carry nothing but a protocol
 // stream (like the MCP server) can safely pass nil.
 func indexRepository(absDir string, onFile indexer.ProgressFunc) (*IndexResult, error) {
+	return indexRepositoryWithHooks(absDir, indexer.RebuildHooks{OnFileProgress: onFile})
+}
+
+func indexRepositoryWithHooks(absDir string, hooks indexer.RebuildHooks) (*IndexResult, error) {
 	startTime := time.Now()
 
 	dbPath := filepath.Join(absDir, ".codive", "index.db")
@@ -58,7 +62,7 @@ func indexRepository(absDir string, onFile indexer.ProgressFunc) (*IndexResult, 
 	// otherwise files deleted since the last index, and symbols whose line
 	// number moved (line_number is part of the symbols primary key), would
 	// survive alongside the fresh rows.
-	rebuilt, err := indexer.Rebuild(context.Background(), database, absDir, onFile)
+	rebuilt, err := indexer.RebuildWithHooks(context.Background(), database, absDir, hooks)
 	if err != nil {
 		return nil, fmt.Errorf("indexing failed: %w", err)
 	}
@@ -113,19 +117,32 @@ func RunInit(targetDir string) error {
 
 	slog.Info("Starting repository initialization", "path", absDir)
 
+	fmt.Println()
+	ui.Info("Scanning repository and discovering files...")
+
 	var bar *ui.ProgressBar
-	result, err := indexRepository(absDir, func(processed, total int, path string) {
-		if bar == nil {
-			bar = ui.NewProgressBar(total, "Indexing Codebase", "files")
-		}
-		bar.Update(1, path)
+	result, err := indexRepositoryWithHooks(absDir, indexer.RebuildHooks{
+		OnScanComplete: func(totalFiles int) {
+			if totalFiles > 0 {
+				bar = ui.NewProgressBar(totalFiles, "Indexing Codebase", "files")
+			}
+		},
+		OnFileProgress: func(processed, total int, path string) {
+			if bar == nil {
+				bar = ui.NewProgressBar(total, "Indexing Codebase", "files")
+			}
+			bar.Update(1, path)
+		},
+		OnCommitStart: func(totalSymbols, totalFTS int) {
+			if bar != nil {
+				bar.Finish("Symbols & AST extracted")
+			}
+			ui.Info(fmt.Sprintf("Writing %s to SQLite database (WAL mode)...", ui.Count(totalSymbols, "symbol", "symbols")))
+		},
 	})
 	if err != nil {
 		slog.Error("Failed to index repository", "error", err)
 		return err
-	}
-	if bar != nil {
-		bar.Finish("Symbols & AST extracted")
 	}
 
 	fmt.Println()

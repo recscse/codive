@@ -157,14 +157,30 @@ type RebuildResult struct {
 	SymbolCount int
 }
 
-// Rebuild scans rootDir from scratch and replaces the whole index with the
-// result in one transaction, so a failed rebuild leaves the old index intact.
-func Rebuild(ctx context.Context, database *sql.DB, rootDir string, onFile ProgressFunc) (*RebuildResult, error) {
+// RebuildHooks contains optional callbacks for progress reporting during full rebuild.
+type RebuildHooks struct {
+	OnScanComplete func(totalFiles int)
+	OnFileProgress ProgressFunc
+	OnCommitStart  func(totalSymbols, totalFTS int)
+}
+
+// RebuildWithHooks scans rootDir from scratch and replaces the whole index with the
+// result in one transaction, notifying hooks along the way.
+func RebuildWithHooks(ctx context.Context, database *sql.DB, rootDir string, hooks RebuildHooks) (*RebuildResult, error) {
 	scanRes, err := scanner.Scan(rootDir)
 	if err != nil {
 		return nil, err
 	}
-	ext := Extract(rootDir, scanRes.Files, onFile)
+	if hooks.OnScanComplete != nil {
+		hooks.OnScanComplete(len(scanRes.Files))
+	}
+
+	ext := Extract(rootDir, scanRes.Files, hooks.OnFileProgress)
+
+	if hooks.OnCommitStart != nil {
+		hooks.OnCommitStart(len(ext.Symbols), len(ext.FTS))
+	}
+
 	if err := db.ApplyIndexChanges(ctx, database, db.IndexChanges{
 		ReplaceAll:  true,
 		Files:       ext.Files,
@@ -178,6 +194,12 @@ func Rebuild(ctx context.Context, database *sql.DB, rootDir string, onFile Progr
 		return nil, err
 	}
 	return &RebuildResult{Scan: scanRes, FileCount: len(ext.Files), SymbolCount: len(ext.Symbols)}, nil
+}
+
+// Rebuild scans rootDir from scratch and replaces the whole index with the
+// result in one transaction, so a failed rebuild leaves the old index intact.
+func Rebuild(ctx context.Context, database *sql.DB, rootDir string, onFile ProgressFunc) (*RebuildResult, error) {
+	return RebuildWithHooks(ctx, database, rootDir, RebuildHooks{OnFileProgress: onFile})
 }
 
 const extractorVersionKey = "extractor_version"
