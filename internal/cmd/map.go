@@ -193,51 +193,102 @@ func GenerateMap(targetDir string, opts MapOptions) (string, error) {
 	sb.WriteString("# Repository Map\n")
 	sb.WriteString(fmt.Sprintf("Total Files: %d | Total Symbols: %d\n\n", len(filePaths), len(allSymbols)))
 
+	// Helper to format a single file entry
+	renderFileEntry := func(f string) string {
+		fileRec := allFiles[f]
+		syms := symbolsByFile[f]
+		var b strings.Builder
+		if len(syms) == 0 || !opts.IncludeSymbols {
+			b.WriteString(fmt.Sprintf("  - `%s` (%s, %s)\n",
+				filepath.Base(f),
+				fileRec.Language,
+				formatBytes(fileRec.SizeBytes)))
+		} else {
+			b.WriteString(fmt.Sprintf("  - `%s` (%s, %s) — %s:\n",
+				filepath.Base(f),
+				fileRec.Language,
+				formatBytes(fileRec.SizeBytes),
+				ui.Count(len(syms), "symbol", "symbols")))
+			for _, s := range syms {
+				cleanSig := strings.TrimSpace(s.Signature)
+				if cleanSig == "" {
+					cleanSig = s.Name
+				}
+				b.WriteString(fmt.Sprintf("     • [%s] `%s` (L%d)\n",
+					s.Kind,
+					cleanSig,
+					s.LineNumber))
+			}
+		}
+		return b.String()
+	}
+
+	// Pre-render file entries to know exact sizes
+	renderedEntries := make(map[string]string, len(filePaths))
+	for _, f := range filePaths {
+		renderedEntries[f] = renderFileEntry(f)
+	}
+
+	// Round-robin proportional budget allocation across directories
+	// Ensures every directory gets base representation without late-alphabet starvation
+	filesToShow := make(map[string]int, len(dirs))
+	currentChars := sb.Len()
+
+	// Reserve space for directory headers
+	for _, d := range dirs {
+		currentChars += len(fmt.Sprintf("## %s\n\n", d))
+	}
+
+	maxPossibleFiles := 0
+	for _, d := range dirs {
+		if len(dirMap[d]) > maxPossibleFiles {
+			maxPossibleFiles = len(dirMap[d])
+		}
+	}
+
+	budgetExhausted := false
+	for round := 0; round < maxPossibleFiles && !budgetExhausted; round++ {
+		madeProgress := false
+		for _, d := range dirs {
+			files := dirMap[d]
+			if round < len(files) {
+				cost := len(renderedEntries[files[round]])
+				if currentChars+cost <= maxChars || filesToShow[d] == 0 {
+					filesToShow[d]++
+					currentChars += cost
+					madeProgress = true
+				} else {
+					budgetExhausted = true
+					break
+				}
+			}
+		}
+		if !madeProgress {
+			break
+		}
+	}
+
 	truncatedFiles := 0
 
 	for _, d := range dirs {
-		if sb.Len() > maxChars {
-			truncatedFiles += len(dirMap[d])
-			continue
+		sb.WriteString(fmt.Sprintf("## %s\n", d))
+		shownCount := filesToShow[d]
+		files := dirMap[d]
+
+		for i := 0; i < shownCount && i < len(files); i++ {
+			sb.WriteString(renderedEntries[files[i]])
 		}
 
-		sb.WriteString(fmt.Sprintf("## %s\n", d))
-		for _, f := range dirMap[d] {
-			if sb.Len() > maxChars {
-				truncatedFiles++
-				continue
-			}
-
-			fileRec := allFiles[f]
-			syms := symbolsByFile[f]
-			if len(syms) == 0 || !opts.IncludeSymbols {
-				sb.WriteString(fmt.Sprintf("  - `%s` (%s, %s)\n",
-					filepath.Base(f),
-					fileRec.Language,
-					formatBytes(fileRec.SizeBytes)))
-			} else {
-				sb.WriteString(fmt.Sprintf("  - `%s` (%s, %s) — %s:\n",
-					filepath.Base(f),
-					fileRec.Language,
-					formatBytes(fileRec.SizeBytes),
-					ui.Count(len(syms), "symbol", "symbols")))
-				for _, s := range syms {
-					cleanSig := strings.TrimSpace(s.Signature)
-					if cleanSig == "" {
-						cleanSig = s.Name
-					}
-					sb.WriteString(fmt.Sprintf("     • [%s] `%s` (L%d)\n",
-						s.Kind,
-						cleanSig,
-						s.LineNumber))
-				}
-			}
+		if shownCount < len(files) {
+			omitted := len(files) - shownCount
+			truncatedFiles += omitted
+			sb.WriteString(fmt.Sprintf("  ... +%s in %s\n", ui.Count(omitted, "file", "files"), d))
 		}
 		sb.WriteString("\n")
 	}
 
 	if truncatedFiles > 0 {
-		sb.WriteString(fmt.Sprintf("\n> Map truncated (+%s omitted) to fit token budget. Use 'directory_filter' or 'max_depth' to inspect specific submodules.\n", ui.Count(truncatedFiles, "file", "files")))
+		sb.WriteString(fmt.Sprintf("> ⚠️ Map truncated (+%s omitted across modules) to fit token budget. Use 'directory_filter' or 'max_depth' to inspect specific submodules.\n", ui.Count(truncatedFiles, "file", "files")))
 	}
 
 	return strings.TrimSpace(sb.String()), nil

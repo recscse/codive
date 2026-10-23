@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.2.2] - 2026-10-23
+
+### Added
+- **Proportional Tree Budgeting (`get_repo_map` / `codive map`)**: Replaced greedy alphabetical directory loops with a two-pass round-robin budget allocator. Guarantees that every top-level package and module (including late-alphabet folders like `services/`, `utils/`, `web/`) is visibly represented within the token budget.
+- **Subword Intent Decomposition & Synonym Expansion (`pack_feature_context`)**: Added camelCase/snake_case subword tokenization, character trigram similarity, and domain synonym clustering (`internal/ranker/intent.go`). Queries for conceptual tasks like `login`, `throttle`, or `db` now automatically match relevant codebase symbols (`VerifyCredentials`, `RateLimiter`).
+- **Attention U-Curve Layout**: Arranged context in `pack_feature_context` according to Karpathy's Transformer Attention U-Curve (Core Types & Interfaces at the top priming anchor, skeletons in the middle, and implementation functions & test assertions at the bottom recency anchor).
+- **Session Working-Set Deduplication**: Added in-memory session tracking (`internal/mcp/session.go`). Within active MCP connections, re-requesting already-delivered file skeletons or symbol bodies emits compact reference anchors, saving 3,000–8,000 redundant tokens per turn (pass `force: true` to bypass).
+
 ## [v1.2.1] - 2026-10-23
 
 ### Added

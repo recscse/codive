@@ -147,12 +147,23 @@ func (s *Server) readSymbol(ctx context.Context, targetDB *sql.DB, targetDir str
 		return &ToolCallResult{Content: []ContentItem{{Type: "text", Text: noSymbolMessage(ctx, targetDB, sq)}}}, nil
 	}
 
+	force, _ := args["force"].(bool)
 	var sb strings.Builder
 	rawTokens := 0
 	shown := matches[:min(limit, len(matches))]
 	for i, m := range shown {
 		if i > 0 {
 			sb.WriteString("\n")
+		}
+		symKey := fmt.Sprintf("%s:%s:%d", m.FilePath, m.Name, m.LineNumber)
+		dedup, _ := args["dedup"].(bool)
+		if dedup && !force && s.session != nil {
+			if seen, firstTurn := s.session.CheckAndRecordSymbol(symKey); seen {
+				sb.WriteString(s.session.CompactSymbolRef(m.Name, m.FilePath, m.LineNumber, firstTurn))
+				continue
+			}
+		} else if s.session != nil {
+			s.session.CheckAndRecordSymbol(symKey)
 		}
 		rawTokens += writeDefinition(&sb, m, files)
 	}

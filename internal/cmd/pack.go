@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/ranker"
 	"github.com/recscse/codive/internal/scanner"
 	"github.com/recscse/codive/internal/symbols"
 	"github.com/recscse/codive/internal/ui"
@@ -47,42 +48,128 @@ func RunPack(targetDir string, query string) error {
 	return nil
 }
 
-// PackFeatureContext bundles related types, functions, callers, and test files for a topic into 1 high-density markdown bundle.
+// PackFeatureContext bundles related types, functions, callers, and test files for a topic into 1 high-density markdown bundle
+// structured around Karpathy's Attention U-Curve (interfaces at top, target code & tests at bottom).
 func PackFeatureContext(ctx context.Context, database *sql.DB, rootDir string, topic string) (string, error) {
-	// 1. Find matching declared symbols
+	topicTerms := strings.Fields(topic)
+	expanded := ranker.ExpandTerms(topicTerms)
+
+	// 1. Find matching declared symbols (direct + expanded intent synonyms)
 	syms, err := db.FindSymbols(ctx, database, topic)
 	if err != nil {
 		return "", err
 	}
 
+	seenSym := make(map[string]bool)
+	var allSyms []db.SymbolRecord
+	for _, s := range syms {
+		key := fmt.Sprintf("%s:%d", s.FilePath, s.LineNumber)
+		if !seenSym[key] {
+			seenSym[key] = true
+			allSyms = append(allSyms, s)
+		}
+	}
+
+	if len(allSyms) < 12 {
+		for _, expTerm := range expanded {
+			if strings.EqualFold(expTerm, topic) {
+				continue
+			}
+			moreSyms, _ := db.FindSymbols(ctx, database, expTerm)
+			for _, s := range moreSyms {
+				key := fmt.Sprintf("%s:%d", s.FilePath, s.LineNumber)
+				if !seenSym[key] {
+					seenSym[key] = true
+					allSyms = append(allSyms, s)
+					if len(allSyms) >= 16 {
+						break
+					}
+				}
+			}
+			if len(allSyms) >= 16 {
+				break
+			}
+		}
+	}
+	syms = allSyms
+
 	// 2. Find matching code snippets
 	ftsMatches, _ := db.SearchFTS(ctx, database, topic, 15)
+	if len(ftsMatches) < 5 {
+		for _, expTerm := range expanded {
+			if strings.EqualFold(expTerm, topic) {
+				continue
+			}
+			moreFTS, _ := db.SearchFTS(ctx, database, expTerm, 5)
+			for _, m := range moreFTS {
+				ftsMatches = append(ftsMatches, m)
+			}
+			if len(ftsMatches) >= 15 {
+				break
+			}
+		}
+	}
 
 	// 3. Find test suites
 	tests, _ := db.FindTestsFor(ctx, database, topic)
+	if len(tests) == 0 {
+		for _, expTerm := range expanded {
+			if strings.EqualFold(expTerm, topic) {
+				continue
+			}
+			moreTests, _ := db.FindTestsFor(ctx, database, expTerm)
+			if len(moreTests) > 0 {
+				tests = append(tests, moreTests...)
+				break
+			}
+		}
+	}
 
 	// 4. Find stored architecture decisions
 	decisions, _ := db.GetDecisions(ctx, database, topic)
+	if len(decisions) == 0 {
+		for _, expTerm := range expanded {
+			if strings.EqualFold(expTerm, topic) {
+				continue
+			}
+			moreDecs, _ := db.GetDecisions(ctx, database, expTerm)
+			if len(moreDecs) > 0 {
+				decisions = append(decisions, moreDecs...)
+				break
+			}
+		}
+	}
+
+	// Partition symbols into Types/Interfaces (Priming zone) vs Functions/Methods (Recency zone)
+	var typeSyms []db.SymbolRecord
+	var fnSyms []db.SymbolRecord
+	for _, s := range syms {
+		if s.Kind == "struct" || s.Kind == "interface" || s.Kind == "class" || s.Kind == "type" {
+			typeSyms = append(typeSyms, s)
+		} else {
+			fnSyms = append(fnSyms, s)
+		}
+	}
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("# Feature Context Pack: `%s`\n\n", topic))
 
-	// Section A: Architecture Decisions
+	// -------------------------------------------------------------
+	// ZONE 1 (PRIMING ANCHOR): Decisions & Invariants + Core Types
+	// -------------------------------------------------------------
 	if len(decisions) > 0 {
 		sb.WriteString("## Stored Architectural Decisions\n")
 		for _, d := range decisions {
-			sb.WriteString(fmt.Sprintf("- **[%s]** %s *(recorded %s)*\n",
-				d.Topic, d.Summary, d.CreatedAt.Format("2006-01-02")))
+			sb.WriteString(fmt.Sprintf("- **[%s]** %s\n", d.Topic, d.Summary))
 		}
 		sb.WriteString("\n")
 	}
 
-	// Section B: Declared Symbols & Types
-	if len(syms) > 0 {
-		sb.WriteString("## Core Types & Functions\n")
-		for i, s := range syms {
-			if i >= 12 {
-				sb.WriteString(fmt.Sprintf("... +%d other symbol definitions\n", len(syms)-12))
+	if len(typeSyms) > 0 {
+		sb.WriteString("## Core Types & Interfaces\n")
+		for i, s := range typeSyms {
+			if i >= 10 {
+				sb.WriteString(fmt.Sprintf("... +%d other type definitions\n", len(typeSyms)-10))
 				break
 			}
 			sb.WriteString(fmt.Sprintf("- `[%s]` **%s** (`%s:%d`)\n  `%s`\n",
@@ -91,11 +178,11 @@ func PackFeatureContext(ctx context.Context, database *sql.DB, rootDir string, t
 		sb.WriteString("\n")
 	}
 
-	// Section B.5: Call relationships for the top callable matches — who calls
-	// them and what they call, in this same response, instead of requiring
-	// separate refs/find_callees follow-up commands to build the same picture.
+	// -------------------------------------------------------------
+	// ZONE 2 (MIDDLE BODY): Call Relationships + Structural Skeletons
+	// -------------------------------------------------------------
 	var relSyms []db.SymbolRecord
-	for _, s := range syms {
+	for _, s := range fnSyms {
 		if s.Kind == "function" || s.Kind == "method" {
 			relSyms = append(relSyms, s)
 			if len(relSyms) >= 5 {
@@ -150,23 +237,6 @@ func PackFeatureContext(ctx context.Context, database *sql.DB, rootDir string, t
 		sb.WriteString("\n")
 	}
 
-	// Section C: Matching Test Files
-	if len(tests) > 0 {
-		sb.WriteString("## Relevant Test Suites\n")
-		for _, t := range tests {
-			sb.WriteString(fmt.Sprintf("- **%s**\n", t.TestFilePath))
-			for _, name := range t.TestNames {
-				sb.WriteString(fmt.Sprintf("   • `%s`\n", name))
-			}
-		}
-		sb.WriteString("\n")
-	}
-
-	// Section D: File Skeletons for top related files.
-	// Rank by relevance rather than alphabetically: a file whose declared symbols
-	// matched the topic is a far stronger signal than a file that merely mentions
-	// the topic word in prose, and among FTS-only matches we keep SearchFTS's own
-	// bm25 rank order (best match first) instead of discarding it.
 	seenFile := make(map[string]bool)
 	var candidateFiles []string
 	addCandidate := func(f string) {
@@ -186,10 +256,6 @@ func PackFeatureContext(ctx context.Context, database *sql.DB, rootDir string, t
 		addCandidate(m.Path)
 	}
 
-	// A skeleton is inherently useless for a file with no AST extractor, so prefer
-	// AST-capable source files for the limited skeleton slots over docs/markup that
-	// merely mention the topic more densely and out-rank the real source file in
-	// FTS's bm25 score. Order is preserved within each group.
 	var codeFiles, otherFiles []string
 	for _, f := range candidateFiles {
 		if symbols.IsASTCapableLanguage(scanner.DetectLanguage(f)) {
@@ -212,14 +278,37 @@ func PackFeatureContext(ctx context.Context, database *sql.DB, rootDir string, t
 			if err != nil {
 				continue
 			}
-			// Pass nil symbols with the real detected language (not the literal
-			// string "auto", which matched no case in ExtractSymbols' switch and
-			// silently produced an empty skeleton for every file, always) so
-			// GenerateSkeleton's own fallback re-extracts symbols correctly.
 			lang := scanner.DetectLanguage(f)
 			skel := symbols.GenerateSkeleton(f, lang, content, nil)
 			sb.WriteString(fmt.Sprintf("```\n%s\n```\n\n", skel))
 		}
+	}
+
+	// -------------------------------------------------------------
+	// ZONE 3 (RECENCY ANCHOR): Implementation Functions + Unit Tests
+	// -------------------------------------------------------------
+	if len(fnSyms) > 0 {
+		sb.WriteString("## Implementation Functions\n")
+		for i, s := range fnSyms {
+			if i >= 10 {
+				sb.WriteString(fmt.Sprintf("... +%d other functions\n", len(fnSyms)-10))
+				break
+			}
+			sb.WriteString(fmt.Sprintf("- `[%s]` **%s** (`%s:%d`)\n  `%s`\n",
+				s.Kind, s.Name, s.FilePath, s.LineNumber, s.Signature))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(tests) > 0 {
+		sb.WriteString("## Relevant Test Suites\n")
+		for _, t := range tests {
+			sb.WriteString(fmt.Sprintf("- **%s**\n", t.TestFilePath))
+			for _, name := range t.TestNames {
+				sb.WriteString(fmt.Sprintf("   • `%s`\n", name))
+			}
+		}
+		sb.WriteString("\n")
 	}
 
 	sb.WriteString("> Tip: use `codive:read_file_context` only on specific lines if you need the full implementation details.")

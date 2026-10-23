@@ -20,6 +20,7 @@ import (
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/git"
 	"github.com/recscse/codive/internal/indexer"
+	"github.com/recscse/codive/internal/ranker"
 	"github.com/recscse/codive/internal/scanner"
 	"github.com/recscse/codive/internal/symbols"
 )
@@ -92,6 +93,8 @@ type Server struct {
 	outbound []any
 	// learn collects feedback on read_symbol intent results.
 	learn learner
+	// session tracks delivered context across conversation turns.
+	session *SessionTracker
 }
 
 // SetFreshnessHook registers fn to run before any index-reading tool call,
@@ -174,6 +177,7 @@ func NewServer(rootDir string, database *sql.DB, version string) *Server {
 		version:  version,
 		database: database,
 		dbCache:  make(map[string]*sql.DB),
+		session:  NewSessionTracker(),
 	}
 }
 
@@ -871,6 +875,11 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 	s.learn.observe(name, args, targetDir)
 	s.resolveIntents(ctx, false)
 
+	// Advance conversation turn in session tracker
+	if s.session != nil {
+		s.session.NextTurn()
+	}
+
 	switch name {
 	case "get_repo_map":
 		maxDepth := 0
@@ -953,41 +962,85 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		sb.WriteString(fmt.Sprintf("# Repository Map: `%s`\n", targetDir))
 		sb.WriteString(fmt.Sprintf("> 📍 **Workspace Root**: `%s` | **Indexed Files**: %d | **Total Symbols**: %d\n\n", targetDir, len(filePaths), len(allSymbols)))
 
+		// Pre-render file entries for proportional budgeting
+		renderEntry := func(f string) string {
+			fileRec := allFiles[f]
+			syms := symbolsByFile[f]
+			var b strings.Builder
+			if len(syms) == 0 || !includeSymbols {
+				b.WriteString(fmt.Sprintf("  📄 `%s` (%s, %d bytes)\n", filepath.Base(f), fileRec.Language, fileRec.SizeBytes))
+			} else {
+				b.WriteString(fmt.Sprintf("  📄 `%s` (%s, %d bytes) — %d symbols:\n", filepath.Base(f), fileRec.Language, fileRec.SizeBytes, len(syms)))
+				for _, sym := range syms {
+					sig := strings.TrimSpace(sym.Signature)
+					if sig == "" {
+						sig = sym.Name
+					}
+					b.WriteString(fmt.Sprintf("     • [%s] `%s` (L%d)\n", sym.Kind, sig, sym.LineNumber))
+				}
+			}
+			return b.String()
+		}
+
+		renderedEntries := make(map[string]string, len(filePaths))
+		for _, f := range filePaths {
+			renderedEntries[f] = renderEntry(f)
+		}
+
+		filesToShow := make(map[string]int, len(dirs))
+		currentChars := sb.Len()
+		for _, d := range dirs {
+			currentChars += len(fmt.Sprintf("## %s\n\n", d))
+		}
+
+		maxPossibleFiles := 0
+		for _, d := range dirs {
+			if len(dirMap[d]) > maxPossibleFiles {
+				maxPossibleFiles = len(dirMap[d])
+			}
+		}
+
+		budgetExhausted := false
+		for round := 0; round < maxPossibleFiles && !budgetExhausted; round++ {
+			madeProgress := false
+			for _, d := range dirs {
+				files := dirMap[d]
+				if round < len(files) {
+					cost := len(renderedEntries[files[round]])
+					if currentChars+cost <= maxChars || filesToShow[d] == 0 {
+						filesToShow[d]++
+						currentChars += cost
+						madeProgress = true
+					} else {
+						budgetExhausted = true
+						break
+					}
+				}
+			}
+			if !madeProgress {
+				break
+			}
+		}
+
 		truncatedFiles := 0
 
 		for _, d := range dirs {
-			if sb.Len() > maxChars {
-				truncatedFiles += len(dirMap[d])
-				continue
-			}
-
 			sb.WriteString(fmt.Sprintf("## %s\n", d))
-			for _, f := range dirMap[d] {
-				if sb.Len() > maxChars {
-					truncatedFiles++
-					continue
-				}
-
-				fileRec := allFiles[f]
-				syms := symbolsByFile[f]
-				if len(syms) == 0 || !includeSymbols {
-					sb.WriteString(fmt.Sprintf("  📄 `%s` (%s, %d bytes)\n", filepath.Base(f), fileRec.Language, fileRec.SizeBytes))
-				} else {
-					sb.WriteString(fmt.Sprintf("  📄 `%s` (%s, %d bytes) — %d symbols:\n", filepath.Base(f), fileRec.Language, fileRec.SizeBytes, len(syms)))
-					for _, sym := range syms {
-						sig := strings.TrimSpace(sym.Signature)
-						if sig == "" {
-							sig = sym.Name
-						}
-						sb.WriteString(fmt.Sprintf("     • [%s] `%s` (L%d)\n", sym.Kind, sig, sym.LineNumber))
-					}
-				}
+			shownCount := filesToShow[d]
+			files := dirMap[d]
+			for i := 0; i < shownCount && i < len(files); i++ {
+				sb.WriteString(renderedEntries[files[i]])
+			}
+			if shownCount < len(files) {
+				omitted := len(files) - shownCount
+				truncatedFiles += omitted
+				sb.WriteString(fmt.Sprintf("  ... +%d file(s) omitted in %s\n", omitted, d))
 			}
 			sb.WriteString("\n")
 		}
 
 		if truncatedFiles > 0 {
-			sb.WriteString(fmt.Sprintf("\n> ⚠️ *Map truncated (+%d files omitted) to stay within %d tokens. Use 'directory_filter' or 'max_depth' to inspect deeper submodules.*\n", truncatedFiles, tokenBudget))
+			sb.WriteString(fmt.Sprintf("> ⚠️ *Map truncated (+%d files omitted across modules) to stay within %d tokens. Use 'directory_filter' or 'max_depth' to inspect deeper submodules.*\n", truncatedFiles, tokenBudget))
 		}
 
 		return &ToolCallResult{
@@ -1211,6 +1264,21 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			return nil, fmt.Errorf("path argument is required")
 		}
 		relPath = filepath.ToSlash(relPath)
+
+		force, _ := args["force"].(bool)
+		if !force && s.session != nil {
+			if seen, firstTurn := s.session.CheckAndRecordFile(relPath); seen {
+				return &ToolCallResult{
+					Content: []ContentItem{{
+						Type: "text",
+						Text: s.session.CompactFileRef(relPath, firstTurn),
+					}},
+				}, nil
+			}
+		} else if s.session != nil {
+			s.session.CheckAndRecordFile(relPath)
+		}
+
 		s.ensureFreshSymbols(ctx, targetDB, targetDir, relPath)
 
 		fullPath, err := validateSafeRelPath(targetDir, relPath)
@@ -1265,27 +1333,116 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			return nil, fmt.Errorf("topic argument is required")
 		}
 
+		topicTerms := strings.Fields(topic)
+		expanded := ranker.ExpandTerms(topicTerms)
+
 		syms, _ := db.FindSymbols(ctx, targetDB, topic)
+		seenSym := make(map[string]bool)
+		var allSyms []db.SymbolRecord
+		for _, s := range syms {
+			key := fmt.Sprintf("%s:%d", s.FilePath, s.LineNumber)
+			if !seenSym[key] {
+				seenSym[key] = true
+				allSyms = append(allSyms, s)
+			}
+		}
+
+		if len(allSyms) < 12 {
+			for _, expTerm := range expanded {
+				if strings.EqualFold(expTerm, topic) {
+					continue
+				}
+				moreSyms, _ := db.FindSymbols(ctx, targetDB, expTerm)
+				for _, s := range moreSyms {
+					key := fmt.Sprintf("%s:%d", s.FilePath, s.LineNumber)
+					if !seenSym[key] {
+						seenSym[key] = true
+						allSyms = append(allSyms, s)
+						if len(allSyms) >= 16 {
+							break
+						}
+					}
+				}
+				if len(allSyms) >= 16 {
+					break
+				}
+			}
+		}
+		syms = allSyms
+
 		ftsMatches, _ := db.SearchFTS(ctx, targetDB, topic, 10)
+		if len(ftsMatches) < 5 {
+			for _, expTerm := range expanded {
+				if strings.EqualFold(expTerm, topic) {
+					continue
+				}
+				moreFTS, _ := db.SearchFTS(ctx, targetDB, expTerm, 5)
+				for _, m := range moreFTS {
+					ftsMatches = append(ftsMatches, m)
+				}
+				if len(ftsMatches) >= 15 {
+					break
+				}
+			}
+		}
+
 		tests, _ := db.FindTestsFor(ctx, targetDB, topic)
+		if len(tests) == 0 {
+			for _, expTerm := range expanded {
+				if strings.EqualFold(expTerm, topic) {
+					continue
+				}
+				moreTests, _ := db.FindTestsFor(ctx, targetDB, expTerm)
+				if len(moreTests) > 0 {
+					tests = append(tests, moreTests...)
+					break
+				}
+			}
+		}
+
 		decisions, _ := db.GetDecisions(ctx, targetDB, topic)
+		if len(decisions) == 0 {
+			for _, expTerm := range expanded {
+				if strings.EqualFold(expTerm, topic) {
+					continue
+				}
+				moreDecs, _ := db.GetDecisions(ctx, targetDB, expTerm)
+				if len(moreDecs) > 0 {
+					decisions = append(decisions, moreDecs...)
+					break
+				}
+			}
+		}
+
+		var typeSyms []db.SymbolRecord
+		var fnSyms []db.SymbolRecord
+		for _, s := range syms {
+			if s.Kind == "struct" || s.Kind == "interface" || s.Kind == "class" || s.Kind == "type" {
+				typeSyms = append(typeSyms, s)
+			} else {
+				fnSyms = append(fnSyms, s)
+			}
+		}
 
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("# 📦 Feature Context Pack: `%s`\n\n", topic))
 
+		// -------------------------------------------------------------
+		// ZONE 1 (PRIMING ANCHOR): Decisions & Invariants + Core Types
+		// -------------------------------------------------------------
 		if len(decisions) > 0 {
 			sb.WriteString("## 🧠 Stored Architectural Decisions\n")
 			for _, d := range decisions {
-				sb.WriteString(fmt.Sprintf("- **[%s]** %s *(recorded %s)*\n", d.Topic, d.Summary, d.CreatedAt.Format("2006-01-02")))
+				sb.WriteString(fmt.Sprintf("- **[%s]** %s\n", d.Topic, d.Summary))
 			}
 			sb.WriteString("\n")
 		}
 
-		if len(syms) > 0 {
-			sb.WriteString("## 🧬 Core Types & Functions\n")
-			for i, s := range syms {
+		if len(typeSyms) > 0 {
+			sb.WriteString("## 🧬 Core Types & Interfaces\n")
+			for i, s := range typeSyms {
 				if i >= 10 {
-					sb.WriteString(fmt.Sprintf("... +%d other symbol definitions\n", len(syms)-10))
+					sb.WriteString(fmt.Sprintf("... +%d other type definitions\n", len(typeSyms)-10))
 					break
 				}
 				sb.WriteString(fmt.Sprintf("- `[%s]` **%s** (`%s:%d`)\n  `%s`\n", s.Kind, s.Name, s.FilePath, s.LineNumber, s.Signature))
@@ -1293,11 +1450,11 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			sb.WriteString("\n")
 		}
 
-		// Call relationships for the top callable matches: who calls them and what
-		// they call, in this same response — otherwise an agent needs separate
-		// find_callers/find_callees round trips to build this picture itself.
+		// -------------------------------------------------------------
+		// ZONE 2 (MIDDLE BODY): Call Relationships + Structural Skeletons
+		// -------------------------------------------------------------
 		var relSyms []db.SymbolRecord
-		for _, s := range syms {
+		for _, s := range fnSyms {
 			if s.Kind == "function" || s.Kind == "method" {
 				relSyms = append(relSyms, s)
 				if len(relSyms) >= 5 {
@@ -1306,9 +1463,6 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			}
 		}
 		if len(relSyms) > 0 {
-			// Symbols are loaded only for files that actually contain a caller,
-			// not for the whole repository (a full load per call is ~100k rows
-			// on a large codebase).
 			symbolsByFile := make(map[string][]db.SymbolRecord)
 			fileSymbols := func(path string) []db.SymbolRecord {
 				if syms, ok := symbolsByFile[path]; ok {
@@ -1359,24 +1513,6 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			sb.WriteString("\n")
 		}
 
-		if len(tests) > 0 {
-			sb.WriteString("## 🧪 Relevant Test Suites\n")
-			for _, t := range tests {
-				sb.WriteString(fmt.Sprintf("- **%s**\n", t.TestFilePath))
-				for _, name := range t.TestNames {
-					sb.WriteString(fmt.Sprintf("   • `%s`\n", name))
-				}
-			}
-			sb.WriteString("\n")
-		}
-
-		// Rank candidate files by relevance rather than alphabetically: a file whose
-		// declared symbols matched the topic is a far stronger signal than a file that
-		// merely mentions the topic word in prose (e.g. a CHANGELOG entry), and among
-		// FTS-only matches we keep SearchFTS's own bm25 rank order (best match first)
-		// instead of discarding it. Otherwise a doc file that happens to sort before
-		// the actually-relevant source file (alphabetically) could crowd it out of the
-		// limited skeleton slots below.
 		seenFile := make(map[string]bool)
 		var candidateFiles []string
 		addCandidate := func(f string) {
@@ -1396,11 +1532,6 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			addCandidate(m.Path)
 		}
 
-		// A skeleton is inherently useless for a file with no AST extractor (it can
-		// only ever render the "no AST symbols" fallback), so prefer AST-capable
-		// source files for the limited skeleton slots below over docs/markup that
-		// merely mention the topic word more densely and out-rank the real source
-		// file in FTS's bm25 score. Order is preserved within each group.
 		var codeFiles, otherFiles []string
 		for _, f := range candidateFiles {
 			if symbols.IsASTCapableLanguage(scanner.DetectLanguage(f)) {
@@ -1422,15 +1553,36 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 				if err != nil {
 					continue
 				}
-				// Deliberately pass nil symbols with the real detected language (not the
-				// literal string "auto", which matched no case in ExtractSymbols' switch
-				// and silently produced an empty skeleton for every file, always). This
-				// lets GenerateSkeleton's own fallback re-extract symbols correctly, the
-				// same working pattern get_file_skeleton uses.
 				lang := scanner.DetectLanguage(f)
 				skel := symbols.GenerateSkeleton(f, lang, content, nil)
 				sb.WriteString(fmt.Sprintf("```\n%s\n```\n\n", skel))
 			}
+		}
+
+		// -------------------------------------------------------------
+		// ZONE 3 (RECENCY ANCHOR): Implementation Functions + Unit Tests
+		// -------------------------------------------------------------
+		if len(fnSyms) > 0 {
+			sb.WriteString("## ⚡ Implementation Functions\n")
+			for i, s := range fnSyms {
+				if i >= 10 {
+					sb.WriteString(fmt.Sprintf("... +%d other functions\n", len(fnSyms)-10))
+					break
+				}
+				sb.WriteString(fmt.Sprintf("- `[%s]` **%s** (`%s:%d`)\n  `%s`\n", s.Kind, s.Name, s.FilePath, s.LineNumber, s.Signature))
+			}
+			sb.WriteString("\n")
+		}
+
+		if len(tests) > 0 {
+			sb.WriteString("## 🧪 Relevant Test Suites\n")
+			for _, t := range tests {
+				sb.WriteString(fmt.Sprintf("- **%s**\n", t.TestFilePath))
+				for _, name := range t.TestNames {
+					sb.WriteString(fmt.Sprintf("   • `%s`\n", name))
+				}
+			}
+			sb.WriteString("\n")
 		}
 
 		return &ToolCallResult{

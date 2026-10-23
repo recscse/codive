@@ -54,14 +54,14 @@ If you prefer adding the configuration manually to your editor's MCP config:
 
 ## 2. The 14 MCP Tools Reference & Usage
 
-### 1. `pack_feature_context` (One-Shot Feature Discovery)
-- **Description**: Bundles related routes, data models, schemas, skeletons, and test suites for a feature keyword into a single compressed context summary.
+### 1. `pack_feature_context` (One-Shot Feature Discovery with Attention U-Curve)
+- **Description**: Bundles related routes, data models, schemas, skeletons, and test suites for a feature keyword into a single compressed context summary. Features **Subword Intent Decomposition** (maps conceptual terms like `login` or `rate limit` to actual codebase symbols like `VerifyCredentials` or `ThrottleRequests`) and formats context using **Karpathy's Attention U-Curve** (interfaces and decisions at the top priming anchor, target functions and test assertions at the bottom recency anchor).
 - **When to use**: Whenever starting work on a feature (e.g. "Add JWT token refresh", "Implement database migrations").
 - **Example Agent Prompt**:
   > *"Use `pack_feature_context` on 'auth' to understand how authentication and tokens are handled."*
 
-### 2. `get_file_skeleton` (Code Skeletonizer)
-- **Description**: Strips out function and method bodies and preserves type definitions, imports, interfaces, and function signatures with line ranges (`/* L45-L92 */`).
+### 2. `get_file_skeleton` (Code Skeletonizer with Session Deduplication)
+- **Description**: Strips out function and method bodies and preserves type definitions, imports, interfaces, and function signatures with line ranges (`/* L45-L92 */`). Within active multi-turn MCP sessions, repeated calls on already-delivered files automatically return compact delta references, saving thousands of tokens (pass `force: true` to reprint full skeleton).
 - **When to use**: Before reading large files (500+ lines) to avoid burning 5,000+ tokens.
 - **Example Agent Prompt**:
   > *"Inspect the skeleton of `internal/scanner/scanner.go` using `get_file_skeleton`."*
@@ -88,8 +88,8 @@ If you prefer adding the configuration manually to your editor's MCP config:
 ### 7. `find_tests_for` (Smart Test Suite Locator)
 - **Description**: Finds the corresponding test file (`*_test.go`, `test_*.py`, `*.spec.ts`) and specific test functions for a source file or symbol.
 
-### 8. `get_repo_map` (Structural Architecture Map)
-- **Description**: Emits an indentation-based directory hierarchy annotated with declared symbol signatures, respecting a strict token budget (`token_budget: 3000`).
+### 8. `get_repo_map` (Structural Architecture Map with Proportional Tree Budgeting)
+- **Description**: Emits an indentation-based directory hierarchy annotated with declared symbol signatures, respecting a strict token budget (`token_budget: 3000`). Features **Proportional Tree Budgeting**, ensuring that every top-level package and module (even late-alphabet packages like `services/`, `utils/`, `web/`) is guaranteed representation rather than being truncated by large early directories.
 
 ### 9. `get_git_changes` (AST Diff Summarizer)
 - **Description**: Summarizes uncommitted git changes by mapping modified line ranges to enclosing AST functions/classes instead of dumping raw diffs.

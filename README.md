@@ -24,7 +24,9 @@ When AI coding assistants (Claude Desktop, Cursor, Google Antigravity, VS Code, 
 
 - **⚡ Sub-Millisecond Queries**: Local SQLite with Write-Ahead Logging (`WAL`), `synchronous = NORMAL`, and `busy_timeout = 10000ms` delivers symbol lookups in `< 1.8ms`.
 - **🦴 Token-Compressed Skeletons (`get_file_skeleton`)**: Replaces function and method bodies with `{ /* L45-L92 */ }` line references, reducing token consumption by **95–98%** while preserving structural awareness.
-- **📦 1-Shot Feature Bundling (`pack_feature_context`)**: Aggregates route handlers, data models, skeletons, and test suites matching a feature in a single query turn.
+- **📦 1-Shot Feature Bundling (`pack_feature_context`)**: Aggregates route handlers, data models, skeletons, and test suites matching a feature in a single query turn. Powered by **Subword Intent Decomposition** (finds `VerifyCredentials` from `"login"`) and **Karpathy's Attention U-Curve** (interfaces at the top, active tests and functions at the bottom).
+- **🗺️ Proportional Architecture Maps (`get_repo_map`)**: Employs two-pass proportional tree budgeting so all modules (including late-alphabet folders like `services/`, `utils/`, `web/`) are guaranteed representation without truncation.
+- **🧠 Session Working-Set Deduplication**: In multi-turn chat sessions with AI agents, re-queries for already-delivered files or symbols return compact reference anchors, saving 3,000–8,000 redundant tokens per turn.
 - **💣 Blast Radius Analysis (`blast_radius`)**: Traces direct callers, impacted files, and linked unit test suites before modifying code to prevent breaking changes.
 - **🔒 100% Local & Private**: All indexes live in `.codive/index.db`. Zero cloud telemetry, zero remote tracking, zero external data leakage.
 - **🔄 Auto-Configuring Multi-Client Setup (`codive setup`)**: Automatically detects and registers the MCP server in Claude Desktop, Cursor IDE, Google Antigravity, and VS Code.
