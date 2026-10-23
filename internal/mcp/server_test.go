@@ -128,8 +128,8 @@ func TestMCPServer(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &listResp); err != nil {
 		t.Fatalf("failed to unmarshal tools/list response: %v", err)
 	}
-	if len(listResp.Result.Tools) != 15 {
-		t.Errorf("expected 15 tools, got %d", len(listResp.Result.Tools))
+	if len(listResp.Result.Tools) != 16 {
+		t.Errorf("expected 16 tools, got %d", len(listResp.Result.Tools))
 	}
 
 	// Test save_decision and get_decisions
@@ -604,5 +604,27 @@ func TestGuardOutput(t *testing.T) {
 	many := strings.Repeat(strings.Repeat("x", 100)+"\n", maxOutputChars/50)
 	if out := guardOutput(many); len(out) > maxOutputChars+300 || !strings.Contains(out, "Output truncated") {
 		t.Errorf("total output not capped: len %d", len(out))
+	}
+}
+
+func TestFindFilesTool(t *testing.T) {
+	tempDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tempDir, "service.go"), []byte("package svc\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, "service_test.go"), []byte("package svc\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	indexForTest(t, tempDir)
+	server := NewServer(tempDir, nil, "test")
+	defer server.Close()
+
+	res, err := server.executeTool(context.Background(), "find_files", map[string]any{"pattern": "*_test.go", "workspace_path": tempDir})
+	if err != nil {
+		t.Fatalf("find_files failed: %v", err)
+	}
+	text := res.Content[0].Text
+	if !strings.Contains(text, "service_test.go") || strings.Contains(text, "service.go (") {
+		t.Errorf("unexpected find_files result: %s", text)
 	}
 }

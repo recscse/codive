@@ -564,6 +564,10 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 							"type":        "string",
 							"description": "Optional path to target repository root",
 						},
+						"include_hunks": map[string]any{
+							"type":        "boolean",
+							"description": "Optional: include exact diff hunks scoped strictly to modified functions (default: false)",
+						},
 					},
 				},
 			},
@@ -1517,7 +1521,8 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}, nil
 
 	case "get_git_changes":
-		gitRes, err := git.GetGitChanges(ctx, targetDir, targetDB)
+		includeHunks, _ := args["include_hunks"].(bool)
+		gitRes, err := git.GetGitChangesWithOptions(ctx, targetDir, targetDB, git.GitChangesOptions{IncludeHunks: includeHunks})
 		if err != nil {
 			return nil, err
 		}
