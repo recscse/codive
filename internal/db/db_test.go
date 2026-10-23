@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestDB(t *testing.T) {
@@ -462,5 +463,16 @@ func TestFindReferencesPageReportsMore(t *testing.T) {
 	callers, err := FindCallersPage(ctx, database, "Hit", 1)
 	if err != nil || len(callers.Refs) != 1 || !callers.More {
 		t.Errorf("callers limit 1 of 3: expected More, got %+v err=%v", callers, err)
+	}
+}
+
+func TestClipAround(t *testing.T) {
+	if got := clipAround("short line", "line", 50); got != "short line" {
+		t.Errorf("short line changed: %q", got)
+	}
+	long := strings.Repeat("a", 1000) + "TARGET" + strings.Repeat("ü", 1000)
+	got := clipAround(long, "TARGET", 100)
+	if !strings.Contains(got, "TARGET") || !strings.HasPrefix(got, "…") || !strings.HasSuffix(got, "…") || !utf8.ValidString(got) || len(got) > 120 {
+		t.Errorf("bad clip: %q", got)
 	}
 }

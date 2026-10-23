@@ -122,3 +122,46 @@ func TestFreshenerSyncIfOlder(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// An index built by a different extractor version is rebuilt once, so fixes
+// to symbol extraction reach files that haven't changed since.
+func TestRebuildIfOutdated(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package p\n\ntype S struct{}\n\nfunc (s *S) M() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	database, err := db.Open(filepath.Join(dir, ".codive", "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+
+	if !NeedsReextract(ctx, database) {
+		t.Error("a fresh index with no recorded extractor version should need re-extraction")
+	}
+	if _, err := Rebuild(ctx, database, dir, nil); err != nil {
+		t.Fatal(err)
+	}
+	if NeedsReextract(ctx, database) {
+		t.Error("Rebuild should record the current extractor version")
+	}
+	if rebuilt, err := RebuildIfOutdated(ctx, database, dir); err != nil || rebuilt {
+		t.Errorf("up-to-date index was rebuilt: %v %v", rebuilt, err)
+	}
+
+	// Simulate an index from an older extractor with a stale signature.
+	if err := db.SetMeta(ctx, database, extractorVersionKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec("UPDATE symbols SET signature = 'func  M()' WHERE name = 'M';"); err != nil {
+		t.Fatal(err)
+	}
+	if rebuilt, err := RebuildIfOutdated(ctx, database, dir); err != nil || !rebuilt {
+		t.Fatalf("outdated index was not rebuilt: %v %v", rebuilt, err)
+	}
+	syms, _ := db.FindSymbolsByName(ctx, database, "M")
+	if len(syms) != 1 || syms[0].Signature != "func (s *S) M()" {
+		t.Errorf("stale signature survived the rebuild: %+v", syms)
+	}
+}

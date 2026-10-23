@@ -87,27 +87,23 @@ func RunDoctor(targetDir string) error {
 	fmt.Println()
 	ui.Label("AI Agent MCP Configurations")
 
-	homeDir, _ := os.UserHomeDir()
-	appData := os.Getenv("APPDATA")
-	if appData == "" {
-		appData = filepath.Join(homeDir, "AppData", "Roaming")
-	}
-
-	agentConfigs := []struct {
-		name string
-		path string
-	}{
-		{"Google Antigravity", filepath.Join(homeDir, ".gemini", "config", "mcp_config.json")},
-		{"Claude Desktop", filepath.Join(appData, "Claude", "claude_desktop_config.json")},
-		{"Cursor IDE", filepath.Join(homeDir, ".cursor", "mcp.json")},
-		{"VS Code / Continue", filepath.Join(homeDir, ".continue", "config.json")},
-	}
-
-	for _, ac := range agentConfigs {
-		if _, err := os.Stat(ac.path); err == nil {
-			ui.CheckPass(fmt.Sprintf("%-24s  %s", ac.name, ui.Dim.Sprint(ac.path)))
-		} else {
-			ui.ListItem(ac.name, "not configured — run 'codive setup'")
+	// Same client list and paths `codive setup` uses, checking that codive's
+	// entry is actually present rather than just that a config file exists.
+	if env, err := defaultSetupEnv(absDir); err == nil {
+		detected := 0
+		for _, t := range setupTargets(env) {
+			if !t.Detected {
+				continue
+			}
+			detected++
+			if isRegistered(t) {
+				ui.CheckPass(fmt.Sprintf("%-28s  %s", t.Client, ui.Dim.Sprint(t.Path)))
+			} else {
+				ui.ListItem(t.Client, "installed but codive is not registered — run 'codive setup'")
+			}
+		}
+		if detected == 0 {
+			ui.ListItem("AI clients", "none detected on this machine")
 		}
 	}
 

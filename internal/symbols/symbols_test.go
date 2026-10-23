@@ -176,3 +176,23 @@ pub async fn run_server() {}
 		t.Fatalf("expected at least 4 symbols, got %d", len(symbols))
 	}
 }
+
+// Go method signatures must keep their receiver: it's how agents (and
+// read_symbol's Type.Method lookup) tell same-named methods apart.
+func TestGoMethodSignatureKeepsReceiver(t *testing.T) {
+	src := "package app\n\ntype Server struct{}\n\nfunc (s *Server) Start(port int) error { return nil }\n\nfunc (Server) Name() string { return \"\" }\n\nfunc (l *List[T]) Push(v T) {}\n"
+	syms, err := ExtractSymbols("server.go", "Go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"Start": "func (s *Server) Start(port int) error",
+		"Name":  "func (Server) Name() string",
+		"Push":  "func (l *List[T]) Push(v T)",
+	}
+	for _, s := range syms {
+		if w, ok := want[s.Name]; ok && s.Signature != w {
+			t.Errorf("%s signature = %q, want %q", s.Name, s.Signature, w)
+		}
+	}
+}

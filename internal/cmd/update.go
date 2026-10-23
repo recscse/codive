@@ -33,6 +33,18 @@ func RunUpdate(targetDir string) error {
 	defer database.Close()
 
 	ctx := context.Background()
+	if indexer.NeedsReextract(ctx, database) {
+		ui.Info("The symbol extractor changed since this index was built; re-indexing all files...")
+		start := time.Now()
+		res, err := indexer.Rebuild(ctx, database, absDir, nil)
+		if err != nil {
+			return fmt.Errorf("re-index failed: %w", err)
+		}
+		ui.Success(fmt.Sprintf("Re-indexed %s (%s symbols) in %v.", ui.Count(res.FileCount, "file", "files"),
+			fmt.Sprint(res.SymbolCount), time.Since(start).Round(time.Millisecond)))
+		return nil
+	}
+
 	existing, err := db.GetAllFiles(ctx, database)
 	if err != nil {
 		return fmt.Errorf("failed to load existing index: %w", err)

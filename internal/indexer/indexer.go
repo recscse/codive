@@ -25,9 +25,17 @@ type ProgressFunc func(processed, total int, path string)
 type Extracted struct {
 	// Files are the input records that could be read. Unreadable files are
 	// left out so they are not marked as indexed and get retried next scan.
-	Files   []db.FileRecord
-	Symbols []db.SymbolRecord
-	FTS     map[string]string
+	Files       []db.FileRecord
+	Symbols     []db.SymbolRecord
+	FTS         map[string]string
+	SymbolTerms []db.SymbolTerms
+}
+
+// ParseFile extracts a file's symbols and their search terms. Every writer of
+// the index uses it, so the two never disagree.
+func ParseFile(relPath, language string, content []byte) ([]db.SymbolRecord, []db.SymbolTerms) {
+	syms, _ := symbols.ExtractSymbols(relPath, language, content)
+	return syms, symbols.SearchTerms(language, content, syms)
 }
 
 // Extract reads and parses files in parallel.
@@ -56,6 +64,7 @@ func Extract(rootDir string, files []db.FileRecord, onFile ProgressFunc) Extract
 		ok      bool
 		content string
 		symbols []db.SymbolRecord
+		terms   []db.SymbolTerms
 	}
 
 	fileChan := make(chan db.FileRecord, len(files))
@@ -72,8 +81,8 @@ func Extract(rootDir string, files []db.FileRecord, onFile ProgressFunc) Extract
 					resultChan <- parseResult{file: f}
 					continue
 				}
-				syms, _ := symbols.ExtractSymbols(f.Path, f.Language, content)
-				resultChan <- parseResult{file: f, ok: true, content: string(content), symbols: syms}
+				syms, terms := ParseFile(f.Path, f.Language, content)
+				resultChan <- parseResult{file: f, ok: true, content: string(content), symbols: syms, terms: terms}
 			}
 		}()
 	}
@@ -98,6 +107,7 @@ func Extract(rootDir string, files []db.FileRecord, onFile ProgressFunc) Extract
 		out.Files = append(out.Files, res.file)
 		out.FTS[res.file.Path] = res.content
 		out.Symbols = append(out.Symbols, res.symbols...)
+		out.SymbolTerms = append(out.SymbolTerms, res.terms...)
 	}
 	return out
 }
@@ -112,6 +122,7 @@ func Apply(ctx context.Context, database *sql.DB, rootDir string, res *scanner.I
 		Files:        ext.Files,
 		Symbols:      ext.Symbols,
 		FTS:          ext.FTS,
+		SymbolTerms:  ext.SymbolTerms,
 		MetadataOnly: res.MetadataOnly,
 		Deleted:      res.Deleted,
 	})
@@ -155,14 +166,42 @@ func Rebuild(ctx context.Context, database *sql.DB, rootDir string, onFile Progr
 	}
 	ext := Extract(rootDir, scanRes.Files, onFile)
 	if err := db.ApplyIndexChanges(ctx, database, db.IndexChanges{
-		ReplaceAll: true,
-		Files:      ext.Files,
-		Symbols:    ext.Symbols,
-		FTS:        ext.FTS,
+		ReplaceAll:  true,
+		Files:       ext.Files,
+		Symbols:     ext.Symbols,
+		FTS:         ext.FTS,
+		SymbolTerms: ext.SymbolTerms,
 	}); err != nil {
 		return nil, err
 	}
+	if err := db.SetMeta(ctx, database, extractorVersionKey, symbols.ExtractorVersion); err != nil {
+		return nil, err
+	}
 	return &RebuildResult{Scan: scanRes, FileCount: len(ext.Files), SymbolCount: len(ext.Symbols)}, nil
+}
+
+const extractorVersionKey = "extractor_version"
+
+// NeedsReextract reports whether the index was built by a different version
+// of the symbol extractor, so its symbols are stale even for unchanged files.
+func NeedsReextract(ctx context.Context, database *sql.DB) bool {
+	v, err := db.GetMeta(ctx, database, extractorVersionKey)
+	return err == nil && v != symbols.ExtractorVersion
+}
+
+// RebuildIfOutdated rebuilds the index when NeedsReextract says so and
+// reports whether it did. A full rebuild can take minutes on a large
+// repository, so callers must not run it inside a deadline-bound request:
+// the MCP server runs it from its background loop, and queries keep being
+// answered from the existing index meanwhile.
+func RebuildIfOutdated(ctx context.Context, database *sql.DB, rootDir string) (bool, error) {
+	if !NeedsReextract(ctx, database) {
+		return false, nil
+	}
+	if _, err := Rebuild(ctx, database, rootDir, nil); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Freshener serializes syncs of one workspace and remembers when the last one

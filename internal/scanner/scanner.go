@@ -295,6 +295,10 @@ func ScanIncremental(rootDir string, existing map[string]db.FileRecord) (*Increm
 	}
 
 	seenOnDisk := make(map[string]bool)
+	// Generated output, dependencies, and local secrets are usually already
+	// listed in .gitignore; indexing them wastes space and can leak them to
+	// the agent's model provider through search results.
+	gitignore := newGitignoreMatcher(cleanRoot)
 
 	err = filepath.WalkDir(cleanRoot, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -317,7 +321,10 @@ func ScanIncremental(rootDir string, existing map[string]db.FileRecord) (*Increm
 		relPath = filepath.ToSlash(relPath)
 
 		if d.IsDir() {
-			if DefaultIgnoredDirectories[d.Name()] {
+			if path == cleanRoot {
+				return nil
+			}
+			if DefaultIgnoredDirectories[d.Name()] || gitignore.Ignored(relPath, true) {
 				return filepath.SkipDir
 			}
 			for _, pat := range customPatterns {
@@ -334,8 +341,9 @@ func ScanIncremental(rootDir string, existing map[string]db.FileRecord) (*Increm
 			return nil
 		}
 
-		// Check default file ignore
-		if DefaultIgnoredFiles[d.Name()] {
+		// Check default file ignore, credential-like files (never indexed, see
+		// IsSecretPath), and .gitignore.
+		if DefaultIgnoredFiles[d.Name()] || IsSecretPath(relPath) || gitignore.Ignored(relPath, false) {
 			return nil
 		}
 
