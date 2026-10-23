@@ -13,9 +13,9 @@ import (
 
 // Build metadata injected via -ldflags during build
 var (
-	Version   = "v1.0.0"
+	Version   = "v1.2.1"
 	GitCommit = "none"
-	BuildDate = "2026-08-25"
+	BuildDate = "2026-10-23"
 )
 
 func printUsage() {
@@ -120,6 +120,7 @@ func main() {
 	// Filter global flags
 	var args []string
 	asJSON := false
+	asCompact := false
 	noColor := false
 	verbose := false
 	dryRun := false
@@ -135,6 +136,8 @@ func main() {
 			noColor = true
 		case "--json":
 			asJSON = true
+		case "--compact", "-c":
+			asCompact = true
 		case "--verbose":
 			verbose = true
 		default:
@@ -330,7 +333,7 @@ func main() {
 		if len(args) >= 3 {
 			targetDir = args[2]
 		}
-		if err := cmd.RunFindSymbol(targetDir, query, asJSON); err != nil {
+		if err := cmd.RunFindSymbol(targetDir, query, asJSON, asCompact); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}

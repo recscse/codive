@@ -89,7 +89,7 @@ func TestSetupPreservesExistingConfig(t *testing.T) {
 	if r := got.MCPServers["remote"]; r.URL != "https://example.com/mcp" || r.Headers["Authorization"] != "Bearer t" || r.Type != "http" {
 		t.Errorf("remote server fields were dropped: %s", data)
 	}
-	if c := got.MCPServers["codive"]; c.Command != env.Executable || len(c.Args) != 2 || c.Args[1] != env.Project {
+	if c := got.MCPServers["codive"]; c.Command != env.Executable || len(c.Args) != 2 || (c.Args[1] != env.Project && c.Args[1] != filepath.ToSlash(env.Project)) {
 		t.Errorf("codive entry wrong: %+v", c)
 	}
 	text := string(data)

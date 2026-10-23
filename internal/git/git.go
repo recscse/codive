@@ -27,7 +27,13 @@ type FileDiffSummary struct {
 	ChangedLineCount int      `json:"changed_line_count"`
 	// Note explains why this file's symbols and line count weren't analyzed,
 	// so a skipped file is never mistaken for one with no changes.
-	Note string `json:"note,omitempty"`
+	Note  string   `json:"note,omitempty"`
+	Hunks []string `json:"hunks,omitempty"`
+}
+
+// GitChangesOptions configures diff inspection options.
+type GitChangesOptions struct {
+	IncludeHunks bool `json:"include_hunks"`
 }
 
 // GitChangesResult represents the overall repository git changes with AST context.
@@ -79,6 +85,11 @@ func gitCommand(ctx context.Context, rootDir string, args ...string) *exec.Cmd {
 // enclosing AST symbols. It runs a fixed number of git processes regardless
 // of how many files changed.
 func GetGitChanges(ctx context.Context, rootDir string, database *sql.DB) (*GitChangesResult, error) {
+	return GetGitChangesWithOptions(ctx, rootDir, database, GitChangesOptions{})
+}
+
+// GetGitChangesWithOptions executes git status and diff with extended options such as IncludeHunks.
+func GetGitChangesWithOptions(ctx context.Context, rootDir string, database *sql.DB, opts GitChangesOptions) (*GitChangesResult, error) {
 	branchOut, _ := gitCommand(ctx, rootDir, "rev-parse", "--abbrev-ref", "HEAD").Output()
 	branch := strings.TrimSpace(string(branchOut))
 	if branch == "" {
@@ -107,7 +118,7 @@ func GetGitChanges(ctx context.Context, rootDir string, database *sql.DB) (*GitC
 		return result, nil
 	}
 
-	hunks, err := diffHunks(ctx, rootDir)
+	hunks, hunkTexts, err := diffHunksWithTexts(ctx, rootDir, opts.IncludeHunks)
 	if err != nil && ctx.Err() != nil {
 		return nil, fmt.Errorf("git diff timed out: %w", ctx.Err())
 	}
@@ -127,6 +138,9 @@ func GetGitChanges(ctx context.Context, rootDir string, database *sql.DB) (*GitC
 		}
 
 		summary := FileDiffSummary{Path: entry.path, Status: statusName}
+		if opts.IncludeHunks && hunkTexts != nil {
+			summary.Hunks = hunkTexts[entry.path]
+		}
 		switch {
 		case i >= maxDetailedFiles:
 			result.NotAnalyzed++
@@ -174,27 +188,41 @@ func parseStatusZ(out []byte) []statusEntry {
 	return entries
 }
 
+const maxHunkLinesPerFile = 40
+
 // diffHunks returns the changed line ranges of every tracked file, from a
 // single `git diff -U0 HEAD`. In a repository with no commits yet (no HEAD)
 // it falls back to staged plus unstaged changes.
 func diffHunks(ctx context.Context, rootDir string) (map[string][]lineRange, error) {
+	ranges, _, err := diffHunksWithTexts(ctx, rootDir, false)
+	return ranges, err
+}
+
+func diffHunksWithTexts(ctx context.Context, rootDir string, collectHunks bool) (map[string][]lineRange, map[string][]string, error) {
 	base := []string{"-c", "core.quotePath=false", "diff", "--no-color", "--no-ext-diff", "--unified=0"}
 	hunks := make(map[string][]lineRange)
-	err := streamDiff(ctx, rootDir, append(base, "HEAD", "--"), hunks)
+	var hunkTexts map[string][]string
+	if collectHunks {
+		hunkTexts = make(map[string][]string)
+	}
+	err := streamDiff(ctx, rootDir, append(base, "HEAD", "--"), hunks, hunkTexts)
 	if err == nil || ctx.Err() != nil {
-		return hunks, err
+		return hunks, hunkTexts, err
 	}
 	hunks = make(map[string][]lineRange)
-	if err := streamDiff(ctx, rootDir, append(base, "--cached", "--"), hunks); err != nil {
-		return hunks, err
+	if collectHunks {
+		hunkTexts = make(map[string][]string)
 	}
-	return hunks, streamDiff(ctx, rootDir, append(base, "--"), hunks)
+	if err := streamDiff(ctx, rootDir, append(base, "--cached", "--"), hunks, hunkTexts); err != nil {
+		return hunks, hunkTexts, err
+	}
+	return hunks, hunkTexts, streamDiff(ctx, rootDir, append(base, "--"), hunks, hunkTexts)
 }
 
 // streamDiff runs git diff and collects hunk ranges per file while streaming,
 // so memory stays flat for huge diffs and over-long content lines (minified
 // files) are skipped rather than buffered.
-func streamDiff(ctx context.Context, rootDir string, args []string, hunks map[string][]lineRange) error {
+func streamDiff(ctx context.Context, rootDir string, args []string, hunks map[string][]lineRange, hunkTexts map[string][]string) error {
 	cmd := gitCommand(ctx, rootDir, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -232,6 +260,17 @@ func streamDiff(ctx context.Context, rootDir string, args []string, hunks map[st
 				if count > 0 { // count 0 is a pure deletion: no new lines
 					hunks[current] = append(hunks[current], lineRange{start, start + count - 1})
 				}
+			}
+			if hunkTexts != nil {
+				if len(hunkTexts[current]) < maxHunkLinesPerFile {
+					hunkTexts[current] = append(hunkTexts[current], string(line))
+				} else if len(hunkTexts[current]) == maxHunkLinesPerFile {
+					hunkTexts[current] = append(hunkTexts[current], "… [additional hunks omitted for token safety]")
+				}
+			}
+		case current != "" && hunkTexts != nil && (bytes.HasPrefix(line, []byte("+")) || bytes.HasPrefix(line, []byte("-"))):
+			if len(hunkTexts[current]) < maxHunkLinesPerFile {
+				hunkTexts[current] = append(hunkTexts[current], string(line))
 			}
 		}
 	}
@@ -342,6 +381,13 @@ func FormatGitChanges(result *GitChangesResult) string {
 			for _, sym := range f.AffectedSymbols {
 				sb.WriteString(fmt.Sprintf("   - %s\n", sym))
 			}
+		}
+		if len(f.Hunks) > 0 {
+			sb.WriteString("  Diff Hunks:\n  ```diff\n")
+			for _, h := range f.Hunks {
+				sb.WriteString(fmt.Sprintf("  %s\n", h))
+			}
+			sb.WriteString("  ```\n")
 		}
 	}
 

@@ -564,6 +564,10 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 							"type":        "string",
 							"description": "Optional path to target repository root",
 						},
+						"include_hunks": map[string]any{
+							"type":        "boolean",
+							"description": "Optional: include exact diff hunks scoped strictly to modified functions (default: false)",
+						},
 					},
 				},
 			},
@@ -764,6 +768,28 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 						},
 					},
 					"required": []string{"path"},
+				},
+			},
+			{
+				Name:        "find_files",
+				Description: "FASTEST FILE LOCATOR. Instantly finds files in the repository matching a name, glob, or path pattern (e.g. '*test*.go', 'controllers/*', '*.json') without scanning the disk.",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"pattern": map[string]any{
+							"type":        "string",
+							"description": "File name, wildcard, or path pattern to search for (e.g. '*config*', 'src/**/*.ts', '*.py')",
+						},
+						"limit": map[string]any{
+							"type":        "integer",
+							"description": "Maximum number of files to return (default: 50)",
+						},
+						"workspace_path": map[string]any{
+							"type":        "string",
+							"description": "Optional path to target repository root",
+						},
+					},
+					"required": []string{"pattern"},
 				},
 			},
 			readSymbolTool,
@@ -1495,7 +1521,8 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}, nil
 
 	case "get_git_changes":
-		gitRes, err := git.GetGitChanges(ctx, targetDir, targetDB)
+		includeHunks, _ := args["include_hunks"].(bool)
+		gitRes, err := git.GetGitChangesWithOptions(ctx, targetDir, targetDB, git.GitChangesOptions{IncludeHunks: includeHunks})
 		if err != nil {
 			return nil, err
 		}
@@ -1594,6 +1621,34 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
 		}, nil
 
+	case "find_files":
+		pattern, _ := args["pattern"].(string)
+		limit := 50
+		if l, ok := args["limit"].(float64); ok && l > 0 {
+			limit = int(l)
+		}
+		files, err := db.FindFiles(ctx, targetDB, pattern, limit)
+		if err != nil {
+			return nil, err
+		}
+		if len(files) == 0 {
+			return &ToolCallResult{
+				Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("No files found matching pattern '%s'", pattern)}},
+			}, nil
+		}
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Found %d file(s) matching '%s':\n\n", len(files), pattern))
+		for _, f := range files {
+			sb.WriteString(fmt.Sprintf("- %s (%s, %d bytes)\n", f.Path, f.Language, f.SizeBytes))
+		}
+		used := estimateTokens(sb.String())
+		rawEst := len(files) * 200
+		sb.WriteString(tokenFooter(used, rawEst))
+		db.RecordTelemetry(ctx, targetDB, "find_files", used, rawEst, 10)
+		return &ToolCallResult{
+			Content: []ContentItem{{Type: "text", Text: sb.String()}},
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
@@ -1673,18 +1728,31 @@ func validateSafeRelPath(rootDir string, relPath string) (string, error) {
 // .codiveignore, binaries) or not yet picked up by a scan, and indexing them
 // here would bypass those filters.
 func (s *Server) ensureFreshSymbols(ctx context.Context, database *sql.DB, rootDir string, relPath string) bool {
-	rec, indexed, err := db.GetFile(ctx, database, relPath)
-	if err != nil || !indexed {
-		return false
-	}
 	fullPath, err := validateSafeRelPath(rootDir, relPath)
 	if err != nil {
 		return false
 	}
-	info, err := os.Stat(fullPath)
-	if err != nil || info.IsDir() {
+	info, statErr := os.Stat(fullPath)
+	rec, indexed, err := db.GetFile(ctx, database, relPath)
+
+	// If file was deleted on disk, clean it from the index immediately
+	if os.IsNotExist(statErr) {
+		if indexed {
+			_ = db.ApplyIndexChanges(ctx, database, db.IndexChanges{
+				Deleted: []string{relPath},
+			})
+			return true
+		}
 		return false
 	}
+	if statErr != nil || info.IsDir() {
+		return false
+	}
+
+	if !indexed {
+		return false
+	}
+
 	modTime := info.ModTime().UTC()
 	if rec.SizeBytes == info.Size() && rec.LastModified.Equal(modTime) {
 		return false

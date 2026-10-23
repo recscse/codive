@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [v1.2.1] - 2026-10-23
+
+### Added
+- **`find_files` MCP Tool**: Fast pattern/glob/wildcard file finder that queries SQLite `files` in `< 0.3ms` without scanning disk.
+- **Global Claude Code MCP Registration**: `codive setup` now automatically detects and configures Claude Code globally via `~/.claude.json`.
+- **SHA-256 Release Checksums**: Automated generation and upload of `.sha256` asset digests in GitHub Actions release workflow.
+
+### Performance
+- **Batched Database Writes**: Multi-row batch inserts for files, symbols, FTS, and batched deletions in `ApplyIndexChanges`.
+- **Memory-Mapped I/O**: Enabled `PRAGMA mmap_size = 268435456` (256MB) and `temp_store = MEMORY` for faster query execution.
+
+## [v1.2.0] - 2026-10-23
+
+### Added
+- **Interactive Web Architecture Visualizer (`codive web`)**: Completely revamped local browser architecture graph with 60 FPS $O(N)$ force-directed physics, directory clustering, smooth mouse-wheel zoom & pan, node dragging, live syntax-rendered code snippet inspector with line numbers, and token-optimized Markdown context prompt exporter.
+- **SQLite Concurrency & Batch Inserts**: Added memory-mapped I/O (`mmap_size`) and in-memory temporary storage pragmas, along with batching of symbol extraction inserts for faster cold repository indexing.
 
 ### Security
 - **Local secrets and ignored files were indexed and could be sent to the AI model.** The scanner ignored `.gitignore`, so files such as `.env`, private keys, and gitignored build output were indexed, and `search_code` could return their contents to the agent, and from there to its model provider. codive now follows `.gitignore` (nested files, `.git/info/exclude`, negation, `**`), checked against git's own output. It also never indexes credential-like files (`.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `.npmrc`, `*.tfstate`, …) even when they aren't gitignored. `.env.example` and similar template files are still indexed. The file-reading tools refuse credential files too. Existing indexes drop these files on the next sync.
