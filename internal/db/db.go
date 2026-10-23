@@ -66,7 +66,7 @@ func Open(dbPath string) (*sql.DB, error) {
 	}
 
 	// Modernc sqlite supports DSN query parameters for busy_timeout, journal_mode, and sync
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-64000)", filepath.ToSlash(dbPath))
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-64000)&_pragma=mmap_size(268435456)&_pragma=temp_store(MEMORY)", filepath.ToSlash(dbPath))
 
 	database, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -81,7 +81,7 @@ func Open(dbPath string) (*sql.DB, error) {
 	// Ensure WAL & busy timeout with retry if another process is briefly finishing
 	var pragmaErr error
 	for attempt := 0; attempt < 5; attempt++ {
-		_, pragmaErr = database.Exec("PRAGMA busy_timeout = 10000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")
+		_, pragmaErr = database.Exec("PRAGMA busy_timeout = 10000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA mmap_size = 268435456; PRAGMA temp_store = MEMORY;")
 		if pragmaErr == nil {
 			break
 		}
@@ -557,43 +557,78 @@ func ApplyIndexChanges(ctx context.Context, database *sql.DB, c IndexChanges) er
 			stale = append(stale, f.Path)
 		}
 		stale = append(stale, c.Deleted...)
-		for _, p := range stale {
-			if err := exec("DELETE FROM symbols WHERE file_path = ?;", p); err != nil {
-				return fmt.Errorf("failed to delete symbols for %s: %w", p, err)
+		const delBatchSize = 100
+		for i := 0; i < len(stale); i += delBatchSize {
+			end := i + delBatchSize
+			if end > len(stale) {
+				end = len(stale)
 			}
-			if err := exec("DELETE FROM file_fts WHERE path = ?;", p); err != nil {
-				return fmt.Errorf("failed to delete fts for %s: %w", p, err)
+			batch := stale[i:end]
+			placeholders := strings.Repeat("?,", len(batch))
+			placeholders = placeholders[:len(placeholders)-1]
+			args := make([]any, len(batch))
+			for j, p := range batch {
+				args[j] = p
 			}
-			if err := exec("DELETE FROM symbol_fts WHERE file_path = ?;", p); err != nil {
-				return fmt.Errorf("failed to delete symbol search terms for %s: %w", p, err)
+			if err := exec("DELETE FROM symbols WHERE file_path IN ("+placeholders+");", args...); err != nil {
+				return fmt.Errorf("failed to batch delete symbols: %w", err)
+			}
+			if err := exec("DELETE FROM file_fts WHERE path IN ("+placeholders+");", args...); err != nil {
+				return fmt.Errorf("failed to batch delete fts: %w", err)
+			}
+			if err := exec("DELETE FROM symbol_fts WHERE file_path IN ("+placeholders+");", args...); err != nil {
+				return fmt.Errorf("failed to batch delete symbol search terms: %w", err)
 			}
 		}
-		for _, p := range c.Deleted {
-			if err := exec("DELETE FROM files WHERE path = ?;", p); err != nil {
-				return fmt.Errorf("failed to delete record for %s: %w", p, err)
+		for i := 0; i < len(c.Deleted); i += delBatchSize {
+			end := i + delBatchSize
+			if end > len(c.Deleted) {
+				end = len(c.Deleted)
+			}
+			batch := c.Deleted[i:end]
+			placeholders := strings.Repeat("?,", len(batch))
+			placeholders = placeholders[:len(placeholders)-1]
+			args := make([]any, len(batch))
+			for j, p := range batch {
+				args[j] = p
+			}
+			if err := exec("DELETE FROM files WHERE path IN ("+placeholders+");", args...); err != nil {
+				return fmt.Errorf("failed to batch delete record: %w", err)
 			}
 		}
 	}
 
-	upsertFile, err := tx.PrepareContext(ctx, `
-		INSERT INTO files (path, language, size_bytes, content_hash, last_modified, last_indexed)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(path) DO UPDATE SET
-			language = excluded.language,
-			size_bytes = excluded.size_bytes,
-			content_hash = excluded.content_hash,
-			last_modified = excluded.last_modified,
-			last_indexed = excluded.last_indexed;
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare file upsert: %w", err)
-	}
-	defer upsertFile.Close()
-	for _, batch := range [][]FileRecord{c.Files, c.MetadataOnly} {
-		for _, f := range batch {
-			if _, err := upsertFile.ExecContext(ctx, f.Path, f.Language, f.SizeBytes, f.ContentHash,
-				f.LastModified.UTC(), f.LastIndexed.UTC()); err != nil {
-				return fmt.Errorf("failed to upsert record for %s: %w", f.Path, err)
+	var allFilesToUpsert []FileRecord
+	allFilesToUpsert = append(allFilesToUpsert, c.Files...)
+	allFilesToUpsert = append(allFilesToUpsert, c.MetadataOnly...)
+	if len(allFilesToUpsert) > 0 {
+		const batchSize = 100
+		for i := 0; i < len(allFilesToUpsert); i += batchSize {
+			end := i + batchSize
+			if end > len(allFilesToUpsert) {
+				end = len(allFilesToUpsert)
+			}
+			batch := allFilesToUpsert[i:end]
+
+			var query strings.Builder
+			query.WriteString("INSERT INTO files (path, language, size_bytes, content_hash, last_modified, last_indexed) VALUES ")
+			args := make([]any, 0, len(batch)*6)
+			for j, f := range batch {
+				if j > 0 {
+					query.WriteString(",")
+				}
+				query.WriteString("(?, ?, ?, ?, ?, ?)")
+				args = append(args, f.Path, f.Language, f.SizeBytes, f.ContentHash, f.LastModified.UTC(), f.LastIndexed.UTC())
+			}
+			query.WriteString(` ON CONFLICT(path) DO UPDATE SET
+				language = excluded.language,
+				size_bytes = excluded.size_bytes,
+				content_hash = excluded.content_hash,
+				last_modified = excluded.last_modified,
+				last_indexed = excluded.last_indexed;`)
+
+			if _, err := tx.ExecContext(ctx, query.String(), args...); err != nil {
+				return fmt.Errorf("failed to batch upsert files: %w", err)
 			}
 		}
 	}
@@ -626,14 +661,36 @@ func ApplyIndexChanges(ctx context.Context, database *sql.DB, c IndexChanges) er
 	}
 
 	if len(c.FTS) > 0 {
-		insFTS, err := tx.PrepareContext(ctx, "INSERT INTO file_fts (path, content) VALUES (?, ?);")
-		if err != nil {
-			return fmt.Errorf("failed to prepare fts insert: %w", err)
+		type ftsItem struct {
+			path    string
+			content string
 		}
-		defer insFTS.Close()
+		items := make([]ftsItem, 0, len(c.FTS))
 		for p, content := range c.FTS {
-			if _, err := insFTS.ExecContext(ctx, p, content); err != nil {
-				return fmt.Errorf("failed to insert fts for %s: %w", p, err)
+			items = append(items, ftsItem{path: p, content: content})
+		}
+		const batchSize = 100
+		for i := 0; i < len(items); i += batchSize {
+			end := i + batchSize
+			if end > len(items) {
+				end = len(items)
+			}
+			batch := items[i:end]
+
+			var query strings.Builder
+			query.WriteString("INSERT INTO file_fts (path, content) VALUES ")
+			args := make([]any, 0, len(batch)*2)
+			for j, item := range batch {
+				if j > 0 {
+					query.WriteString(",")
+				}
+				query.WriteString("(?, ?)")
+				args = append(args, item.path, item.content)
+			}
+			query.WriteString(";")
+
+			if _, err := tx.ExecContext(ctx, query.String(), args...); err != nil {
+				return fmt.Errorf("failed to batch insert fts: %w", err)
 			}
 		}
 	}
@@ -1711,3 +1768,45 @@ func clipAround(line, word string, limit int) string {
 	}
 	return out
 }
+
+// FindFiles searches for indexed files matching a wildcard or substring pattern.
+func FindFiles(ctx context.Context, database *sql.DB, pattern string, limit int) ([]FileRecord, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	clean := strings.TrimSpace(filepath.ToSlash(pattern))
+	if clean == "" {
+		clean = "*"
+	}
+
+	var sqlPattern string
+	if strings.Contains(clean, "*") || strings.Contains(clean, "?") {
+		sqlPattern = strings.ReplaceAll(clean, "*", "%")
+		sqlPattern = strings.ReplaceAll(sqlPattern, "?", "_")
+	} else {
+		sqlPattern = "%" + escapeLike(clean) + "%"
+	}
+
+	rows, err := database.QueryContext(ctx, `
+		SELECT path, language, size_bytes, content_hash, last_modified, last_indexed
+		FROM files
+		WHERE path LIKE ? ESCAPE '\'
+		ORDER BY path ASC
+		LIMIT ?;
+	`, sqlPattern, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find files: %w", err)
+	}
+	defer rows.Close()
+
+	var files []FileRecord
+	for rows.Next() {
+		var f FileRecord
+		if err := rows.Scan(&f.Path, &f.Language, &f.SizeBytes, &f.ContentHash, &f.LastModified, &f.LastIndexed); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, rows.Err()
+}
+

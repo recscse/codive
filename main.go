@@ -13,9 +13,9 @@ import (
 
 // Build metadata injected via -ldflags during build
 var (
-	Version   = "v1.0.0"
+	Version   = "v1.2.0"
 	GitCommit = "none"
-	BuildDate = "2026-08-25"
+	BuildDate = "2026-10-23"
 )
 
 func printUsage() {

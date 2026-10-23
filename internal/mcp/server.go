@@ -766,6 +766,28 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 					"required": []string{"path"},
 				},
 			},
+			{
+				Name:        "find_files",
+				Description: "FASTEST FILE LOCATOR. Instantly finds files in the repository matching a name, glob, or path pattern (e.g. '*test*.go', 'controllers/*', '*.json') without scanning the disk.",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"pattern": map[string]any{
+							"type":        "string",
+							"description": "File name, wildcard, or path pattern to search for (e.g. '*config*', 'src/**/*.ts', '*.py')",
+						},
+						"limit": map[string]any{
+							"type":        "integer",
+							"description": "Maximum number of files to return (default: 50)",
+						},
+						"workspace_path": map[string]any{
+							"type":        "string",
+							"description": "Optional path to target repository root",
+						},
+					},
+					"required": []string{"pattern"},
+				},
+			},
 			readSymbolTool,
 		}
 		return &JSONRPCResponse{
@@ -1590,6 +1612,34 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}
 		sb.WriteString("\n=== End of File ===")
 
+		return &ToolCallResult{
+			Content: []ContentItem{{Type: "text", Text: sb.String()}},
+		}, nil
+
+	case "find_files":
+		pattern, _ := args["pattern"].(string)
+		limit := 50
+		if l, ok := args["limit"].(float64); ok && l > 0 {
+			limit = int(l)
+		}
+		files, err := db.FindFiles(ctx, targetDB, pattern, limit)
+		if err != nil {
+			return nil, err
+		}
+		if len(files) == 0 {
+			return &ToolCallResult{
+				Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("No files found matching pattern '%s'", pattern)}},
+			}, nil
+		}
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Found %d file(s) matching '%s':\n\n", len(files), pattern))
+		for _, f := range files {
+			sb.WriteString(fmt.Sprintf("- %s (%s, %d bytes)\n", f.Path, f.Language, f.SizeBytes))
+		}
+		used := estimateTokens(sb.String())
+		rawEst := len(files) * 200
+		sb.WriteString(tokenFooter(used, rawEst))
+		db.RecordTelemetry(ctx, targetDB, "find_files", used, rawEst, 10)
 		return &ToolCallResult{
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
 		}, nil

@@ -23,7 +23,7 @@ const mcpServerName = "codive"
 var readOnlyTools = []string{
 	"get_repo_map", "find_symbol", "find_references", "find_callers", "find_callees",
 	"find_tests_for", "get_file_skeleton", "read_file_context", "read_symbol", "search_code",
-	"pack_feature_context", "blast_radius", "get_git_changes", "get_decisions",
+	"pack_feature_context", "blast_radius", "get_git_changes", "get_decisions", "find_files",
 }
 
 // setupEnv holds everything setup reads from the machine, so tests can point
@@ -142,6 +142,12 @@ func setupTargets(env setupEnv) []mcpTarget {
 			Path:     filepath.Join(claudeDesktopDir(env), "claude_desktop_config.json"),
 			Entry:    stdio(nil),
 			Detected: dirExists(claudeDesktopDir(env)),
+		},
+		{
+			Client: "Claude Code (User)", Scope: "global", Format: "json", ServersKey: "mcpServers",
+			Path:     filepath.Join(env.Home, ".claude.json"),
+			Entry:    stdio(nil),
+			Detected: claudeOnPath == nil || dirExists(filepath.Join(env.Home, ".claude")),
 		},
 		{
 			Client: "Windsurf", Scope: "global", Format: "json", ServersKey: "mcpServers",

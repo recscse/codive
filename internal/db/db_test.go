@@ -476,3 +476,43 @@ func TestClipAround(t *testing.T) {
 		t.Errorf("bad clip: %q", got)
 	}
 }
+
+func TestFindFiles(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	err = ApplyIndexChanges(ctx, database, IndexChanges{
+		Files: []FileRecord{
+			{Path: "src/main.go", Language: "Go", SizeBytes: 100, LastModified: now, LastIndexed: now},
+			{Path: "src/main_test.go", Language: "Go", SizeBytes: 200, LastModified: now, LastIndexed: now},
+			{Path: "src/utils/helper.go", Language: "Go", SizeBytes: 150, LastModified: now, LastIndexed: now},
+			{Path: "config/settings.json", Language: "JSON", SizeBytes: 80, LastModified: now, LastIndexed: now},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyIndexChanges failed: %v", err)
+	}
+
+	// Test wildcard pattern
+	files, err := FindFiles(ctx, database, "*_test.go", 10)
+	if err != nil || len(files) != 1 || files[0].Path != "src/main_test.go" {
+		t.Fatalf("FindFiles(*_test.go) failed: got %v, err=%v", files, err)
+	}
+
+	// Test substring pattern
+	files, err = FindFiles(ctx, database, "helper", 10)
+	if err != nil || len(files) != 1 || files[0].Path != "src/utils/helper.go" {
+		t.Fatalf("FindFiles(helper) failed: got %v, err=%v", files, err)
+	}
+
+	// Test prefix / directory pattern
+	files, err = FindFiles(ctx, database, "config/*", 10)
+	if err != nil || len(files) != 1 || files[0].Path != "config/settings.json" {
+		t.Fatalf("FindFiles(config/*) failed: got %v, err=%v", files, err)
+	}
+}
