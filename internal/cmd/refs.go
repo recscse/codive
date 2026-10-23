@@ -28,9 +28,12 @@ func RunRefs(targetDir string, symbol string, limit int, asJSON bool) error {
 		return fmt.Errorf("repository is not initialized (no index found at %s). Run 'codive init' first", dbPath)
 	}
 
-	database, err := db.Open(dbPath)
+	database, err := db.OpenReadOnly(dbPath)
 	if err != nil {
-		return fmt.Errorf("failed to open index database: %w", err)
+		database, err = db.Open(dbPath)
+		if err != nil {
+			return fmt.Errorf("failed to open index database: %w", err)
+		}
 	}
 	defer database.Close()
 

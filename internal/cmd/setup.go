@@ -114,6 +114,13 @@ func setupTargets(env setupEnv) []mcpTarget {
 		}
 		return e
 	}
+	globalStdio := func(extra map[string]any) map[string]any {
+		e := map[string]any{"command": command, "args": []string{"serve"}}
+		for k, v := range extra {
+			e[k] = v
+		}
+		return e
+	}
 	_, claudeOnPath := env.LookPath("claude")
 	codeStorage := filepath.Join(vscodeUserDir(env), "globalStorage")
 
@@ -146,43 +153,43 @@ func setupTargets(env setupEnv) []mcpTarget {
 		{
 			Client: "Claude Code (User)", Scope: "global", Format: "json", ServersKey: "mcpServers",
 			Path:     filepath.Join(env.Home, ".claude.json"),
-			Entry:    stdio(nil),
+			Entry:    globalStdio(nil),
 			Detected: claudeOnPath == nil || dirExists(filepath.Join(env.Home, ".claude")),
 		},
 		{
 			Client: "Windsurf", Scope: "global", Format: "json", ServersKey: "mcpServers",
 			Path:     filepath.Join(env.Home, ".codeium", "windsurf", "mcp_config.json"),
-			Entry:    stdio(nil),
+			Entry:    globalStdio(nil),
 			Detected: dirExists(filepath.Join(env.Home, ".codeium", "windsurf")),
 		},
 		{
 			Client: "Gemini CLI", Scope: "global", Format: "json", ServersKey: "mcpServers",
 			Path:     filepath.Join(env.Home, ".gemini", "settings.json"),
-			Entry:    stdio(nil),
+			Entry:    globalStdio(nil),
 			Detected: dirExists(filepath.Join(env.Home, ".gemini")),
 		},
 		{
 			Client: "Google Antigravity", Scope: "global", Format: "json", ServersKey: "mcpServers",
 			Path:     filepath.Join(env.Home, ".gemini", "config", "mcp_config.json"),
-			Entry:    stdio(nil),
+			Entry:    globalStdio(nil),
 			Detected: dirExists(filepath.Join(env.Home, ".gemini", "config")),
 		},
 		{
 			Client: "Cline (VS Code)", Scope: "global", Format: "json", ServersKey: "mcpServers",
 			Path:     filepath.Join(codeStorage, "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
-			Entry:    stdio(map[string]any{"autoApprove": readOnlyTools}),
+			Entry:    globalStdio(map[string]any{"autoApprove": readOnlyTools}),
 			Detected: dirExists(filepath.Join(codeStorage, "saoudrizwan.claude-dev")),
 		},
 		{
 			Client: "Roo Code (VS Code)", Scope: "global", Format: "json", ServersKey: "mcpServers",
 			Path:     filepath.Join(codeStorage, "rooveterinaryinc.roo-cline", "settings", "cline_mcp_settings.json"),
-			Entry:    stdio(map[string]any{"autoApprove": readOnlyTools}),
+			Entry:    globalStdio(map[string]any{"autoApprove": readOnlyTools}),
 			Detected: dirExists(filepath.Join(codeStorage, "rooveterinaryinc.roo-cline")),
 		},
 		{
 			Client: "Codex CLI", Scope: "global", Format: "codex-toml",
 			Path:     filepath.Join(env.Home, ".codex", "config.toml"),
-			Entry:    stdio(nil),
+			Entry:    globalStdio(nil),
 			Detected: dirExists(filepath.Join(env.Home, ".codex")),
 		},
 	}

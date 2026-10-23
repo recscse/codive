@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.2.1] - 2026-10-23
+
+### Added
+- **`find_files` MCP Tool**: Fast pattern/glob/wildcard file finder that queries SQLite `files` in `< 0.3ms` without scanning disk.
+- **Global Claude Code MCP Registration**: `codive setup` now automatically detects and configures Claude Code globally via `~/.claude.json`.
+- **SHA-256 Release Checksums**: Automated generation and upload of `.sha256` asset digests in GitHub Actions release workflow.
+
+### Performance
+- **Batched Database Writes**: Multi-row batch inserts for files, symbols, FTS, and batched deletions in `ApplyIndexChanges`.
+- **Memory-Mapped I/O**: Enabled `PRAGMA mmap_size = 268435456` (256MB) and `temp_store = MEMORY` for faster query execution.
+
 ## [v1.2.0] - 2026-10-23
 
 ### Added

@@ -11,7 +11,7 @@ import (
 )
 
 // RunFindSymbol searches for symbols matching a query name or signature.
-func RunFindSymbol(targetDir string, query string, asJSON bool) error {
+func RunFindSymbol(targetDir string, query string, asJSON bool, asCompact ...bool) error {
 	if query == "" {
 		return fmt.Errorf("symbol query cannot be empty")
 	}
@@ -26,9 +26,12 @@ func RunFindSymbol(targetDir string, query string, asJSON bool) error {
 		return fmt.Errorf("repository not initialized — no index at %s\n  Run 'codive init' first", dbPath)
 	}
 
-	database, err := db.Open(dbPath)
+	database, err := db.OpenReadOnly(dbPath)
 	if err != nil {
-		return fmt.Errorf("failed to open index database: %w", err)
+		database, err = db.Open(dbPath)
+		if err != nil {
+			return fmt.Errorf("failed to open index database: %w", err)
+		}
 	}
 	defer database.Close()
 
@@ -44,6 +47,18 @@ func RunFindSymbol(targetDir string, query string, asJSON bool) error {
 
 	if len(results) == 0 {
 		ui.Warning(fmt.Sprintf("No symbols found matching '%s'", query))
+		return nil
+	}
+
+	compact := len(asCompact) > 0 && asCompact[0]
+	if compact {
+		for _, s := range results {
+			sig := s.Signature
+			if sig == "" {
+				sig = s.Name
+			}
+			fmt.Printf("%s:%d: [%s] %s\n", s.FilePath, s.LineNumber, s.Kind, sig)
+		}
 		return nil
 	}
 

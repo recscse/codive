@@ -105,6 +105,19 @@ func OpenRaw(dbPath string) (*sql.DB, error) {
 	return sql.Open("sqlite", dbPath)
 }
 
+// OpenReadOnly opens SQLite in read-only mode with fast-path connection settings (no migration or write locks).
+func OpenReadOnly(dbPath string) (*sql.DB, error) {
+	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-64000)&_pragma=mmap_size(268435456)&_pragma=temp_store(MEMORY)", filepath.ToSlash(dbPath))
+	database, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open read-only sqlite database: %w", err)
+	}
+	database.SetMaxOpenConns(4)
+	database.SetMaxIdleConns(2)
+	database.SetConnMaxLifetime(10 * time.Minute)
+	return database, nil
+}
+
 // GetSchemaVersion returns the current user_version from SQLite PRAGMA.
 func GetSchemaVersion(database *sql.DB) (int, error) {
 	var version int
@@ -1697,6 +1710,11 @@ func isIdentByte(b byte) bool {
 // ends with an identifier character. match receives the index just past the
 // occurrence and stops the search by returning true.
 func wordMatches(s, word string, match func(end int) bool) bool {
+	return wordMatchesWithSpan(s, word, func(_, end int) bool { return match(end) })
+}
+
+// wordMatchesWithSpan calls match with both start and end offsets for each occurrence of word in s.
+func wordMatchesWithSpan(s, word string, match func(start, end int) bool) bool {
 	if word == "" {
 		return false
 	}
@@ -1710,7 +1728,7 @@ func wordMatches(s, word string, match func(end int) bool) bool {
 		start := from + i
 		end := start + len(word)
 		if (!checkStart || start == 0 || !isIdentByte(s[start-1])) &&
-			(!checkEnd || end == len(s) || !isIdentByte(s[end])) && match(end) {
+			(!checkEnd || end == len(s) || !isIdentByte(s[end])) && match(start, end) {
 			return true
 		}
 		from = start + 1
@@ -1723,10 +1741,43 @@ func containsWord(s, word string) bool {
 	return wordMatches(s, word, func(int) bool { return true })
 }
 
-// containsCall reports whether s contains a call to name: the whole
-// identifier immediately followed by "(".
+// containsCall reports whether s contains a call to name: direct call with '(',
+// decorator, or dynamic reflection call in Python/Ruby/JS.
 func containsCall(s, name string) bool {
-	return wordMatches(s, name, func(end int) bool { return end < len(s) && s[end] == '(' })
+	return wordMatchesWithSpan(s, name, func(start, end int) bool {
+		// 1. Direct call with optional spaces before '('
+		idx := end
+		for idx < len(s) && (s[idx] == ' ' || s[idx] == '\t') {
+			idx++
+		}
+		if idx < len(s) && s[idx] == '(' {
+			return true
+		}
+
+		// 2. Python decorator (@name or @name())
+		if start > 0 && s[start-1] == '@' {
+			return true
+		}
+
+		// 3. Ruby symbol dispatch (:name or send :name)
+		if start > 0 && s[start-1] == ':' {
+			return true
+		}
+
+		// 4. Dynamic reflection in Python/Ruby/JS (getattr, hasattr, send, invoke, call)
+		isQuoted := (start > 0 && (s[start-1] == '"' || s[start-1] == '\'') &&
+			end < len(s) && (s[end] == '"' || s[end] == '\''))
+		if isQuoted {
+			prefix := strings.ToLower(s[:start])
+			if strings.Contains(prefix, "getattr") || strings.Contains(prefix, "hasattr") ||
+				strings.Contains(prefix, "send") || strings.Contains(prefix, "invoke") ||
+				strings.Contains(prefix, "method") || strings.Contains(prefix, "call") {
+				return true
+			}
+		}
+
+		return false
+	})
 }
 
 // maxSnippetChars caps a reference snippet. Source lines are normally far
