@@ -54,12 +54,15 @@ graph TB
     end
 
     subgraph Core Engine
-        ROUTER["14-Tool MCP Router & Dispatcher"]
+        ROUTER["15-Tool MCP Router & Dispatcher"]
         DRIFT["Line-Number Drift Protection Engine"]
         SKELETON["Code Skeletonizer Engine"]
         BLAST["PR Blast Radius Impact Engine"]
         FTS["Symbol-Boosted FTS5 Search"]
-        PACK["1-Shot Feature Pack Builder"]
+        PACK["1-Shot Feature Pack Builder (Attention U-Curve)"]
+        TREE["Proportional Tree Allocator"]
+        INTENT["Subword Intent Decomposition Engine"]
+        SESSION["Session Working-Set Deduplicator"]
     end
 
     subgraph Storage Layer (Local-First)
@@ -111,6 +114,23 @@ When an AI agent modifies a file in the editor, the database index might have sl
 1. Compares the file's disk modified timestamp (`mtime`) with `files.last_indexed`.
 2. If $mtime > last\_indexed$, it triggers a synchronous **micro-reparse** in $<2\text{ms}$.
 3. Guarantees line numbers passed to the AI are always 100% exact.
+
+### E. Proportional Tree Budgeting
+Traditional repository mappers sort directories alphabetically and perform a greedy cutoff when token limits are reached, resulting in late-alphabet packages (e.g. `services/`, `utils/`, `web/`) being completely dropped. `codive` implements a two-pass round-robin proportional allocator:
+1. **Pass 1 (Breadth Guarantee)**: Allocates base quota to every top-level package to guarantee its existence and top entrypoint files are visible.
+2. **Pass 2 (Depth Allotment)**: Distributes remaining character capacity across directories proportionally based on symbol count, gracefully summarizing omitted files (`... +N more files in <dir>`) without dropping any module.
+
+### F. Subword Intent Decomposition & Attention U-Curve
+To bridge the gap between human/agent intent and codebase naming conventions:
+1. **Subword Decomposition**: Lexically splits camelCase, PascalCase, snake_case, and kebab-case identifiers into component tokens (`VerifyCredentials` $\rightarrow$ `verify`, `credentials`).
+2. **Domain Intent Clustering & Trigram Vectors**: Maps intent keywords (`login`, `throttle`, `db`) to domain synonyms (`auth`, `rate limit`, `store`) with character 3-gram Dice coefficient vector scoring.
+3. **Attention U-Curve Formatting**: In accordance with Transformer self-attention dynamics (solving "Lost in the Middle"), context is partitioned into high-attention zones: Core Types & Interfaces at the top (priming anchor), structural skeletons in the middle, and target implementation functions & unit test assertions at the very bottom (recency anchor).
+
+### G. Session Working-Set Deduplication
+In multi-turn agent pair programming sessions:
+1. `SessionTracker` maintains an in-memory record of files and symbols delivered over the lifetime of the active MCP connection.
+2. On subsequent turns, re-reading the same skeleton or symbol returns a compact reference anchor (`// [Symbol 'X' already delivered in Turn #N]`), saving 3,000–8,000 tokens per turn while preserving model awareness.
+3. Agents can bypass deduplication at any time by supplying `force: true`.
 
 ---
 

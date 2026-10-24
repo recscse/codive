@@ -682,10 +682,10 @@
       <div class="bento-card">
         <div>
           <h3 class="bento-title"><span>mcp</span> / for agents</h3>
-          <p class="bento-desc">Any MCP-compatible assistant calls codive natively to discover symbols, call graphs, and test suites in 1 turn.</p>
+          <p class="bento-desc">Any MCP-compatible assistant calls codive natively to discover symbols, intent-expanded subwords, and Attention U-Curve context in 1 turn.</p>
         </div>
         <div class="bento-mock">
-          <span style="color: #64748b;">// 1-turn feature context bundle</span><br>
+          <span style="color: #64748b;">// 1-turn intent-expanded bundle</span><br>
           codive:pack_feature_context(topic="billing") ➔ 240 tokens
         </div>
       </div>
@@ -694,7 +694,7 @@
       <div class="bento-card">
         <div>
           <h3 class="bento-title"><span>ast</span> / skeletonizer</h3>
-          <p class="bento-desc">Strips function bodies into line stubs, compressing a 1,200-line file (~6,500 tokens) into a ~120-token outline.</p>
+          <p class="bento-desc">Strips function bodies into line stubs with session working-set deduplication, compressing 1,200 lines (~6,500 tokens) into a ~120-token outline.</p>
         </div>
         <div class="bento-mock">
           func ProcessPayment(...) { <span style="color: #38bdf8;">/* L45-L92 */</span> }

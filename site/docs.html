@@ -738,7 +738,7 @@ codive serve /path/to/repo</pre>
       </div>
 
       <h3 id="mcp-get-repo-map"><code>get_repo_map</code></h3>
-      <p>Returns a directory-organized map of all indexed files annotated with symbol signatures. Use this as the very first tool call to orient an agent in an unfamiliar codebase.</p>
+      <p>Returns a directory-organized map of all indexed files annotated with symbol signatures. Features <strong>Proportional Tree Budgeting</strong>: uses a round-robin two-pass allocator that guarantees representation for every top-level package and module (even late-alphabet folders like <code>services/</code> or <code>web/</code>) rather than cutting them off when early directories are large.</p>
       <div class="param-list">
         <div class="param">
           <div class="param-name">workspace_path <span class="param-optional">optional</span></div>
@@ -812,11 +812,15 @@ codive serve /path/to/repo</pre>
       </div>
 
       <h3 id="mcp-skeleton"><code>get_file_skeleton</code></h3>
-      <p>Read a file's structure — class declarations, method signatures, field definitions — with all function bodies collapsed to line-range markers. Reduces token cost by ~95% compared to reading the full file.</p>
+      <p>Read a file's structure — class declarations, method signatures, field definitions — with all function bodies collapsed to line-range markers. Reduces token cost by ~95% compared to reading the full file. Features <strong>Session Working-Set Deduplication</strong>: repeated calls in the same conversation automatically emit compact reference anchors, saving thousands of redundant tokens.</p>
       <div class="param-list">
         <div class="param">
           <div class="param-name">path <span class="param-required">required</span></div>
           <div>Relative path to the file from the repository root.</div>
+        </div>
+        <div class="param">
+          <div class="param-name">force <span class="param-optional">optional</span></div>
+          <div>Boolean. Bypass session deduplication and force re-printing the full skeleton (default: false).</div>
         </div>
       </div>
       <div class="callout">
@@ -854,7 +858,7 @@ codive serve /path/to/repo</pre>
       <p><strong>Returns:</strong> branch name, list of changed files with status (modified/added/deleted), affected symbol names, and changed line counts.</p>
 
       <h3 id="mcp-pack"><code>pack_feature_context</code></h3>
-      <p>The highest-value tool. Given a topic keyword, assembles a comprehensive feature context bundle containing: relevant symbol definitions, file skeletons, related test suites, FTS search matches, and stored architectural decisions — in a single response optimized for minimum token use.</p>
+      <p>The highest-value tool. Given a topic keyword, assembles a comprehensive feature context bundle containing: relevant symbol definitions, file skeletons, related test suites, FTS search matches, and stored architectural decisions. Features <strong>Subword Intent Decomposition</strong> (automatically expands queries like <code>login</code> or <code>throttle</code> to match actual symbols like <code>VerifyCredentials</code> or <code>RateLimiter</code>) and formats output using <strong>Karpathy's Attention U-Curve</strong> (types at top priming anchor, implementation functions and unit test assertions at bottom recency anchor).</p>
       <div class="param-list">
         <div class="param">
           <div class="param-name">topic <span class="param-required">required</span></div>
