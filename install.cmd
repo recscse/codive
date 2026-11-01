@@ -10,8 +10,13 @@ if not exist "%INSTALL_DIR%" (
 )
 
 set "TARGET_BIN=%INSTALL_DIR%\codive.exe"
-set "ZIP_PATH=%TEMP%\codive_v1.0.0_windows_amd64.zip"
-set "DOWNLOAD_URL=https://github.com/recscse/codive/releases/latest/download/codive_v1.0.0_windows_amd64.zip"
+set "ZIP_PATH=%TEMP%\codive_windows_amd64.zip"
+
+:: Asset names include the version, so find the latest release's tag first.
+set "TAG="
+for /f "delims=" %%u in ('curl -fsSLI -o nul -w "%%{url_effective}" https://github.com/recscse/codive/releases/latest 2^>nul') do set "LATEST_URL=%%u"
+for %%t in ("%LATEST_URL:/=" "%") do set "TAG=%%~t"
+set "DOWNLOAD_URL=https://github.com/recscse/codive/releases/download/%TAG%/codive_%TAG%_windows_amd64.zip"
 
 echo [codive] Downloading pre-compiled binary...
 curl -fsSL "%DOWNLOAD_URL%" -o "%ZIP_PATH%" >nul 2>&1
