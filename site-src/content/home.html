@@ -1,122 +1,105 @@
-<section class="relative overflow-hidden">
-  <div class="pointer-events-none absolute inset-x-0 -top-40 h-[560px] bg-[radial-gradient(50%_60%_at_50%_30%,rgba(62,207,142,.13),transparent)]"></div>
-  <div class="relative mx-auto max-w-6xl px-6 pt-20 pb-14 text-center sm:pt-28">
-    <p class="font-mono text-[13px] text-brand">Local code graph + MCP server for Go</p>
-    <h1 class="mx-auto mt-5 max-w-4xl text-5xl leading-[1.04] font-semibold tracking-[-0.035em] text-balance text-white sm:text-7xl">Know what breaks before your AI agent edits your code.</h1>
-    <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-pretty text-zinc-400">The callers, affected files and tests to run for a Go change, resolved with the Go type checker. One binary. No account.</p>
-    <div class="mx-auto mt-9 flex max-w-2xl items-center gap-3 rounded-xl border border-edge bg-surface/90 py-2.5 pr-2.5 pl-4 text-left font-mono text-[13px] text-zinc-200 shadow-2xl shadow-black/40">
-      <span class="text-brand select-none">$</span>
-      <code id="install-cmd" class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">curl -fsSL https://recscse.github.io/codive/install.sh | bash</code>
-      <button data-copy="install-cmd" class="cursor-pointer rounded-lg bg-white px-3 py-1.5 font-sans text-xs font-medium text-black transition hover:bg-zinc-200">Copy</button>
-    </div>
-    <p class="mt-3.5 text-[13px] text-zinc-500">Windows and other install options are in the <a class="text-zinc-300 underline decoration-zinc-600 underline-offset-2 hover:text-white" href="docs.html#installation">docs</a>.</p>
-  </div>
-  <figure class="relative mx-auto max-w-6xl px-6">
-    <div class="overflow-hidden rounded-t-2xl border border-b-0 border-white/10 shadow-[0_-20px_120px_-30px_rgba(62,207,142,.22)]">
-      <img src="assets/shots/changes.png" width="2720" height="1720" alt="codive explorer on the gin framework after a one-line edit to Context.Render: 1 symbol changed, 22 callers affected, 2 files affected and 102 tests to run, with a go test command to copy">
-    </div>
-    <figcaption class="border-t border-edge pt-3.5 text-center text-[13px] text-zinc-500">Real output from <code class="font-mono text-zinc-400">codive web</code> on <a class="text-zinc-300 underline decoration-zinc-600 underline-offset-2" href="https://github.com/gin-gonic/gin/tree/0f09c3a">gin at 0f09c3a</a>, after a one-line edit to <code class="font-mono text-zinc-400">Context.Render</code>.</figcaption>
-  </figure>
-</section>
-
-<section class="mx-auto max-w-6xl px-6 pt-28">
-  <h2 class="max-w-2xl text-4xl font-semibold tracking-tight text-balance text-white">Answers for each moment of a change</h2>
-  <div class="mt-10 grid gap-4 md:grid-cols-2">
-    <article class="overflow-hidden rounded-2xl border border-edge bg-surface md:col-span-2 md:grid md:grid-cols-5">
-      <div class="p-8 md:col-span-2">
-        <p class="font-mono text-xs text-brand">Before you edit</p>
-        <h3 class="mt-3 text-2xl font-semibold tracking-tight text-white">See the blast radius</h3>
-        <p class="mt-3 leading-7">Pick any function. See direct and indirect callers, the files involved and the tests to run, with a command you can copy.</p>
-      </div>
-      <div class="relative min-h-72 overflow-hidden md:col-span-3"><img class="absolute top-8 left-8 max-w-none w-[900px] rounded-tl-xl border border-white/10" src="assets/shots/impact.png" loading="lazy" alt="Blast radius of Context.Render in gin: 18 direct callers, 4 indirect callers, 2 files, 102 tests"></div>
-    </article>
-    <article class="flex flex-col overflow-hidden rounded-2xl border border-edge bg-surface">
-      <div class="p-8">
-        <p class="font-mono text-xs text-brand">While you trace</p>
-        <h3 class="mt-3 text-2xl font-semibold tracking-tight text-white">Follow the execution flow</h3>
-        <p class="mt-3 leading-7">Start at an HTTP route, CLI command or function and walk what it reaches, down to database tables.</p>
-      </div>
-      <div class="relative h-64 overflow-hidden"><img class="absolute top-0 left-8 max-w-none w-[820px] rounded-tl-xl border border-white/10" src="assets/shots/flow.png" loading="lazy" alt="Execution flow call tree for Context.Render in gin"></div>
-    </article>
-    <article class="flex flex-col overflow-hidden rounded-2xl border border-edge bg-surface">
-      <div class="p-8">
-        <p class="font-mono text-xs text-brand">While you learn a repo</p>
-        <h3 class="mt-3 text-2xl font-semibold tracking-tight text-white">Read the architecture</h3>
-        <p class="mt-3 leading-7">A package map drawn from real call sites, with test code left out so production dependencies stand out.</p>
-      </div>
-      <div class="relative h-64 overflow-hidden"><img class="absolute top-0 left-8 max-w-none w-[820px] rounded-tl-xl border border-white/10" src="assets/shots/map.png" loading="lazy" alt="Package map of gin showing dependencies between packages"></div>
-    </article>
-  </div>
-</section>
-
-<section class="mx-auto max-w-6xl px-6 pt-28">
-  <div class="grid gap-12 md:grid-cols-2 md:items-center">
+<section class="mx-auto max-w-[76rem] px-6 pt-24 pb-20 sm:pt-32">
+  <h1 class="max-w-5xl text-[52px] leading-[1.02] font-medium tracking-[-0.04em] text-balance text-ink sm:text-[88px]">Know what breaks before your AI agent edits your code.</h1>
+  <div class="mt-12 grid gap-10 md:grid-cols-[1fr_1.15fr] md:items-end">
+    <p class="max-w-xl text-xl leading-[1.55] text-pretty">codive maps your Go project on your own machine, then shows the callers, affected files and tests to run for any change. One binary. No account.</p>
     <div>
-      <p class="font-mono text-xs text-brand">For your agent</p>
-      <h2 class="mt-3 text-4xl font-semibold tracking-tight text-balance text-white">The same knowledge, inside your AI tools</h2>
-      <p class="mt-4 max-w-md leading-7"><code class="font-mono text-[14px] text-zinc-200">codive setup</code> connects 18 MCP tools, so your agent can look up symbols, callers and file outlines instead of searching and opening whole files.</p>
-      <p class="mt-6 text-sm leading-6 text-zinc-500">Claude Code · Claude Desktop · Cursor · Windsurf · Cline · Gemini CLI · Codex CLI · Google Antigravity</p>
+      <div class="flex items-center gap-3 rounded-lg bg-night py-2.5 pr-2.5 pl-4 font-mono text-[12.5px] text-[#e9e6dc]">
+        <code id="install-cmd" class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">curl -fsSL https://recscse.github.io/codive/install.sh | bash</code>
+        <button data-copy="install-cmd" class="cursor-pointer rounded bg-signal px-3 py-1.5 font-sans text-[13px] font-medium text-white transition hover:brightness-110">Copy</button>
+      </div>
+      <p class="mt-3 text-sm text-mute">Windows and other options are in the <a class="link" href="docs.html#installation">install guide</a>.</p>
     </div>
-    <pre class="overflow-x-auto rounded-2xl border border-edge bg-surface p-6 font-mono text-[13px] leading-7 text-zinc-300"><span class="text-zinc-600"># index this repo into .codive/index.db</span>
-<span class="text-brand">$</span> codive init .
-
-<span class="text-zinc-600"># connect your AI coding tools</span>
-<span class="text-brand">$</span> codive setup
-
-<span class="text-zinc-600"># open the explorer on localhost</span>
-<span class="text-brand">$</span> codive web .</pre>
   </div>
 </section>
 
-<section id="accuracy" class="mx-auto max-w-6xl px-6 pt-28">
-  <div class="grid gap-12 md:grid-cols-5">
-    <div class="md:col-span-2">
-      <p class="font-mono text-xs text-brand">Accuracy</p>
-      <h2 class="mt-3 text-4xl font-semibold tracking-tight text-balance text-white">Checked against gopls. Published with the misses.</h2>
-      <p class="mt-4 leading-7">We compared codive's callers with <code class="font-mono text-[14px] text-zinc-200">gopls</code>, the official Go language server, on random samples. codive reported no caller that gopls didn't, and missed some that it did.</p>
-      <p class="mt-4 text-sm"><a class="text-brand underline decoration-brand/30 underline-offset-2" href="blog/checking-codive-against-gopls.html">How we tested</a> &nbsp;·&nbsp; <a class="text-brand underline decoration-brand/30 underline-offset-2" href="https://github.com/recscse/codive/blob/main/benchmarks/accuracy.py">Rerun the script</a></p>
+<figure class="bg-sand px-6 py-14 sm:py-20">
+  <div class="mx-auto max-w-[73rem]">
+    <img class="rounded-lg shadow-[0_30px_80px_-25px_rgba(23,22,15,.55)]" src="assets/shots/changes.png" width="2720" height="1720" alt="codive explorer on the gin framework after a one-line edit to Context.Render: 1 symbol changed, 22 callers affected, 2 files affected and 102 tests to run, with a go test command to copy">
+    <figcaption class="mt-6 text-sm text-body">Real output from <code class="font-mono text-[13px] text-ink">codive web</code> on <a class="link" href="https://github.com/gin-gonic/gin/tree/0f09c3a">gin at 0f09c3a</a>, after a one-line edit to <code class="font-mono text-[13px] text-ink">Context.Render</code>.</figcaption>
+  </div>
+</figure>
+
+<section class="mx-auto max-w-[76rem] px-6 pt-32">
+  <h2 class="max-w-3xl text-5xl leading-[1.05] font-medium tracking-[-0.03em] text-balance text-ink">Agents edit what they can see. codive shows them the rest.</h2>
+  <div class="mt-16 grid gap-x-12 gap-y-10 border-t border-ink/80 pt-8 md:grid-cols-3">
+    <div><h3 class="text-lg font-medium text-ink">Your agent asks instead of guessing</h3><p class="mt-3 leading-7"><code class="font-mono text-sm text-ink">codive setup</code> connects 18 MCP tools, so it can look up symbols, callers and file outlines rather than searching and opening whole files.</p></div>
+    <div><h3 class="text-lg font-medium text-ink">You see your change's reach</h3><p class="mt-3 leading-7">The explorer reads your uncommitted work and lists what it affects, with a <code class="font-mono text-sm text-ink">go test</code> command to copy.</p></div>
+    <div><h3 class="text-lg font-medium text-ink">Results you can check</h3><p class="mt-3 leading-7">Go calls are resolved with the Go type checker, not by matching names. Possible interface targets are marked as inferred.</p></div>
+  </div>
+</section>
+
+<section class="mx-auto max-w-[76rem] px-6 pt-32">
+  <div class="grid gap-10 md:grid-cols-12 md:items-center">
+    <div class="md:col-span-4">
+      <h2 class="text-4xl leading-[1.08] font-medium tracking-[-0.03em] text-ink">Check the blast radius first</h2>
+      <p class="mt-5 text-lg leading-[1.6]">Pick a function. See direct and indirect callers, the files involved and the tests to run.</p>
     </div>
-    <div class="md:col-span-3">
-      <div class="overflow-x-auto rounded-2xl border border-edge bg-surface">
-        <table class="w-full text-sm tabular-nums">
-          <thead><tr class="border-b border-edge text-xs text-zinc-500"><th class="px-5 py-3 text-left font-medium">Repository</th><th class="px-5 py-3 text-right font-medium">Functions</th><th class="px-5 py-3 text-right font-medium">Agreed</th><th class="px-5 py-3 text-right font-medium">codive only</th><th class="px-5 py-3 text-right font-medium">gopls only</th></tr></thead>
-          <tbody class="divide-y divide-edge/60 text-right">
-            <tr><td class="px-5 py-3 text-left text-zinc-200">spf13/cobra</td><td class="px-5">60</td><td class="px-5">411</td><td class="px-5">0</td><td class="px-5">0</td></tr>
-            <tr><td class="px-5 py-3 text-left text-zinc-200">gin-gonic/gin</td><td class="px-5">58</td><td class="px-5">122</td><td class="px-5">0</td><td class="px-5">0</td></tr>
-            <tr><td class="px-5 py-3 text-left text-zinc-200">junegunn/fzf</td><td class="px-5">39</td><td class="px-5">102</td><td class="px-5">0</td><td class="px-5 text-amber-400">12</td></tr>
-            <tr><td class="px-5 py-3 text-left text-zinc-200">go-chi/chi</td><td class="px-5">60</td><td class="px-5">79</td><td class="px-5">0</td><td class="px-5 text-amber-400">24</td></tr>
-            <tr><td class="px-5 py-3 text-left text-zinc-200">go-gitea/gitea</td><td class="px-5">11</td><td class="px-5">18</td><td class="px-5">0</td><td class="px-5">0</td></tr>
+    <img class="rounded-lg shadow-[0_24px_60px_-25px_rgba(23,22,15,.5)] md:col-span-8" src="assets/shots/impact.png" width="2720" height="1720" loading="lazy" alt="Blast radius of Context.Render in gin: 18 direct callers, 4 indirect callers, 2 files, 102 tests">
+  </div>
+  <div class="mt-28 grid gap-10 md:grid-cols-12 md:items-center">
+    <img class="order-2 rounded-lg shadow-[0_24px_60px_-25px_rgba(23,22,15,.5)] md:order-1 md:col-span-8" src="assets/shots/flow.png" width="2720" height="1720" loading="lazy" alt="Execution flow call tree for Context.Render in gin">
+    <div class="order-1 md:order-2 md:col-span-4">
+      <h2 class="text-4xl leading-[1.08] font-medium tracking-[-0.03em] text-ink">Follow the code path</h2>
+      <p class="mt-5 text-lg leading-[1.6]">Start at an HTTP route, CLI command or function and walk what it reaches, down to database tables.</p>
+    </div>
+  </div>
+</section>
+
+<section class="mt-32 bg-night px-6 py-24 text-[#b9b6aa]">
+  <div class="mx-auto grid max-w-[73rem] gap-12 md:grid-cols-2 md:items-center">
+    <h2 class="text-5xl leading-[1.05] font-medium tracking-[-0.03em] text-white">Three commands to your first answer</h2>
+    <pre class="overflow-x-auto font-mono text-[15px] leading-9"><span class="text-signal">$</span> <span class="text-white">codive init .</span>     <span class="text-[#7d7a6f]"># index this repo</span>
+<span class="text-signal">$</span> <span class="text-white">codive setup</span>      <span class="text-[#7d7a6f]"># connect your AI tools</span>
+<span class="text-signal">$</span> <span class="text-white">codive web .</span>      <span class="text-[#7d7a6f]"># open the explorer</span></pre>
+  </div>
+</section>
+
+<section id="accuracy" class="mx-auto max-w-[76rem] px-6 pt-32">
+  <div class="grid gap-14 md:grid-cols-12">
+    <div class="md:col-span-5">
+      <h2 class="text-5xl leading-[1.05] font-medium tracking-[-0.03em] text-balance text-ink">Tested against gopls, misses included</h2>
+      <p class="mt-6 text-lg leading-[1.6]">We compared codive's callers with <code class="font-mono text-base text-ink">gopls</code>, the official Go language server, on random samples. codive reported no caller that gopls didn't, and missed some that it did.</p>
+      <p class="mt-6 flex gap-6"><a class="link" href="blog/checking-codive-against-gopls.html">How we tested</a><a class="link" href="https://github.com/recscse/codive/blob/main/benchmarks/accuracy.py">Rerun the script</a></p>
+    </div>
+    <div class="md:col-span-7">
+      <div class="overflow-x-auto">
+        <table class="w-full text-[15px] tabular-nums">
+          <thead><tr class="border-b border-ink/80 text-[13px] text-ink"><th class="py-3 pr-4 text-left font-medium">Repository</th><th class="px-4 py-3 text-right font-medium">Functions</th><th class="px-4 py-3 text-right font-medium">Agreed</th><th class="px-4 py-3 text-right font-medium">codive only</th><th class="py-3 pl-4 text-right font-medium">gopls only</th></tr></thead>
+          <tbody class="divide-y divide-line text-right">
+            <tr><td class="py-3.5 pr-4 text-left text-ink">spf13/cobra</td><td class="px-4">60</td><td class="px-4">411</td><td class="px-4">0</td><td class="pl-4">0</td></tr>
+            <tr><td class="py-3.5 pr-4 text-left text-ink">gin-gonic/gin</td><td class="px-4">58</td><td class="px-4">122</td><td class="px-4">0</td><td class="pl-4">0</td></tr>
+            <tr><td class="py-3.5 pr-4 text-left text-ink">junegunn/fzf</td><td class="px-4">39</td><td class="px-4">102</td><td class="px-4">0</td><td class="pl-4 font-medium text-signal">12</td></tr>
+            <tr><td class="py-3.5 pr-4 text-left text-ink">go-chi/chi</td><td class="px-4">60</td><td class="px-4">79</td><td class="px-4">0</td><td class="pl-4 font-medium text-signal">24</td></tr>
+            <tr><td class="py-3.5 pr-4 text-left text-ink">go-gitea/gitea</td><td class="px-4">11</td><td class="px-4">18</td><td class="px-4">0</td><td class="pl-4">0</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="mt-4 text-[13.5px] leading-6 text-zinc-500">Small samples, and cobra supplies most agreed links. Known gaps: calls through standard library interfaces, platform-specific files, reflection, and route prefixes set in another function. Treat results as known callers, not a guarantee.</p>
+      <p class="mt-6 text-sm leading-6 text-mute">Small samples, and cobra supplies most agreed links. Known gaps: calls through standard library interfaces, platform-specific files, reflection, and route prefixes set in another function. Treat results as known callers, not a guarantee.</p>
     </div>
   </div>
 </section>
 
-<section class="mx-auto max-w-6xl px-6 pt-28">
-  <div class="grid gap-4 md:grid-cols-2">
-    <div class="rounded-2xl border border-edge bg-surface p-8">
-      <h3 class="text-xl font-semibold tracking-tight text-white">Language support</h3>
-      <dl class="mt-5 space-y-3 text-sm">
-        <div class="flex justify-between gap-6"><dt class="text-zinc-200">Go</dt><dd class="text-right">Calls, flow, blast radius, routes, symbols</dd></div>
-        <div class="flex justify-between gap-6"><dt class="text-zinc-200">Python, JS, TS, Java</dt><dd class="text-right">Symbols, search, pattern-matched routes</dd></div>
-        <div class="flex justify-between gap-6"><dt class="text-zinc-200">C#, Rust</dt><dd class="text-right">Symbols, search</dd></div>
+<section class="mx-auto max-w-[76rem] px-6 pt-32">
+  <div class="grid gap-14 border-t border-ink/80 pt-10 md:grid-cols-2">
+    <div>
+      <h2 class="text-2xl font-medium tracking-[-0.02em] text-ink">Language support</h2>
+      <dl class="mt-6 divide-y divide-line text-[15px]">
+        <div class="flex justify-between gap-6 py-3"><dt class="text-ink">Go</dt><dd class="text-right">Calls, flow, blast radius, routes, symbols</dd></div>
+        <div class="flex justify-between gap-6 py-3"><dt class="text-ink">Python, JS, TS, Java</dt><dd class="text-right">Symbols, search, pattern-matched routes</dd></div>
+        <div class="flex justify-between gap-6 py-3"><dt class="text-ink">C#, Rust</dt><dd class="text-right">Symbols, search</dd></div>
       </dl>
-      <p class="mt-5 text-[13.5px] text-zinc-500">Call graphs for more languages aren't built yet.</p>
     </div>
-    <div class="rounded-2xl border border-edge bg-surface p-8">
-      <h3 class="text-xl font-semibold tracking-tight text-white">Does it save tokens?</h3>
-      <p class="mt-5 text-sm leading-6">We haven't measured this on real agent tasks yet, so we don't claim a number. <a class="text-brand underline decoration-brand/30 underline-offset-2" href="https://github.com/recscse/codive/blob/main/docs/BENCHMARK_REPORT.md">An output-size comparison</a> on one repo shows large savings on diffs and big files, and <code class="font-mono text-zinc-200">git grep</code> winning small lookups. The agent benchmark will appear here when it exists.</p>
+    <div>
+      <h2 class="text-2xl font-medium tracking-[-0.02em] text-ink">Does it save tokens?</h2>
+      <p class="mt-6 text-[15px] leading-7">We haven't measured this on real agent tasks yet, so we don't claim a number. <a class="link" href="https://github.com/recscse/codive/blob/main/docs/BENCHMARK_REPORT.md">An output-size comparison</a> on one repo shows large savings on diffs and big files, and <code class="font-mono text-sm text-ink">git grep</code> winning small lookups.</p>
     </div>
   </div>
 </section>
 
-<section class="mx-auto max-w-6xl px-6 pt-28 text-center">
-  <h2 class="text-4xl font-semibold tracking-tight text-white">Try it on your own repo</h2>
-  <p class="mt-3">See what your next change touches.</p>
-  <div class="mt-7 flex justify-center gap-3">
-    <a href="docs.html#quickstart" class="rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-black transition hover:bg-zinc-200">Read the quickstart</a>
-    <a href="https://github.com/recscse/codive" class="rounded-lg border border-edge px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-raised">View on GitHub</a>
+<section class="mx-auto max-w-[76rem] px-6 pt-32">
+  <h2 class="max-w-3xl text-5xl leading-[1.05] font-medium tracking-[-0.03em] text-ink sm:text-7xl">Try it on your own repo.</h2>
+  <div class="mt-10 flex flex-wrap items-center gap-6">
+    <a href="docs.html#quickstart" class="rounded bg-signal px-5 py-3 font-medium text-white transition hover:brightness-110">Read the quickstart</a>
+    <a class="link" href="https://github.com/recscse/codive">View on GitHub</a>
   </div>
 </section>

@@ -6,7 +6,7 @@
 <title>Blog | codive</title>
 <meta name="description" content="How codive is built and tested, including what went wrong.">
 <link rel="canonical" href="https://recscse.github.io/codive/blog.html">
-<meta name="theme-color" content="#08090b">
+<meta name="theme-color" content="#fbfaf6">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://recscse.github.io/codive/blog.html">
 <meta property="og:title" content="Blog | codive">
@@ -14,63 +14,63 @@
 <meta property="og:image" content="https://recscse.github.io/codive/assets/shots/changes.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="preload" href="assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/geist.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/site.css">
 </head>
-<body class="min-h-screen bg-ink">
-<header class="sticky top-0 z-40 border-b border-white/[.06] bg-ink/75 backdrop-blur-xl">
-  <nav class="mx-auto flex h-14 max-w-[88rem] items-center gap-7 px-6 text-sm text-zinc-400">
-    <a href="index.html" class="mr-auto text-[15px] font-semibold tracking-tight text-white">codive</a>
-    <a href="docs.html" class="transition hover:text-white ">Docs</a>
-    <a href="blog.html" class="transition hover:text-white text-white">Blog</a>
-    <a href="https://github.com/recscse/codive" class="transition hover:text-white">GitHub</a>
-    <a href="docs.html#quickstart" class="hidden rounded-lg bg-white px-3 py-1.5 text-[13px] font-medium text-black transition hover:bg-zinc-200 sm:block">Get started</a>
+<body class="min-h-screen">
+<header class="sticky top-0 z-40 border-b border-line bg-paper/85 backdrop-blur-lg">
+  <nav class="mx-auto flex h-16 max-w-[76rem] items-center gap-8 px-6 text-[15px] text-body">
+    <a href="index.html" class="mr-auto text-xl font-medium tracking-[-0.03em] text-ink">codive<span class="text-signal">.</span></a>
+    <a href="docs.html" class="transition hover:text-signal ">Docs</a>
+    <a href="blog.html" class="transition hover:text-signal text-signal">Blog</a>
+    <a href="https://github.com/recscse/codive" class="transition hover:text-signal">GitHub</a>
+    <a href="docs.html#quickstart" class="hidden rounded bg-ink px-3.5 py-2 text-sm font-medium text-paper transition hover:bg-signal sm:block">Get started</a>
   </nav>
 </header>
 <main>
-<div class="mx-auto max-w-5xl px-6 pt-20">
-  <h1 class="text-5xl font-semibold tracking-tight text-white">Blog</h1>
+<div class="mx-auto max-w-[76rem] px-6 pt-24">
+  <h1 class="text-7xl font-medium tracking-[-0.04em] text-ink">Blog</h1>
   <p class="mt-4 max-w-xl text-lg">How codive is built and tested, including what went wrong.</p>
-  <div class="mt-12 grid gap-4 md:grid-cols-2">
-    <div class="md:col-span-2"><a href="blog/checking-codive-against-gopls.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
-  <p class="text-xs text-zinc-500">Accuracy &nbsp;·&nbsp; November 1, 2026</p>
-  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">We checked codive's call graph against gopls. Here's what broke.</h2>
-  <p class="mt-3 text-[14.5px] leading-6">How we measured codive's Go callers against the official language server, the real bugs that turned up, and the gaps that remain.</p>
+  <div class="mt-16 grid gap-x-12 md:grid-cols-2">
+    <div class="md:col-span-2"><a href="blog/checking-codive-against-gopls.html" class="group block border-t border-line py-8">
+  <p class="text-sm text-mute">Accuracy &nbsp;·&nbsp; November 1, 2026</p>
+  <h2 class="mt-3 text-2xl leading-snug font-medium tracking-[-0.02em] text-balance text-ink transition-colors group-hover:text-signal">We checked codive's call graph against gopls. Here's what broke.</h2>
+  <p class="mt-3 max-w-2xl leading-7">How we measured codive's Go callers against the official language server, the real bugs that turned up, and the gaps that remain.</p>
 </a></div>
-    <a href="blog/parallel-goroutine-indexing.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
-  <p class="text-xs text-zinc-500">Parallel Go Engine &nbsp;·&nbsp; September 1, 2026</p>
-  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">Parallel Goroutine Indexing: Scanning Large Monorepos Fast</h2>
-  <p class="mt-3 text-[14.5px] leading-6">Cold-indexing a large repository has two distinct costs: walking the directory tree to find files, and reading + AST-parsing each one.</p>
-</a><a href="blog/durable-ai-agent-memory.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
-  <p class="text-xs text-zinc-500">Agent Memory &nbsp;·&nbsp; September 1, 2026</p>
-  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">Durable AI Agent Memory: Recording Architectural Decisions in SQLite</h2>
-  <p class="mt-3 text-[14.5px] leading-6">Every new AI coding session starts from zero.</p>
-</a><a href="blog/code-skeletonizer-token-compression.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
-  <p class="text-xs text-zinc-500">Token Optimization &nbsp;·&nbsp; September 1, 2026</p>
-  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">The Skeletonizer: Compressing Files into Token-Efficient Outlines</h2>
-  <p class="mt-3 text-[14.5px] leading-6">When an AI agent needs to understand a large controller or service file, the obvious move is to read the whole thing.</p>
-</a><a href="blog/blast-radius-refactoring-safety.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
-  <p class="text-xs text-zinc-500">Developer Tools &nbsp;·&nbsp; September 1, 2026</p>
-  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">Blast Radius: Preventing Breaking Changes Before an AI Agent Refactors</h2>
-  <p class="mt-3 text-[14.5px] leading-6">An AI agent asked to rename or change the signature of a shared function has no built-in sense of how widely it's used.</p>
-</a><a href="blog/zero-lock-sqlite-wal-concurrency.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
-  <p class="text-xs text-zinc-500">Performance &nbsp;·&nbsp; August 29, 2026</p>
-  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">Zero-Lock SQLite WAL Concurrency: Hardening the MCP Server for Multi-Agent Restarts</h2>
-  <p class="mt-3 text-[14.5px] leading-6">One of the most common failure modes in local developer tooling built on SQLite is database is locked &mdash; usually SQLite error code 5, or its extended form 261 under Go's modernc.org/sqlite driver.</p>
-</a><a href="blog/why-grep-fails-for-ai-agents.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
-  <p class="text-xs text-zinc-500">Architecture &middot; Case Study &nbsp;·&nbsp; August 26, 2026</p>
-  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go</h2>
-  <p class="mt-3 text-[14.5px] leading-6">If you've used Claude Code, Cursor, Windsurf, or Google Antigravity on a real production repository, you've likely seen this pattern: the agent spends several turns searching for code, dumps thousands of irrelevant lines into the conversation, and occasionally breaks an upstream caller it never saw.</p>
+    <a href="blog/parallel-goroutine-indexing.html" class="group block border-t border-line py-8">
+  <p class="text-sm text-mute">Parallel Go Engine &nbsp;·&nbsp; September 1, 2026</p>
+  <h2 class="mt-3 text-2xl leading-snug font-medium tracking-[-0.02em] text-balance text-ink transition-colors group-hover:text-signal">Parallel Goroutine Indexing: Scanning Large Monorepos Fast</h2>
+  <p class="mt-3 max-w-2xl leading-7">Cold-indexing a large repository has two distinct costs: walking the directory tree to find files, and reading + AST-parsing each one.</p>
+</a><a href="blog/durable-ai-agent-memory.html" class="group block border-t border-line py-8">
+  <p class="text-sm text-mute">Agent Memory &nbsp;·&nbsp; September 1, 2026</p>
+  <h2 class="mt-3 text-2xl leading-snug font-medium tracking-[-0.02em] text-balance text-ink transition-colors group-hover:text-signal">Durable AI Agent Memory: Recording Architectural Decisions in SQLite</h2>
+  <p class="mt-3 max-w-2xl leading-7">Every new AI coding session starts from zero.</p>
+</a><a href="blog/code-skeletonizer-token-compression.html" class="group block border-t border-line py-8">
+  <p class="text-sm text-mute">Token Optimization &nbsp;·&nbsp; September 1, 2026</p>
+  <h2 class="mt-3 text-2xl leading-snug font-medium tracking-[-0.02em] text-balance text-ink transition-colors group-hover:text-signal">The Skeletonizer: Compressing Files into Token-Efficient Outlines</h2>
+  <p class="mt-3 max-w-2xl leading-7">When an AI agent needs to understand a large controller or service file, the obvious move is to read the whole thing.</p>
+</a><a href="blog/blast-radius-refactoring-safety.html" class="group block border-t border-line py-8">
+  <p class="text-sm text-mute">Developer Tools &nbsp;·&nbsp; September 1, 2026</p>
+  <h2 class="mt-3 text-2xl leading-snug font-medium tracking-[-0.02em] text-balance text-ink transition-colors group-hover:text-signal">Blast Radius: Preventing Breaking Changes Before an AI Agent Refactors</h2>
+  <p class="mt-3 max-w-2xl leading-7">An AI agent asked to rename or change the signature of a shared function has no built-in sense of how widely it's used.</p>
+</a><a href="blog/zero-lock-sqlite-wal-concurrency.html" class="group block border-t border-line py-8">
+  <p class="text-sm text-mute">Performance &nbsp;·&nbsp; August 29, 2026</p>
+  <h2 class="mt-3 text-2xl leading-snug font-medium tracking-[-0.02em] text-balance text-ink transition-colors group-hover:text-signal">Zero-Lock SQLite WAL Concurrency: Hardening the MCP Server for Multi-Agent Restarts</h2>
+  <p class="mt-3 max-w-2xl leading-7">One of the most common failure modes in local developer tooling built on SQLite is database is locked &mdash; usually SQLite error code 5, or its extended form 261 under Go's modernc.org/sqlite driver.</p>
+</a><a href="blog/why-grep-fails-for-ai-agents.html" class="group block border-t border-line py-8">
+  <p class="text-sm text-mute">Architecture &middot; Case Study &nbsp;·&nbsp; August 26, 2026</p>
+  <h2 class="mt-3 text-2xl leading-snug font-medium tracking-[-0.02em] text-balance text-ink transition-colors group-hover:text-signal">Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go</h2>
+  <p class="mt-3 max-w-2xl leading-7">If you've used Claude Code, Cursor, Windsurf, or Google Antigravity on a real production repository, you've likely seen this pattern: the agent spends several turns searching for code, dumps thousands of irrelevant lines into the conversation, and occasionally breaks an upstream caller it never saw.</p>
 </a>
   </div>
 </div>
 </main>
-<footer class="mx-auto mt-28 flex max-w-[88rem] flex-wrap items-center gap-6 border-t border-edge px-6 py-8 text-[13px] text-zinc-500">
+<footer class="mx-auto mt-32 flex max-w-[76rem] flex-wrap items-center gap-6 border-t border-line px-6 py-10 text-sm text-mute">
   <span class="mr-auto">codive is open source under the MIT License.</span>
-  <a class="hover:text-white" href="docs.html">Docs</a>
-  <a class="hover:text-white" href="blog.html">Blog</a>
-  <a class="hover:text-white" href="https://github.com/recscse/codive/releases">Releases</a>
-  <a class="hover:text-white" href="https://github.com/recscse/codive">GitHub</a>
+  <a class="hover:text-signal" href="docs.html">Docs</a>
+  <a class="hover:text-signal" href="blog.html">Blog</a>
+  <a class="hover:text-signal" href="https://github.com/recscse/codive/releases">Releases</a>
+  <a class="hover:text-signal" href="https://github.com/recscse/codive">GitHub</a>
 </footer>
 <script>
 document.querySelectorAll('[data-copy]').forEach(function (b) {

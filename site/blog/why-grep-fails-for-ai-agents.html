@@ -6,7 +6,7 @@
 <title>Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go | codive</title>
 <meta name="description" content="If you've used Claude Code, Cursor, Windsurf, or Google Antigravity on a real production repository, you've likely seen this pattern: the agent spends several turns searching for code, dumps thousands of irrelevant lines into the conversation, and occasionally breaks an upstream caller it never saw.">
 <link rel="canonical" href="https://recscse.github.io/codive/blog/why-grep-fails-for-ai-agents.html">
-<meta name="theme-color" content="#08090b">
+<meta name="theme-color" content="#fbfaf6">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://recscse.github.io/codive/blog/why-grep-fails-for-ai-agents.html">
 <meta property="og:title" content="Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go | codive">
@@ -14,25 +14,25 @@
 <meta property="og:image" content="https://recscse.github.io/codive/assets/shots/changes.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="../favicon.svg">
-<link rel="preload" href="../assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../assets/fonts/geist.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="../assets/site.css">
 </head>
-<body class="min-h-screen bg-ink">
-<header class="sticky top-0 z-40 border-b border-white/[.06] bg-ink/75 backdrop-blur-xl">
-  <nav class="mx-auto flex h-14 max-w-[88rem] items-center gap-7 px-6 text-sm text-zinc-400">
-    <a href="../index.html" class="mr-auto text-[15px] font-semibold tracking-tight text-white">codive</a>
-    <a href="../docs.html" class="transition hover:text-white ">Docs</a>
-    <a href="../blog.html" class="transition hover:text-white text-white">Blog</a>
-    <a href="https://github.com/recscse/codive" class="transition hover:text-white">GitHub</a>
-    <a href="../docs.html#quickstart" class="hidden rounded-lg bg-white px-3 py-1.5 text-[13px] font-medium text-black transition hover:bg-zinc-200 sm:block">Get started</a>
+<body class="min-h-screen">
+<header class="sticky top-0 z-40 border-b border-line bg-paper/85 backdrop-blur-lg">
+  <nav class="mx-auto flex h-16 max-w-[76rem] items-center gap-8 px-6 text-[15px] text-body">
+    <a href="../index.html" class="mr-auto text-xl font-medium tracking-[-0.03em] text-ink">codive<span class="text-signal">.</span></a>
+    <a href="../docs.html" class="transition hover:text-signal ">Docs</a>
+    <a href="../blog.html" class="transition hover:text-signal text-signal">Blog</a>
+    <a href="https://github.com/recscse/codive" class="transition hover:text-signal">GitHub</a>
+    <a href="../docs.html#quickstart" class="hidden rounded bg-ink px-3.5 py-2 text-sm font-medium text-paper transition hover:bg-signal sm:block">Get started</a>
   </nav>
 </header>
 <main>
-<article class="mx-auto max-w-[44rem] px-6 pt-16">
-  <a href="../blog.html" class="text-sm text-zinc-500 transition hover:text-white">&larr; Blog</a>
-  <p class="mt-10 text-sm text-zinc-500">Architecture &middot; Case Study &nbsp;·&nbsp; August 26, 2026</p>
-  <h1 class="mt-3 text-4xl leading-tight font-semibold tracking-tight text-balance text-white sm:text-[44px]">Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go</h1>
-  <div class="doc mt-8 text-[16.5px] leading-8"><p>If you've used Claude Code, Cursor, Windsurf, or Google Antigravity on a real production repository, you've likely seen this pattern: the agent burns 6&ndash;10 turns searching for code, dumps thousands of irrelevant lines into the conversation, and occasionally breaks an upstream caller it never saw.</p>
+<article class="mx-auto max-w-[42rem] px-6 pt-20">
+  <a href="../blog.html" class="text-sm text-mute transition hover:text-signal">&larr; Blog</a>
+  <p class="mt-12 text-sm text-mute">Architecture &middot; Case Study &nbsp;·&nbsp; August 26, 2026</p>
+  <h1 class="mt-3 text-[44px] leading-[1.08] font-medium tracking-[-0.03em] text-balance text-ink sm:text-[56px]">Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go</h1>
+  <div class="doc mt-10 text-[17.5px] leading-[1.75]"><p>If you've used Claude Code, Cursor, Windsurf, or Google Antigravity on a real production repository, you've likely seen this pattern: the agent burns 6&ndash;10 turns searching for code, dumps thousands of irrelevant lines into the conversation, and occasionally breaks an upstream caller it never saw.</p>
 
       <h2>The Brute-Force Grep Bottleneck</h2>
       <p>When an AI coding agent explores a repository, its default fallback is raw <code>grep</code> or <code>ripgrep</code>. Grep is excellent for a human scanning a terminal &mdash; it is expensive for an LLM:</p>
@@ -74,15 +74,15 @@
       <h2>Where This Fits</h2>
       <p>codive doesn't replace your editor's search or a human doing a deliberate <code>grep -R</code> &mdash; it replaces the AI agent's default fallback to raw text search with a structured index built for exactly the kind of question an autonomous coding agent asks over and over: <em>where is this defined, who calls it, what will break if I change it, what does this file's API surface look like.</em> Those are exactly the four questions <code>find_symbol</code>, <code>find_callers</code>/<code>find_references</code>, <code>blast_radius</code>, and <code>get_file_skeleton</code> answer directly.</p>
 </div>
-  <div class="mt-16 grid gap-3 border-t border-edge pt-8 sm:grid-cols-2"><a href="checking-codive-against-gopls.html" class="rounded-xl border border-edge bg-surface p-5 text-[14.5px] font-medium text-zinc-200 transition hover:border-zinc-600">We checked codive's call graph against gopls. Here's what broke.</a><a href="parallel-goroutine-indexing.html" class="rounded-xl border border-edge bg-surface p-5 text-[14.5px] font-medium text-zinc-200 transition hover:border-zinc-600">Parallel Goroutine Indexing: Scanning Large Monorepos Fast</a></div>
+  <div class="mt-16 grid gap-3 border-t border-line pt-8 sm:grid-cols-2"><a href="checking-codive-against-gopls.html" class="text-[17px] font-medium text-ink transition-colors hover:text-signal">We checked codive's call graph against gopls. Here's what broke.</a><a href="parallel-goroutine-indexing.html" class="text-[17px] font-medium text-ink transition-colors hover:text-signal">Parallel Goroutine Indexing: Scanning Large Monorepos Fast</a></div>
 </article>
 </main>
-<footer class="mx-auto mt-28 flex max-w-[88rem] flex-wrap items-center gap-6 border-t border-edge px-6 py-8 text-[13px] text-zinc-500">
+<footer class="mx-auto mt-32 flex max-w-[76rem] flex-wrap items-center gap-6 border-t border-line px-6 py-10 text-sm text-mute">
   <span class="mr-auto">codive is open source under the MIT License.</span>
-  <a class="hover:text-white" href="../docs.html">Docs</a>
-  <a class="hover:text-white" href="../blog.html">Blog</a>
-  <a class="hover:text-white" href="https://github.com/recscse/codive/releases">Releases</a>
-  <a class="hover:text-white" href="https://github.com/recscse/codive">GitHub</a>
+  <a class="hover:text-signal" href="../docs.html">Docs</a>
+  <a class="hover:text-signal" href="../blog.html">Blog</a>
+  <a class="hover:text-signal" href="https://github.com/recscse/codive/releases">Releases</a>
+  <a class="hover:text-signal" href="https://github.com/recscse/codive">GitHub</a>
 </footer>
 <script>
 document.querySelectorAll('[data-copy]').forEach(function (b) {
