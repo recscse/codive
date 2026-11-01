@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/recscse/codive/internal/cmd"
@@ -297,23 +298,13 @@ func main() {
 		}
 
 	case "web":
-		targetDir := "."
-		if len(args) >= 2 {
-			targetDir = args[1]
-		}
-		if err := cmd.RunMapWeb(targetDir, 7890); err != nil {
-			ui.Error(err.Error())
-			os.Exit(1)
-		}
+		runWeb(args[1:])
 
 	case "map":
 		targetDir := "."
 		if len(args) >= 2 {
 			if args[1] == "--web" || args[1] == "-web" {
-				if err := cmd.RunMapWeb(targetDir, 7890); err != nil {
-					ui.Error(err.Error())
-					os.Exit(1)
-				}
+				runWeb(args[2:])
 				return
 			}
 			targetDir = args[1]
@@ -480,4 +471,44 @@ func logDirFor(args []string) string {
 		}
 	}
 	return "."
+}
+
+// runWeb launches the explorer from "[path] [--port N]" arguments.
+func runWeb(args []string) {
+	targetDir, port, err := parseWebArgs(args)
+	if err == nil {
+		err = cmd.RunMapWeb(targetDir, port)
+	}
+	if err != nil {
+		ui.Error(err.Error())
+		os.Exit(1)
+	}
+}
+
+func parseWebArgs(args []string) (string, int, error) {
+	targetDir, portStr := ".", ""
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--port" || arg == "-port":
+			if i+1 == len(args) {
+				return "", 0, fmt.Errorf("--port needs a value")
+			}
+			i++
+			portStr = args[i]
+		case strings.HasPrefix(arg, "--port="):
+			portStr = strings.TrimPrefix(arg, "--port=")
+		default:
+			targetDir = arg
+		}
+	}
+	port := 7890
+	if portStr != "" {
+		parsed, err := strconv.Atoi(portStr)
+		if err != nil || parsed < 1 || parsed > 65535 {
+			return "", 0, fmt.Errorf("invalid port %q: must be 1-65535", portStr)
+		}
+		port = parsed
+	}
+	return targetDir, port, nil
 }

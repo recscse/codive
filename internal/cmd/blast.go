@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/graph"
 	"github.com/recscse/codive/internal/ui"
 )
 
@@ -47,6 +48,19 @@ func RunBlast(targetDir string, targetSymbol string, asJSON bool) error {
 	defer database.Close()
 
 	ctx := context.Background()
+	exact, err := graph.AnalyzeBlast(ctx, database, absDir, targetSymbol)
+	if err != nil {
+		ui.Warning(fmt.Sprintf("Code graph unavailable, using text search: %v", err))
+	} else if exact != nil {
+		if asJSON {
+			return ui.PrintJSON(exact)
+		}
+		fmt.Println()
+		fmt.Println(exact.Format())
+		fmt.Println()
+		return nil
+	}
+
 	result, err := AnalyzeBlastRadius(ctx, database, targetSymbol)
 	if err != nil {
 		return err
@@ -68,6 +82,7 @@ func RunBlast(targetDir string, targetSymbol string, asJSON bool) error {
 
 	fmt.Println()
 	ui.Header(fmt.Sprintf("Blast Radius Analysis: %s", result.Symbol))
+	ui.KeyValue("Method", "Text search by name (no call graph for this symbol)")
 	refs := ui.Count(result.CallSites, "reference", "references")
 	files := ui.Count(len(result.AffectedFiles), "file", "files")
 	if result.MoreCallSites {

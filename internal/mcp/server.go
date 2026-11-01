@@ -19,6 +19,7 @@ import (
 
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/git"
+	"github.com/recscse/codive/internal/graph"
 	"github.com/recscse/codive/internal/indexer"
 	"github.com/recscse/codive/internal/ranker"
 	"github.com/recscse/codive/internal/scanner"
@@ -490,6 +491,45 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 	case "tools/list":
 		tools := []Tool{
 			{
+				Name:        "get_execution_flow",
+				Description: "Trace the multi-hop forward execution pathway from an API endpoint, HTTP handler, or function down to database/callee calls with call depth, branching, and test suite discovery.",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"node_id": map[string]any{
+							"type":        "string",
+							"description": "Identifier of the starting node (e.g. 'endpoint:GET:/api/users' or 'sym:pkg/auth.go:Login:24')",
+						},
+						"depth": map[string]any{
+							"type":        "integer",
+							"description": "Maximum call depth to traverse (default 6)",
+						},
+						"workspace_path": map[string]any{
+							"type":        "string",
+							"description": "Optional path to target repository root",
+						},
+					},
+					"required": []string{"node_id"},
+				},
+			},
+			{
+				Name:        "get_codebase_graph",
+				Description: "Query the structural codebase architecture graph (nodes & edges) for files, symbols, endpoints, and packages.",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"limit": map[string]any{
+							"type":        "integer",
+							"description": "Maximum number of nodes to return (default 2000)",
+						},
+						"workspace_path": map[string]any{
+							"type":        "string",
+							"description": "Optional path to target repository root",
+						},
+					},
+				},
+			},
+			{
 				Name:        "get_repo_map",
 				Description: "PRIMARY REPO DISCOVERY TOOL. Call this FIRST before list_dir or find_by_name to inspect the whole project structure, file tree, and declared symbol signatures in a single token-efficient call.",
 				InputSchema: map[string]any{
@@ -881,6 +921,49 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 	}
 
 	switch name {
+	case "get_execution_flow":
+		nodeID, _ := args["node_id"].(string)
+		if strings.TrimSpace(nodeID) == "" {
+			return nil, fmt.Errorf("node_id parameter is required")
+		}
+		maxDepth := 6
+		if d, ok := args["depth"].(float64); ok && d > 0 {
+			maxDepth = int(d)
+		}
+		if err := graph.EnsureFresh(ctx, targetDB, targetDir); err != nil {
+			return nil, err
+		}
+		flow, err := graph.TraverseExecutionFlow(ctx, targetDB, nodeID, maxDepth)
+		if err != nil {
+			return nil, err
+		}
+		outBytes, _ := json.MarshalIndent(flow, "", "  ")
+		return &ToolCallResult{
+			Content: []ContentItem{{
+				Type: "text",
+				Text: string(outBytes),
+			}},
+		}, nil
+
+	case "get_codebase_graph":
+		limit := 2000
+		if l, ok := args["limit"].(float64); ok && l > 0 {
+			limit = int(l)
+		}
+		if err := graph.EnsureFresh(ctx, targetDB, targetDir); err != nil {
+			return nil, err
+		}
+		snapshot, err := graph.LoadGraph(ctx, targetDB, limit)
+		if err != nil {
+			return nil, err
+		}
+		outBytes, _ := json.MarshalIndent(snapshot, "", "  ")
+		return &ToolCallResult{
+			Content: []ContentItem{{
+				Type: "text",
+				Text: string(outBytes),
+			}},
+		}, nil
 	case "get_repo_map":
 		maxDepth := 0
 		if d, ok := args["max_depth"].(float64); ok && d > 0 {
@@ -1638,13 +1721,20 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			return nil, fmt.Errorf("symbol argument is required")
 		}
 
+		exact, graphErr := graph.AnalyzeBlast(ctx, targetDB, targetDir, symbol)
+		if graphErr == nil && exact != nil {
+			return &ToolCallResult{
+				Content: []ContentItem{{Type: "text", Text: exact.Format()}},
+			}, nil
+		}
+
 		res, err := db.AnalyzeBlastRadius(ctx, targetDB, symbol)
 		if err != nil {
 			return nil, err
 		}
 
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("💥 Blast Radius Analysis for '%s':\n\n", res.Symbol))
+		sb.WriteString(fmt.Sprintf("💥 Blast Radius Analysis for '%s' (text search by name, no call graph for this symbol):\n\n", res.Symbol))
 		plus := ""
 		if res.MoreReferences {
 			plus = "+"

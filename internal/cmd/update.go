@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/graph"
 	"github.com/recscse/codive/internal/indexer"
 	"github.com/recscse/codive/internal/scanner"
 	"github.com/recscse/codive/internal/ui"
@@ -42,6 +43,9 @@ func RunUpdate(targetDir string) error {
 		}
 		ui.Success(fmt.Sprintf("Re-indexed %s (%s symbols) in %v.", ui.Count(res.FileCount, "file", "files"),
 			fmt.Sprint(res.SymbolCount), time.Since(start).Round(time.Millisecond)))
+		if err := graph.EnsureFresh(ctx, database, absDir); err != nil {
+			ui.Warning(fmt.Sprintf("Code graph refresh failed: %v", err))
+		}
 		return nil
 	}
 
@@ -69,6 +73,10 @@ func RunUpdate(targetDir string) error {
 		if err := indexer.Apply(ctx, database, absDir, incrResult); err != nil {
 			return fmt.Errorf("failed to update index: %w", err)
 		}
+	}
+
+	if err := graph.EnsureFresh(ctx, database, absDir); err != nil {
+		ui.Warning(fmt.Sprintf("Code graph refresh failed: %v", err))
 	}
 
 	duration := time.Since(startTime)
