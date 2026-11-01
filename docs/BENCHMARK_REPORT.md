@@ -1,6 +1,6 @@
 # 📊 codive Empirical Benchmark & Architecture Report
 
-> **Independent, Un-Sugarcoated Performance and Token Efficiency Evaluation**  
+> **Self-run output-size comparison on one repo. Not an independent evaluation.**  
 > **Date:** October 2026 | **Target Environment:** Windows x64, Go 1.27.0 | **Tested On:** `github.com/recscse/codive`  
 > **Benchmark Tool:** `scripts/benchmark.go` (Reproducible via `go run scripts/benchmark.go`)
 
@@ -8,12 +8,13 @@
 
 ## 🏛️ Executive Summary
 
-Modern AI coding agents (Claude Code, Google Antigravity, Cursor, Copilot Agent Mode, Windsurf) spend 60–80% of their context windows and API budgets discovering, reading, and parsing source code. 
+Modern AI coding agents (Claude Code, Google Antigravity, Cursor, Copilot Agent Mode, Windsurf) spend part of their context window and budget discovering and reading source code. 
 
 This report evaluates **`codive`** against standard developer tools (`git grep`, `cat`/`read_file`, `git diff`) across real repository operations. All data points in this document were measured directly from high-resolution timers and token estimators without simulated or hardcoded values.
 
 ### Key Takeaways
-- **Aggregate Token Savings:** **89.2% overall context reduction** across a standard developer workflow.
+- **Limits of this benchmark:** it measures one repo (codive), estimates tokens as characters / 4, and compares CLI output size. It does not measure whether an agent finishes real tasks with fewer tokens.
+- **Aggregate:** 89.2% smaller output across these five commands. Two large cases dominate this total, and the other three favor `git grep`, so do not read it as typical savings.
 - **Git Changes / PR Review:** **98.3% token reduction** (14,122 tokens down to 235 tokens) by summarizing uncommitted diffs to their enclosing AST functions rather than raw patch text.
 - **Large File Skeletons:** **86.3% token reduction** on an 1,806-line file (`internal/mcp/server.go`) by substituting method bodies with line boundaries.
 - **Where Grep is Better:** For simple, single-line regex matches, raw `git grep` emits fewer tokens than `codive`'s human-oriented CLI decorative headers (though `codive`'s MCP JSON API eliminates that overhead).
@@ -37,8 +38,8 @@ This report evaluates **`codive`** against standard developer tools (`git grep`,
 
 ## 🔬 Honest Breakdown: What the Data Actually Tells Us
 
-### 1. Where `codive` Completely Dominates
-* **Large Files & Monorepos:** Reading whole files to inspect an interface burns tens of thousands of tokens. `get_file_skeleton` and `pack` compress this by 85–98%.
+### 1. Where `codive` Output Was Much Smaller
+* **Large Files & Monorepos:** Reading whole files to inspect an interface burns tens of thousands of tokens. `get_file_skeleton` and `pack` was 86.3% smaller in this run.
 * **Diffs & PR Summaries:** Raw unified diffs are bloated with context headers (`@@ ... @@`) and line shifts. `codive diff` converts 1,688 lines of diff into a 23-line summary of affected functions.
 * **Blast Radius & Refactoring Impact:** `codive blast` provides an upstream caller tree and affected test suites in 1 turn. Standard `grep` requires 5+ chained commands and manual reasoning.
 

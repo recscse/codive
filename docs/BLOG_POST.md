@@ -1,3 +1,5 @@
+> **Do not publish as written.** Figures in this draft are not backed by a real agent benchmark. Replace them with measured results first.
+
 # Why Grep Fails for AI Coding Agents (and How We Built a Local AST SQLite Engine in Go)
 
 *By Brijesh Yadav • August 26, 2026 • 9 min read*

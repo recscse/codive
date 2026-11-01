@@ -1,3 +1,5 @@
+> **Do not publish as written.** Figures in this draft are not backed by a real agent benchmark. Replace them with measured results first.
+
 # 🚀 codive Viral Launch Playbook & Community Distribution
 
 This playbook contains ready-to-publish copy, video storyboards, benchmarks, and community submission templates for launching `codive`.

@@ -1,0 +1,45 @@
+<!-- title: Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go -->
+<!-- tag: Architecture &middot; Case Study -->
+<!-- date: August 26, 2026 -->
+<!-- summary: If you've used Claude Code, Cursor, Windsurf, or Google Antigravity on a real production repository, you've likely seen this pattern: the agent spends several turns searching for code, dumps thousands of irrelevant lines into the conversation, and occasionally breaks an upstream caller it never saw. -->
+<p>If you've used Claude Code, Cursor, Windsurf, or Google Antigravity on a real production repository, you've likely seen this pattern: the agent burns 6&ndash;10 turns searching for code, dumps thousands of irrelevant lines into the conversation, and occasionally breaks an upstream caller it never saw.</p>
+
+      <h2>The Brute-Force Grep Bottleneck</h2>
+      <p>When an AI coding agent explores a repository, its default fallback is raw <code>grep</code> or <code>ripgrep</code>. Grep is excellent for a human scanning a terminal &mdash; it is expensive for an LLM:</p>
+      <ul>
+        <li><strong>Noisy results.</strong> A search for a function like <code>GenerateToken</code> returns every mock, test fixture, and comment that mentions it &mdash; hundreds of lines the model has to read just to find the real declaration.</li>
+        <li><strong>Compound re-sending.</strong> LLM API calls are stateless. Whatever gets pulled into the transcript on turn 2 is re-sent, token for token, on every subsequent turn. A single noisy grep early in a session gets paid for repeatedly.</li>
+        <li><strong>Attention dilution.</strong> Dumping a 2,000-line file to find one method buries the relevant 40 lines inside 1,960 lines of noise, which is exactly the condition that produces hallucinated signatures and missed call sites.</li>
+      </ul>
+
+      <pre>Traditional grep flow                              codive flow
+&#9500;&#9472; grep -rn "GenerateToken" .                       &#9500;&#9472; find_symbol(query="GenerateToken")
+&#9474;   380 lines of mocks/tests (noisy)                &#9474;   exact file:line + signature
+&#9500;&#9472; open auth_service.go in full                     &#9500;&#9472; get_file_skeleton(path=...)
+&#9474;   2,100-line dump                                 &#9474;   ~120-token structural outline
+&#9500;&#9472; guess the edit, 3 callers break on import        &#9500;&#9472; blast_radius(symbol="GenerateToken")
+&#9474;   retry loop, hallucinated signature               &#9474;   exact caller list + tests to run
+&#9492;&#9472; many turns, large re-sent context                &#9492;&#9472; 1&ndash;2 targeted turns</pre>
+
+      <h2>The Local AST Solution</h2>
+      <p>Instead of treating source as unstructured text, <code>codive</code> parses each file's Abstract Syntax Tree with a per-language extractor (Go's own <code>go/parser</code>, dedicated extractors for TypeScript/JavaScript, Python, Java/C#, and Rust). Every function, struct, interface, method, and annotation becomes a row in an embedded SQLite database at <code>.codive/index.db</code>, running in WAL (Write-Ahead Logging) mode so reads and writes don't block each other.</p>
+
+      <pre>Your Repository
+  &#9492;&#9472; AST parser (per language) + file-content indexer
+        &#9492;&#9472; .codive/index.db  (SQLite, WAL mode)
+              &#9500;&#9472; files    &mdash; path, language, size, mtime
+              &#9500;&#9472; symbols  &mdash; kind, name, signature, line
+              &#9500;&#9472; files_fts &mdash; FTS5 full-text index
+              &#9492;&#9472; decisions &mdash; recorded architectural memory
+                    &#9500;&#9472; MCP server (JSON-RPC over stdio)
+                    &#9492;&#9472; CLI (codive search / symbol / blast / ...)</pre>
+
+      <p>Because the index lives on disk as a plain SQLite file, every query &mdash; <code>find_symbol</code>, <code>search_code</code>, <code>find_callers</code> &mdash; is a B-tree or FTS5 lookup instead of a filesystem regex sweep, which is why typical latency stays under a few milliseconds even on large repositories.</p>
+
+      <h2>What This Actually Changes for an Agent</h2>
+      <p>The highest-leverage tool is <code>pack_feature_context</code>: instead of five sequential turns finding route handlers, models, and tests for a feature, one call bundles the relevant symbol matches, file skeletons, and test suites for a topic keyword. Paired with <code>get_file_skeleton</code> &mdash; which collapses function bodies to <code>{ /* L45-L92 */ }</code> line markers while preserving every signature &mdash; an agent can understand a 1,200-line file's entire public surface for far less than a full read costs.</p>
+
+      <div class="callout"><strong>Why this matters beyond cost:</strong> it isn't only about token spend. A smaller, structured context is also a <em>more accurate</em> one &mdash; the model sees exact line numbers and signatures instead of reconstructing them from a wall of text, which is what actually reduces broken-caller regressions on refactors.</div>
+
+      <h2>Where This Fits</h2>
+      <p>codive doesn't replace your editor's search or a human doing a deliberate <code>grep -R</code> &mdash; it replaces the AI agent's default fallback to raw text search with a structured index built for exactly the kind of question an autonomous coding agent asks over and over: <em>where is this defined, who calls it, what will break if I change it, what does this file's API surface look like.</em> Those are exactly the four questions <code>find_symbol</code>, <code>find_callers</code>/<code>find_references</code>, <code>blast_radius</code>, and <code>get_file_skeleton</code> answer directly.</p>

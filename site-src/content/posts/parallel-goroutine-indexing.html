@@ -1,0 +1,42 @@
+<!-- title: Parallel Goroutine Indexing: Scanning Large Monorepos Fast -->
+<!-- tag: Parallel Go Engine -->
+<!-- date: September 1, 2026 -->
+<!-- summary: Cold-indexing a large repository has two distinct costs: walking the directory tree to find files, and reading + AST-parsing each one. -->
+<p>Cold-indexing a large repository has two distinct costs: walking the directory tree to find files, and reading + AST-parsing each one. codive treats these as two separate stages, because they parallelize very differently.</p>
+
+      <h2>Stage 1: The Walk Is Serial &mdash; On Purpose</h2>
+      <p>File discovery uses Go's standard <code>filepath.Walk</code>, which visits the tree in a single goroutine. This is deliberate, not an oversight: directory traversal is I/O-bound on metadata syscalls (<code>stat</code>, <code>readdir</code>) that don't benefit much from parallel walkers on most filesystems, and a single walker makes the ignore-list logic (skipping <code>.git</code>, <code>node_modules</code>, <code>target</code>, <code>build</code>, <code>dist</code>, <code>.venv</code>, <code>.gradle</code>, <code>.mvn</code>, and similar directories) trivial to reason about &mdash; one process, one exclusion set, no coordination needed.</p>
+
+      <h2>Stage 2: Parsing Is Where Parallelism Pays Off</h2>
+      <p>Reading file content and running it through an AST extractor is CPU-bound and embarrassingly parallel &mdash; one file's parse doesn't depend on another's. That's where codive spins up a bounded worker pool sized to the machine:</p>
+      <pre>numWorkers := runtime.NumCPU() * 2
+if numWorkers < 4 { numWorkers = 4 }
+if numWorkers > 32 { numWorkers = 32 }
+
+fileChan := make(chan db.FileRecord, totalFiles)
+resultChan := make(chan parseResult, totalFiles)
+
+var wg sync.WaitGroup
+for w := 0; w < numWorkers; w++ {
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for f := range fileChan {
+            content, err := os.ReadFile(fullPath(f))
+            // ... AST extraction happens here, per file ...
+        }
+    }()
+}
+close(fileChan)
+
+go func() {
+    wg.Wait()
+    close(resultChan)
+}()</pre>
+      <p>The 2&times; CPU-core multiplier accounts for the fact that these goroutines spend part of their time blocked on file I/O rather than pure CPU work, so oversubscribing slightly keeps cores busy while some workers wait on disk reads. The clamp to <code>[4, 32]</code> exists for two reasons: a floor of 4 keeps small/underpowered machines from starving on a single worker, and a ceiling of 32 avoids goroutine and file-descriptor churn diminishing returns on very large machines where more workers just contend for the same disk.</p>
+
+      <h2>Why the Split Matters</h2>
+      <p>Because discovery and parsing are decoupled by a buffered channel, the walker can keep feeding <code>fileChan</code> while parser goroutines are still working through the backlog &mdash; there's no "walk everything, then parse everything" barrier. Results stream into <code>resultChan</code> as each file finishes, which is also what drives the live progress bar during <code>codive init</code>:</p>
+      <pre>Indexing Codebase [████████████████████████████] 100% (171/171 files in 0.11s | 1,533 files/s)</pre>
+
+      <div class="callout"><strong>Incremental re-indexing skips this entirely.</strong> <code>codive update</code> and the background watcher used by <code>codive serve</code> compare each file's on-disk <code>ModTime</code> against what's recorded in the <code>files</code> table and only re-parse what actually changed &mdash; so after the initial cold index, keeping the database current is a small delta operation, not a repeat full scan.</div>

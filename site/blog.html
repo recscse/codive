@@ -1,411 +1,103 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Engineering Blog & Architecture Case Studies | codive</title>
-  <meta name="description" content="Technical deep-dives, benchmarks, and architecture articles on local AST indexing, SQLite WAL concurrency, token optimization, and Model Context Protocol (MCP) tooling.">
-  <meta name="keywords" content="codive blog, AI coding agent architecture, MCP server engineering, SQLite WAL Go, AST parser, token optimization, Claude Code, Cursor IDE, Antigravity">
-  <meta name="author" content="Brijesh Yadav">
-  <meta name="robots" content="index, follow">
-  <link rel="canonical" href="https://recscse.github.io/codive/blog.html">
-
-  <!-- Open Graph / Facebook -->
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://recscse.github.io/codive/blog.html">
-  <meta property="og:title" content="codive Engineering Blog & Technical Insights">
-  <meta property="og:description" content="Deep-dives into local AST indexing, sub-millisecond SQLite WAL queries, and token-compressed MCP tools for autonomous coding agents.">
-  <meta property="og:image" content="https://recscse.github.io/codive/favicon.svg">
-  <meta property="og:site_name" content="codive">
-
-  <!-- Twitter -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="https://recscse.github.io/codive/blog.html">
-  <meta name="twitter:title" content="codive Engineering Blog & Technical Insights">
-  <meta name="twitter:description" content="Deep-dives into local AST indexing, sub-millisecond SQLite WAL queries, and token-compressed MCP tools for autonomous coding agents.">
-  <meta name="twitter:image" content="https://recscse.github.io/codive/favicon.svg">
-
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-  
-  <style>
-    :root {
-      --bg: #06070b;
-      --surface: #0b0e17;
-      --surface-card: #101422;
-      --surface-card-hover: #151b2d;
-      --surface-border: rgba(255, 255, 255, 0.08);
-      --accent: #20c20e;
-      --accent-glow: rgba(32, 194, 14, 0.25);
-      --accent-dim: rgba(32, 194, 14, 0.08);
-      --cyan: #00f0ff;
-      --text: #94a3b8;
-      --text-muted: #64748b;
-      --text-bright: #ffffff;
-      --code-bg: #0d1117;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; }
-    body {
-      background-color: var(--bg);
-      color: var(--text);
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      overflow-x: hidden;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    /* Ambient Background Glow */
-    .glow-aura-1 {
-      position: absolute;
-      top: -200px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 900px;
-      height: 700px;
-      background: radial-gradient(circle, rgba(32, 194, 14, 0.12) 0%, rgba(6, 7, 11, 0) 70%);
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    /* Navigation */
-    nav {
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      z-index: 100;
-      border-bottom: 1px solid var(--surface-border);
-      background: rgba(6, 7, 11, 0.85);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-    }
-    .nav-container {
-      max-width: 1240px;
-      margin: 0 auto;
-      padding: 0 24px;
-      height: 64px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: relative;
-    }
-    .logo-brand {
-      font-family: 'Fira Code', monospace;
-      font-size: 24px;
-      font-weight: 800;
-      color: var(--text-bright);
-      text-decoration: none;
-      display: flex;
-      align-items: center;
-    }
-    .logo-brand span { color: var(--accent); }
-    .nav-center-links {
-      position: absolute;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      align-items: center;
-      gap: 32px;
-    }
-    @media (max-width: 860px) { .nav-center-links { display: none; } }
-    .nav-link {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text);
-      text-decoration: none;
-      transition: color 0.2s;
-    }
-    .nav-link:hover, .nav-link.active { color: var(--text-bright); }
-    .nav-link.active {
-      border-bottom: 2px solid var(--accent);
-      padding-bottom: 4px;
-      margin-bottom: -6px;
-    }
-    .nav-actions { display: flex; align-items: center; gap: 12px; }
-    .btn-gh-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 14px;
-      border-radius: 6px;
-      border: 1px solid var(--surface-border);
-      background: rgba(255, 255, 255, 0.03);
-      color: #cbd5e1;
-      font-size: 13px;
-      font-family: 'Fira Code', monospace;
-      text-decoration: none;
-      transition: all 0.2s;
-    }
-    .btn-gh-badge:hover {
-      border-color: rgba(32, 194, 14, 0.4);
-      background: var(--accent-dim);
-      color: var(--text-bright);
-    }
-    .btn-nav-cta {
-      background: var(--accent);
-      color: #000;
-      font-weight: 800;
-      font-size: 13px;
-      padding: 8px 18px;
-      border-radius: 6px;
-      text-decoration: none;
-      transition: all 0.2s;
-    }
-    .btn-nav-cta:hover { background: #2ee615; box-shadow: 0 0 20px var(--accent-glow); }
-
-    /* Page Container */
-    .blog-container {
-      max-width: 1140px;
-      margin: 120px auto 80px;
-      padding: 0 24px;
-      position: relative;
-      z-index: 1;
-    }
-
-    .blog-header {
-      text-align: center;
-      max-width: 760px;
-      margin: 0 auto 56px;
-    }
-    .blog-tag {
-      font-family: 'Fira Code', monospace;
-      font-size: 12.5px;
-      color: var(--accent);
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      margin-bottom: 16px;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 12px;
-      border-radius: 20px;
-      background: var(--accent-dim);
-      border: 1px solid rgba(32, 194, 14, 0.25);
-    }
-    .blog-header h1 {
-      font-size: clamp(36px, 5.5vw, 56px);
-      font-weight: 900;
-      color: var(--text-bright);
-      letter-spacing: -0.03em;
-      line-height: 1.1;
-      margin-bottom: 18px;
-    }
-    .blog-header p {
-      font-size: 17px;
-      color: #94a3b8;
-      line-height: 1.6;
-    }
-
-    /* Blog Cards Grid */
-    .blog-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 28px;
-      margin-bottom: 60px;
-    }
-    @media (max-width: 1024px) { .blog-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 700px) { .blog-grid { grid-template-columns: 1fr; } }
-
-    .blog-card {
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      border-radius: 14px;
-      padding: 28px 24px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      text-decoration: none;
-      transition: all 0.25s ease;
-      position: relative;
-      overflow: hidden;
-    }
-    .blog-card:hover {
-      border-color: rgba(32, 194, 14, 0.4);
-      transform: translateY(-4px);
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6), 0 0 24px var(--accent-glow);
-    }
-    .blog-card-badge {
-      font-family: 'Fira Code', monospace;
-      font-size: 11px;
-      color: var(--accent);
-      background: var(--accent-dim);
-      padding: 3px 8px;
-      border-radius: 4px;
-      display: inline-block;
-      margin-bottom: 16px;
-      font-weight: 600;
-    }
-    .blog-card h3 {
-      font-size: 20px;
-      font-weight: 800;
-      color: var(--text-bright);
-      line-height: 1.35;
-      margin-bottom: 12px;
-      letter-spacing: -0.01em;
-    }
-    .blog-card p {
-      font-size: 14px;
-      color: #94a3b8;
-      line-height: 1.6;
-      margin-bottom: 24px;
-      flex: 1;
-    }
-    .blog-card-meta {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 12.5px;
-      color: var(--text-muted);
-      border-top: 1px solid rgba(255, 255, 255, 0.05);
-      padding-top: 14px;
-    }
-    .read-more-btn {
-      color: var(--accent);
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 13px;
-    }
-
-    /* Footer */
-    footer {
-      border-top: 1px solid var(--surface-border);
-      padding: 56px 24px;
-      text-align: center;
-      font-size: 14px;
-      color: var(--text-muted);
-      margin-top: auto;
-    }
-    footer a { color: var(--text-bright); text-decoration: none; font-weight: 600; }
-    footer a:hover { color: var(--accent); }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blog | codive</title>
+<meta name="description" content="How codive is built and tested, including what went wrong.">
+<link rel="canonical" href="https://recscse.github.io/codive/blog.html">
+<meta name="theme-color" content="#08090b">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://recscse.github.io/codive/blog.html">
+<meta property="og:title" content="Blog | codive">
+<meta property="og:description" content="How codive is built and tested, including what went wrong.">
+<meta property="og:image" content="https://recscse.github.io/codive/assets/shots/changes.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preload" href="assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
 </head>
-<body>
-
-  <div class="glow-aura-1"></div>
-
-  <!-- Navigation -->
-  <nav>
-    <div class="nav-container">
-      <a href="index.html" class="logo-brand">codive<span>_</span></a>
-
-      <div class="nav-center-links">
-        <a href="index.html" class="nav-link">Home</a>
-        <a href="docs.html" class="nav-link">Docs</a>
-        <a href="blog.html" class="nav-link active">Blog</a>
-      </div>
-
-      <div class="nav-actions">
-        <a href="https://github.com/recscse/codive" target="_blank" class="btn-gh-badge">
-          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-          <span>codive</span>
-        </a>
-        <a href="index.html#install" class="btn-nav-cta">Get started</a>
-      </div>
-    </div>
+<body class="min-h-screen bg-ink">
+<header class="sticky top-0 z-40 border-b border-white/[.06] bg-ink/75 backdrop-blur-xl">
+  <nav class="mx-auto flex h-14 max-w-[88rem] items-center gap-7 px-6 text-sm text-zinc-400">
+    <a href="index.html" class="mr-auto text-[15px] font-semibold tracking-tight text-white">codive</a>
+    <a href="docs.html" class="transition hover:text-white ">Docs</a>
+    <a href="blog.html" class="transition hover:text-white text-white">Blog</a>
+    <a href="https://github.com/recscse/codive" class="transition hover:text-white">GitHub</a>
+    <a href="docs.html#quickstart" class="hidden rounded-lg bg-white px-3 py-1.5 text-[13px] font-medium text-black transition hover:bg-zinc-200 sm:block">Get started</a>
   </nav>
-
-  <!-- Blog Page Header -->
-  <main class="blog-container">
-    <header class="blog-header">
-      <div class="blog-tag">⚡ Engineering & Insights</div>
-      <h1>Deep-Dives, Benchmarks & Architecture</h1>
-      <p>Explore technical case studies on AST symbol indexing, SQLite WAL concurrency, token compression, and Model Context Protocol (MCP) tooling.</p>
-    </header>
-
-    <!-- Blog Grid -->
-    <div class="blog-grid">
-
-      <!-- Card 1 -->
-      <a class="blog-card" href="blog/why-grep-fails-for-ai-agents.html">
-        <div>
-          <span class="blog-card-badge">ARCHITECTURE • CASE STUDY</span>
-          <h3>Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go</h3>
-          <p>A deep-dive into how brute-force regex searches waste context windows, and how codive replaces them with a local AST index in SQLite WAL mode.</p>
-        </div>
-        <div class="blog-card-meta">
-          <span>Aug 26, 2026 • 9 min read</span>
-          <span class="read-more-btn">Read Article →</span>
-        </div>
-      </a>
-
-      <!-- Card 2 -->
-      <a class="blog-card" href="blog/zero-lock-sqlite-wal-concurrency.html">
-        <div>
-          <span class="blog-card-badge">PERFORMANCE • BENCHMARK</span>
-          <h3>Zero-Lock SQLite WAL Concurrency: Hardening MCP Servers for Multi-Agent Restarts</h3>
-          <p>How codive avoids "database is locked" errors across IDE restarts using DSN-level busy timeouts and a bounded connection pool.</p>
-        </div>
-        <div class="blog-card-meta">
-          <span>Aug 29, 2026 • 6 min read</span>
-          <span class="read-more-btn">Read Article →</span>
-        </div>
-      </a>
-
-      <!-- Card 3 -->
-      <a class="blog-card" href="blog/code-skeletonizer-token-compression.html">
-        <div>
-          <span class="blog-card-badge">TOKEN OPTIMIZATION</span>
-          <h3>The Skeletonizer: Compressing Files into Token-Efficient Outlines</h3>
-          <p>How get_file_skeleton collapses function bodies into line-range markers while preserving full type signatures — and the line-estimation algorithm behind it.</p>
-        </div>
-        <div class="blog-card-meta">
-          <span>Sep 01, 2026 • 5 min read</span>
-          <span class="read-more-btn">Read Article →</span>
-        </div>
-      </a>
-
-      <!-- Card 4 -->
-      <a class="blog-card" href="blog/blast-radius-refactoring-safety.html">
-        <div>
-          <span class="blog-card-badge">DEVELOPER TOOLS</span>
-          <h3>Blast Radius: Preventing Breaking Changes Before an AI Agent Refactors</h3>
-          <p>How blast_radius traces callers, affected files, and linked test suites — and the exact LOW/MEDIUM/HIGH risk thresholds it uses.</p>
-        </div>
-        <div class="blog-card-meta">
-          <span>Sep 01, 2026 • 7 min read</span>
-          <span class="read-more-btn">Read Article →</span>
-        </div>
-      </a>
-
-      <!-- Card 5 -->
-      <a class="blog-card" href="blog/parallel-goroutine-indexing.html">
-        <div>
-          <span class="blog-card-badge">PARALLEL GO ENGINE</span>
-          <h3>Parallel Goroutine Indexing: Scanning Large Monorepos Fast</h3>
-          <p>Why codive splits a serial directory walk from a clamped goroutine worker pool for parsing — and how that split drives cold-index speed.</p>
-        </div>
-        <div class="blog-card-meta">
-          <span>Sep 01, 2026 • 6 min read</span>
-          <span class="read-more-btn">Read Article →</span>
-        </div>
-      </a>
-
-      <!-- Card 6 -->
-      <a class="blog-card" href="blog/durable-ai-agent-memory.html">
-        <div>
-          <span class="blog-card-badge">AGENT MEMORY</span>
-          <h3>Durable AI Agent Memory: Recording Architectural Decisions in SQLite</h3>
-          <p>How save_decision and get_decisions give agents persistent memory across sessions, and how decisions get auto-recalled into other tool responses.</p>
-        </div>
-        <div class="blog-card-meta">
-          <span>Sep 01, 2026 • 5 min read</span>
-          <span class="read-more-btn">Read Article →</span>
-        </div>
-      </a>
-
-    </div>
-  </main>
-
-  <!-- Footer -->
-  <footer>
-    <p>codive is open-source under the MIT License • Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a> • <a href="https://github.com/recscse/codive" target="_blank">GitHub</a> • <a href="docs.html">Docs</a> • <a href="index.html">Home</a></p>
-  </footer>
-
+</header>
+<main>
+<div class="mx-auto max-w-5xl px-6 pt-20">
+  <h1 class="text-5xl font-semibold tracking-tight text-white">Blog</h1>
+  <p class="mt-4 max-w-xl text-lg">How codive is built and tested, including what went wrong.</p>
+  <div class="mt-12 grid gap-4 md:grid-cols-2">
+    <div class="md:col-span-2"><a href="blog/checking-codive-against-gopls.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
+  <p class="text-xs text-zinc-500">Accuracy &nbsp;·&nbsp; November 1, 2026</p>
+  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">We checked codive's call graph against gopls. Here's what broke.</h2>
+  <p class="mt-3 text-[14.5px] leading-6">How we measured codive's Go callers against the official language server, the real bugs that turned up, and the gaps that remain.</p>
+</a></div>
+    <a href="blog/parallel-goroutine-indexing.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
+  <p class="text-xs text-zinc-500">Parallel Go Engine &nbsp;·&nbsp; September 1, 2026</p>
+  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">Parallel Goroutine Indexing: Scanning Large Monorepos Fast</h2>
+  <p class="mt-3 text-[14.5px] leading-6">Cold-indexing a large repository has two distinct costs: walking the directory tree to find files, and reading + AST-parsing each one.</p>
+</a><a href="blog/durable-ai-agent-memory.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
+  <p class="text-xs text-zinc-500">Agent Memory &nbsp;·&nbsp; September 1, 2026</p>
+  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">Durable AI Agent Memory: Recording Architectural Decisions in SQLite</h2>
+  <p class="mt-3 text-[14.5px] leading-6">Every new AI coding session starts from zero.</p>
+</a><a href="blog/code-skeletonizer-token-compression.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
+  <p class="text-xs text-zinc-500">Token Optimization &nbsp;·&nbsp; September 1, 2026</p>
+  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">The Skeletonizer: Compressing Files into Token-Efficient Outlines</h2>
+  <p class="mt-3 text-[14.5px] leading-6">When an AI agent needs to understand a large controller or service file, the obvious move is to read the whole thing.</p>
+</a><a href="blog/blast-radius-refactoring-safety.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
+  <p class="text-xs text-zinc-500">Developer Tools &nbsp;·&nbsp; September 1, 2026</p>
+  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">Blast Radius: Preventing Breaking Changes Before an AI Agent Refactors</h2>
+  <p class="mt-3 text-[14.5px] leading-6">An AI agent asked to rename or change the signature of a shared function has no built-in sense of how widely it's used.</p>
+</a><a href="blog/zero-lock-sqlite-wal-concurrency.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
+  <p class="text-xs text-zinc-500">Performance &nbsp;·&nbsp; August 29, 2026</p>
+  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">Zero-Lock SQLite WAL Concurrency: Hardening the MCP Server for Multi-Agent Restarts</h2>
+  <p class="mt-3 text-[14.5px] leading-6">One of the most common failure modes in local developer tooling built on SQLite is database is locked &mdash; usually SQLite error code 5, or its extended form 261 under Go's modernc.org/sqlite driver.</p>
+</a><a href="blog/why-grep-fails-for-ai-agents.html" class="group flex flex-col rounded-2xl border border-edge bg-surface p-7 transition hover:border-zinc-600">
+  <p class="text-xs text-zinc-500">Architecture &middot; Case Study &nbsp;·&nbsp; August 26, 2026</p>
+  <h2 class="mt-3 text-xl leading-snug font-semibold tracking-tight text-balance text-white">Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go</h2>
+  <p class="mt-3 text-[14.5px] leading-6">If you've used Claude Code, Cursor, Windsurf, or Google Antigravity on a real production repository, you've likely seen this pattern: the agent spends several turns searching for code, dumps thousands of irrelevant lines into the conversation, and occasionally breaks an upstream caller it never saw.</p>
+</a>
+  </div>
+</div>
+</main>
+<footer class="mx-auto mt-28 flex max-w-[88rem] flex-wrap items-center gap-6 border-t border-edge px-6 py-8 text-[13px] text-zinc-500">
+  <span class="mr-auto">codive is open source under the MIT License.</span>
+  <a class="hover:text-white" href="docs.html">Docs</a>
+  <a class="hover:text-white" href="blog.html">Blog</a>
+  <a class="hover:text-white" href="https://github.com/recscse/codive/releases">Releases</a>
+  <a class="hover:text-white" href="https://github.com/recscse/codive">GitHub</a>
+</footer>
+<script>
+document.querySelectorAll('[data-copy]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent).then(function () {
+      var t = b.textContent; b.textContent = 'Copied'; setTimeout(function () { b.textContent = t; }, 1200);
+    });
+  });
+});
+function copyCode(b) {
+  navigator.clipboard.writeText(b.closest('.codeblock').querySelector('pre').textContent).then(function () {
+    b.textContent = 'copied'; setTimeout(function () { b.textContent = 'copy'; }, 1200);
+  });
+}
+var links = document.querySelectorAll('.side a[href^="#"]');
+if (links.length && 'IntersectionObserver' in window) {
+  var byId = {}; links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (e.isIntersecting && byId[e.target.id]) {
+        links.forEach(function (a) { a.classList.remove('active'); });
+        byId[e.target.id].classList.add('active');
+      }
+    });
+  }, { rootMargin: '-10% 0px -80% 0px' });
+  Object.keys(byId).forEach(function (id) { var el = document.getElementById(id); if (el) io.observe(el); });
+}
+</script>
 </body>
 </html>

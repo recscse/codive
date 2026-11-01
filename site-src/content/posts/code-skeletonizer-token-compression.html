@@ -1,0 +1,43 @@
+<!-- title: The Skeletonizer: Compressing Files into Token-Efficient Outlines -->
+<!-- tag: Token Optimization -->
+<!-- date: September 1, 2026 -->
+<!-- summary: When an AI agent needs to understand a large controller or service file, the obvious move is to read the whole thing. -->
+<p>When an AI agent needs to understand a large controller or service file, the obvious move is to read the whole thing. That's also the expensive move: a large file can take up a big share of the context window, most of which is method bodies the agent doesn't actually need to see just to know a type's public surface.</p>
+
+      <h2>What get_file_skeleton Actually Does</h2>
+      <p><code>get_file_skeleton</code> doesn't re-parse a file with a special "skeleton mode" &mdash; it reuses the exact same symbol list <code>find_symbol</code> and <code>find_callers</code> already read from the index (or extracts it fresh if the file was edited since the last sync), sorts symbols by line number, and then estimates where each symbol's body ends:</p>
+      <pre>// Sort symbols by line number
+sort.Slice(syms, func(i, j int) bool {
+    return syms[i].LineNumber < syms[j].LineNumber
+})
+
+// End line = the line just before the next symbol's declaration.
+// Conservative estimate — a precise end-line needs a full parser
+// per language, which the generic skeleton path intentionally avoids.
+for i := range syms {
+    if i+1 < len(syms) {
+        endLines[i] = syms[i+1].LineNumber - 1
+    } else {
+        endLines[i] = totalLines
+    }
+}</pre>
+
+      <p>That's a deliberate trade-off: instead of building a full statement-level parser per language just to find exact closing braces, codive treats "the next declaration" as the boundary. It's a few lines off in edge cases (a symbol followed by a large comment block, for instance), but it's language-agnostic, fast, and correct in the case that actually matters &mdash; every method signature, receiver, and return type stays intact and exactly attributed to its real line number.</p>
+
+      <h2>What the Output Looks Like</h2>
+      <pre>type PaymentProcessor struct {
+    client *StripeClient
+    logger *Logger
+}
+
+func (p *PaymentProcessor) ProcessPayment(ctx Context, event Event) (Result, error) { /* L45-L92 */ }
+func (p *PaymentProcessor) RefundOrder(orderID string) error { /* L94-L140 */ }</pre>
+      <p>Every field, parameter, and return type is preserved verbatim. Only the implementation &mdash; the part an agent needs to read in full only if it's about to edit that specific method &mdash; is collapsed to a line-range comment. If the agent then needs the body, it calls <code>read_file_context</code> on that same path and gets the full content.</p>
+
+      <h2>The Fallback Path</h2>
+      <p>Not every file has an AST extractor (C/C++ and any language codive doesn't parse yet fall into this case). When <code>ExtractSymbols</code> returns no symbols, the skeletonizer doesn't fabricate structure &mdash; it returns an honest fallback:</p>
+      <pre>// File: internal/legacy/parser.c (Total: 812 lines, Language: C)
+// [No AST symbols — file content not available as skeleton]</pre>
+      <p>That's a deliberate design choice: a wrong skeleton is worse than no skeleton, because it would give an agent false confidence about a file's structure. The tool's response footer also reports honestly how many tokens it used versus what a raw read would have cost, so the savings claim is measured per response, not asserted once in the README.</p>
+
+      <div class="callout"><strong>Where this compounds:</strong> <code>pack_feature_context</code> calls the skeletonizer on every file it bundles for a topic, so a feature discovery query that touches five files gets five skeletons instead of five full reads &mdash; which is most of why that tool's per-call token cost stays in the low hundreds even for a moderately sized feature area.</div>

@@ -1,0 +1,42 @@
+<!-- title: Zero-Lock SQLite WAL Concurrency: Hardening the MCP Server for Multi-Agent Restarts -->
+<!-- tag: Performance -->
+<!-- date: August 29, 2026 -->
+<!-- summary: One of the most common failure modes in local developer tooling built on SQLite is database is locked &mdash; usually SQLite error code 5, or its extended form 261 under Go's modernc.org/sqlite driver. -->
+<p>One of the most common failure modes in local developer tooling built on SQLite is <code>database is locked</code> &mdash; usually SQLite error code 5, or its extended form <code>261</code> under Go's <code>modernc.org/sqlite</code> driver. It tends to show up at the worst possible time: when an IDE restarts, a background watcher and an MCP tool call hit the index at the same instant.</p>
+
+      <h2>Why This Happens</h2>
+      <p>SQLite's default journal mode serializes writers and can briefly block readers during a write. codive's MCP server, its <code>codive watch</code> background sync, and any concurrently running CLI command can all open the same <code>.codive/index.db</code> file at once &mdash; and a naive <code>sql.Open</code> call with no pragmas will surface a lock error instead of just waiting.</p>
+
+      <h2>The Production DSN Pattern</h2>
+      <p>Rather than issuing <code>PRAGMA</code> statements after connecting (which race against other connections), codive encodes them directly in the SQLite DSN, so every connection in the pool gets them atomically on open:</p>
+
+      <pre>dsn := fmt.Sprintf(
+    "file:%s?_pragma=busy_timeout(10000)"+
+        "&_pragma=journal_mode(WAL)"+
+        "&_pragma=synchronous(NORMAL)"+
+        "&_pragma=cache_size(-64000)",
+    filepath.ToSlash(dbPath),
+)
+database, err := sql.Open("sqlite", dsn)</pre>
+
+      <table class="art-table">
+        <thead><tr><th>Pragma</th><th>Value</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><code>busy_timeout</code></td><td>10000ms</td><td>A connection that hits a lock waits up to 10s instead of failing immediately &mdash; long enough to ride out an IDE restart or a concurrent write.</td></tr>
+          <tr><td><code>journal_mode</code></td><td>WAL</td><td>Readers no longer block writers (or vice versa) &mdash; the classic single-writer/no-reader SQLite bottleneck goes away.</td></tr>
+          <tr><td><code>synchronous</code></td><td>NORMAL</td><td>Safe under WAL (durable across app crashes, not OS crashes) while avoiding the fsync cost of <code>FULL</code> on every commit.</td></tr>
+          <tr><td><code>cache_size</code></td><td>-64000</td><td>Negative value = KiB, not pages &mdash; a 64MB page cache, since <code>find_symbol</code>/<code>search_code</code> re-read the same hot pages constantly.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Bounding the Connection Pool</h2>
+      <p>A busy-timeout alone isn't enough if the pool itself keeps too many idle connections open across restarts. codive caps the standard <code>database/sql</code> pool tightly:</p>
+      <pre>database.SetMaxOpenConns(4)
+database.SetMaxIdleConns(2)
+database.SetConnMaxLifetime(10 * time.Minute)</pre>
+      <p>Four open connections is deliberately small: codive's MCP server is typically driven by a single AI agent process at a time, plus the background auto-sync watcher. Limiting idle connections means a stale connection from a previous <code>codive serve</code> process doesn't sit holding a lock during the window where an IDE is restarting the MCP subprocess.</p>
+
+      <div class="callout"><strong>Result:</strong> across Claude Code, Cursor, and Google Antigravity restarts &mdash; all of which can spin up a fresh <code>codive serve</code> subprocess while a previous one is still tearing down &mdash; the bounded pool plus the 10-second busy timeout absorbs the handoff instead of surfacing a "database is locked" error to the agent.</p>
+
+      <h2>What This Doesn't Solve</h2>
+      <p>WAL mode still requires the database directory to be writable and to not sit on a network filesystem with poor <code>fcntl</code> locking support (some network drives are known-bad for SQLite WAL). If you index a repository over a network mount and see intermittent lock errors despite this configuration, that's the first thing to check &mdash; it's a filesystem limitation, not something a busier timeout can paper over.</p>

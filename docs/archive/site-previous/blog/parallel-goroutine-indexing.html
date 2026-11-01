@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parallel Goroutine Indexing: Scanning Large Monorepos Fast | codive Blog</title>
+  <meta name="description" content="How codive's indexer separates a serial directory walk from a clamped goroutine worker pool for parsing, and why that split matters for cold-start indexing time.">
+  <meta name="keywords" content="Go goroutines, worker pool, monorepo indexing, concurrency, codive">
+  <meta name="author" content="Brijesh Yadav">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://recscse.github.io/codive/blog/parallel-goroutine-indexing.html">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://recscse.github.io/codive/blog/parallel-goroutine-indexing.html">
+  <meta property="og:title" content="Parallel Goroutine Indexing: Scanning Large Monorepos Fast">
+  <meta property="og:description" content="How codive's indexer separates a serial directory walk from a clamped goroutine worker pool for parsing.">
+  <meta property="og:image" content="https://recscse.github.io/codive/favicon.svg">
+  <meta property="article:published_time" content="2026-09-01">
+  <meta property="article:author" content="Brijesh Yadav">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Parallel Goroutine Indexing: Scanning Large Monorepos Fast">
+  <meta name="twitter:description" content="How codive's indexer separates a serial directory walk from a clamped goroutine worker pool for parsing.">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org", "@type": "BlogPosting",
+    "headline": "Parallel Goroutine Indexing: Scanning Large Monorepos Fast",
+    "datePublished": "2026-09-01",
+    "author": { "@type": "Person", "name": "Brijesh Yadav", "url": "https://recscse.github.io" },
+    "publisher": { "@type": "Organization", "name": "codive" },
+    "mainEntityOfPage": "https://recscse.github.io/codive/blog/parallel-goroutine-indexing.html"
+  }
+  </script>
+
+  <link rel="icon" type="image/svg+xml" href="../favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <style>
+    :root { --bg: #06070b; --surface: #0b0e17; --surface-border: rgba(255,255,255,0.08); --accent: #20c20e; --accent-glow: rgba(32,194,14,0.25); --accent-dim: rgba(32,194,14,0.08); --text: #94a3b8; --text-muted: #64748b; --text-bright: #ffffff; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { background: var(--bg); color: var(--text); font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; min-height: 100vh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+    .glow-aura-1 { position: absolute; top: -200px; left: 50%; transform: translateX(-50%); width: 900px; height: 700px; background: radial-gradient(circle, rgba(32,194,14,0.1) 0%, transparent 70%); pointer-events: none; z-index: 0; }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; border-bottom: 1px solid var(--surface-border); background: rgba(6,7,11,0.85); backdrop-filter: blur(20px); }
+    .nav-container { max-width: 1240px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; position: relative; }
+    .logo-brand { font-family: 'Fira Code', monospace; font-size: 22px; font-weight: 800; color: var(--text-bright); text-decoration: none; }
+    .logo-brand span { color: var(--accent); }
+    .nav-center-links { position: absolute; left: 50%; transform: translateX(-50%); display: flex; gap: 32px; }
+    @media (max-width: 860px) { .nav-center-links { display: none; } }
+    .nav-link { font-size: 14px; font-weight: 600; color: var(--text); text-decoration: none; }
+    .nav-link:hover, .nav-link.active { color: var(--text-bright); }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+    .btn-gh-badge { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--surface-border); background: rgba(255,255,255,0.03); color: #cbd5e1; font-size: 13px; font-family: 'Fira Code', monospace; text-decoration: none; transition: all 0.2s; }
+    .btn-gh-badge:hover { border-color: rgba(32,194,14,0.4); background: var(--accent-dim); color: var(--text-bright); }
+    .btn-nav-cta { background: var(--accent); color: #000; font-weight: 800; font-size: 13px; padding: 8px 18px; border-radius: 6px; text-decoration: none; }
+    .article-page { max-width: 760px; margin: 128px auto 60px; padding: 0 24px; position: relative; z-index: 1; flex: 1; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); text-decoration: none; font-size: 13.5px; font-weight: 600; margin-bottom: 32px; }
+    .back-link:hover { color: var(--accent); }
+    .tag-badge { font-family: 'Fira Code', monospace; font-size: 11.5px; color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(32,194,14,0.25); padding: 4px 10px; border-radius: 20px; display: inline-block; margin-bottom: 18px; letter-spacing: 0.06em; text-transform: uppercase; }
+    .prose { font-size: 16px; line-height: 1.8; color: #cbd5e1; }
+    .prose h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 900; color: var(--text-bright); margin-bottom: 14px; line-height: 1.15; letter-spacing: -0.02em; }
+    .byline { font-size: 13.5px; color: var(--text-muted); margin-bottom: 36px; padding-bottom: 24px; border-bottom: 1px solid var(--surface-border); }
+    .prose h2 { font-size: 22px; font-weight: 800; color: var(--text-bright); margin: 40px 0 16px; border-bottom: 1px solid var(--surface-border); padding-bottom: 8px; }
+    .prose h3 { font-size: 17px; font-weight: 700; color: var(--accent); margin: 28px 0 12px; font-family: 'Fira Code', monospace; }
+    .prose p { margin-bottom: 20px; }
+    .prose ul, .prose ol { margin-left: 24px; margin-bottom: 20px; }
+    .prose li { margin-bottom: 8px; }
+    .prose code { font-family: 'Fira Code', monospace; font-size: 0.88em; color: #7dd3fc; background: rgba(125,211,252,0.08); padding: 1px 5px; border-radius: 4px; }
+    .prose pre { background: #06080d; border: 1px solid var(--surface-border); border-radius: 8px; padding: 16px 20px; font-family: 'Fira Code', monospace; font-size: 12.5px; color: #38bdf8; overflow-x: auto; margin: 20px 0 24px; line-height: 1.6; }
+    .prose pre code { background: none; padding: 0; color: inherit; }
+    .callout { background: var(--accent-dim); border: 1px solid rgba(32,194,14,0.3); border-left: 3px solid var(--accent); border-radius: 8px; padding: 16px 20px; margin: 24px 0; font-size: 14.5px; color: #d1fae5; }
+    .article-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--surface-border); }
+    .article-nav a { display: block; background: var(--surface); border: 1px solid var(--surface-border); border-radius: 10px; padding: 16px 18px; text-decoration: none; color: var(--text); transition: border-color 0.2s; }
+    .article-nav a:hover { border-color: rgba(32,194,14,0.4); }
+    .article-nav .dir { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 4px; }
+    .article-nav .title { font-size: 14px; font-weight: 700; color: var(--text-bright); }
+    .article-nav .right { text-align: right; }
+    footer { border-top: 1px solid var(--surface-border); padding: 56px 24px; text-align: center; font-size: 14px; color: var(--text-muted); margin-top: auto; }
+    footer a { color: var(--text-bright); text-decoration: none; font-weight: 600; }
+    footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="glow-aura-1"></div>
+  <nav>
+    <div class="nav-container">
+      <a href="../index.html" class="logo-brand">codive<span>_</span></a>
+      <div class="nav-center-links">
+        <a href="../index.html" class="nav-link">Home</a>
+        <a href="../docs.html" class="nav-link">Docs</a>
+        <a href="../blog.html" class="nav-link active">Blog</a>
+      </div>
+      <div class="nav-actions">
+        <a href="https://github.com/recscse/codive" target="_blank" class="btn-gh-badge">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span>codive</span>
+        </a>
+        <a href="../index.html#install" class="btn-nav-cta">Get started</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="article-page">
+    <a href="../blog.html" class="back-link">&larr; Back to Blog</a>
+    <article class="prose">
+      <div class="tag-badge">Parallel Go Engine</div>
+      <h1>Parallel Goroutine Indexing: Scanning Large Monorepos Fast</h1>
+      <div class="byline">Published September 1, 2026 &middot; By Brijesh Yadav &middot; 6 min read</div>
+
+      <p>Cold-indexing a large repository has two distinct costs: walking the directory tree to find files, and reading + AST-parsing each one. codive treats these as two separate stages, because they parallelize very differently.</p>
+
+      <h2>Stage 1: The Walk Is Serial &mdash; On Purpose</h2>
+      <p>File discovery uses Go's standard <code>filepath.Walk</code>, which visits the tree in a single goroutine. This is deliberate, not an oversight: directory traversal is I/O-bound on metadata syscalls (<code>stat</code>, <code>readdir</code>) that don't benefit much from parallel walkers on most filesystems, and a single walker makes the ignore-list logic (skipping <code>.git</code>, <code>node_modules</code>, <code>target</code>, <code>build</code>, <code>dist</code>, <code>.venv</code>, <code>.gradle</code>, <code>.mvn</code>, and similar directories) trivial to reason about &mdash; one process, one exclusion set, no coordination needed.</p>
+
+      <h2>Stage 2: Parsing Is Where Parallelism Pays Off</h2>
+      <p>Reading file content and running it through an AST extractor is CPU-bound and embarrassingly parallel &mdash; one file's parse doesn't depend on another's. That's where codive spins up a bounded worker pool sized to the machine:</p>
+      <pre>numWorkers := runtime.NumCPU() * 2
+if numWorkers < 4 { numWorkers = 4 }
+if numWorkers > 32 { numWorkers = 32 }
+
+fileChan := make(chan db.FileRecord, totalFiles)
+resultChan := make(chan parseResult, totalFiles)
+
+var wg sync.WaitGroup
+for w := 0; w < numWorkers; w++ {
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for f := range fileChan {
+            content, err := os.ReadFile(fullPath(f))
+            // ... AST extraction happens here, per file ...
+        }
+    }()
+}
+close(fileChan)
+
+go func() {
+    wg.Wait()
+    close(resultChan)
+}()</pre>
+      <p>The 2&times; CPU-core multiplier accounts for the fact that these goroutines spend part of their time blocked on file I/O rather than pure CPU work, so oversubscribing slightly keeps cores busy while some workers wait on disk reads. The clamp to <code>[4, 32]</code> exists for two reasons: a floor of 4 keeps small/underpowered machines from starving on a single worker, and a ceiling of 32 avoids goroutine and file-descriptor churn diminishing returns on very large machines where more workers just contend for the same disk.</p>
+
+      <h2>Why the Split Matters</h2>
+      <p>Because discovery and parsing are decoupled by a buffered channel, the walker can keep feeding <code>fileChan</code> while parser goroutines are still working through the backlog &mdash; there's no "walk everything, then parse everything" barrier. Results stream into <code>resultChan</code> as each file finishes, which is also what drives the live progress bar during <code>codive init</code>:</p>
+      <pre>Indexing Codebase [████████████████████████████] 100% (171/171 files in 0.11s | 1,533 files/s)</pre>
+
+      <div class="callout"><strong>Incremental re-indexing skips this entirely.</strong> <code>codive update</code> and the background watcher used by <code>codive serve</code> compare each file's on-disk <code>ModTime</code> against what's recorded in the <code>files</code> table and only re-parse what actually changed &mdash; so after the initial cold index, keeping the database current is a small delta operation, not a repeat full scan.</div>
+    </article>
+
+    <div class="article-nav">
+      <a href="blast-radius-refactoring-safety.html">
+        <div class="dir">Previous</div>
+        <div class="title">&larr; Blast Radius Analysis</div>
+      </a>
+      <a href="durable-ai-agent-memory.html" class="right">
+        <div class="dir">Next</div>
+        <div class="title">Durable AI Agent Memory &rarr;</div>
+      </a>
+    </div>
+  </main>
+
+  <footer>
+    <p>codive is open-source under the MIT License &middot; Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a> &middot; <a href="https://github.com/recscse/codive" target="_blank">GitHub</a> &middot; <a href="../docs.html">Docs</a> &middot; <a href="../blog.html">Blog</a></p>
+  </footer>
+</body>
+</html>

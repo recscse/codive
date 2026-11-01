@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Why Grep Fails for AI Coding Agents | codive Blog</title>
+  <meta name="description" content="A deep-dive into why brute-force regex search wastes context windows, and how codive replaces it with a local AST index in SQLite WAL mode for sub-2ms symbol lookups.">
+  <meta name="keywords" content="AI coding agent, grep, AST index, SQLite WAL, MCP server, token optimization, codive">
+  <meta name="author" content="Brijesh Yadav">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://recscse.github.io/codive/blog/why-grep-fails-for-ai-agents.html">
+
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://recscse.github.io/codive/blog/why-grep-fails-for-ai-agents.html">
+  <meta property="og:title" content="Why Grep Fails for AI Coding Agents">
+  <meta property="og:description" content="How brute-force regex search wastes context windows, and how codive replaces it with a local AST index in SQLite WAL mode.">
+  <meta property="og:image" content="https://recscse.github.io/codive/favicon.svg">
+  <meta property="article:published_time" content="2026-08-26">
+  <meta property="article:author" content="Brijesh Yadav">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Why Grep Fails for AI Coding Agents">
+  <meta name="twitter:description" content="How brute-force regex search wastes context windows, and how codive replaces it with a local AST index in SQLite WAL mode.">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": "Why Grep Fails for AI Coding Agents",
+    "datePublished": "2026-08-26",
+    "author": { "@type": "Person", "name": "Brijesh Yadav", "url": "https://recscse.github.io" },
+    "publisher": { "@type": "Organization", "name": "codive" },
+    "mainEntityOfPage": "https://recscse.github.io/codive/blog/why-grep-fails-for-ai-agents.html"
+  }
+  </script>
+
+  <link rel="icon" type="image/svg+xml" href="../favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #06070b; --surface: #0b0e17; --surface-border: rgba(255,255,255,0.08);
+      --accent: #20c20e; --accent-glow: rgba(32,194,14,0.25); --accent-dim: rgba(32,194,14,0.08);
+      --text: #94a3b8; --text-muted: #64748b; --text-bright: #ffffff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { background: var(--bg); color: var(--text); font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; min-height: 100vh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+    .glow-aura-1 { position: absolute; top: -200px; left: 50%; transform: translateX(-50%); width: 900px; height: 700px; background: radial-gradient(circle, rgba(32,194,14,0.1) 0%, transparent 70%); pointer-events: none; z-index: 0; }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; border-bottom: 1px solid var(--surface-border); background: rgba(6,7,11,0.85); backdrop-filter: blur(20px); }
+    .nav-container { max-width: 1240px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; position: relative; }
+    .logo-brand { font-family: 'Fira Code', monospace; font-size: 22px; font-weight: 800; color: var(--text-bright); text-decoration: none; }
+    .logo-brand span { color: var(--accent); }
+    .nav-center-links { position: absolute; left: 50%; transform: translateX(-50%); display: flex; gap: 32px; }
+    @media (max-width: 860px) { .nav-center-links { display: none; } }
+    .nav-link { font-size: 14px; font-weight: 600; color: var(--text); text-decoration: none; }
+    .nav-link:hover, .nav-link.active { color: var(--text-bright); }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+    .btn-gh-badge { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--surface-border); background: rgba(255,255,255,0.03); color: #cbd5e1; font-size: 13px; font-family: 'Fira Code', monospace; text-decoration: none; transition: all 0.2s; }
+    .btn-gh-badge:hover { border-color: rgba(32,194,14,0.4); background: var(--accent-dim); color: var(--text-bright); }
+    .btn-nav-cta { background: var(--accent); color: #000; font-weight: 800; font-size: 13px; padding: 8px 18px; border-radius: 6px; text-decoration: none; }
+
+    .article-page { max-width: 760px; margin: 128px auto 60px; padding: 0 24px; position: relative; z-index: 1; flex: 1; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); text-decoration: none; font-size: 13.5px; font-weight: 600; margin-bottom: 32px; }
+    .back-link:hover { color: var(--accent); }
+    .tag-badge { font-family: 'Fira Code', monospace; font-size: 11.5px; color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(32,194,14,0.25); padding: 4px 10px; border-radius: 20px; display: inline-block; margin-bottom: 18px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+    .prose { font-size: 16px; line-height: 1.8; color: #cbd5e1; }
+    .prose h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 900; color: var(--text-bright); margin-bottom: 14px; line-height: 1.15; letter-spacing: -0.02em; }
+    .byline { font-size: 13.5px; color: var(--text-muted); margin-bottom: 36px; padding-bottom: 24px; border-bottom: 1px solid var(--surface-border); }
+    .prose h2 { font-size: 22px; font-weight: 800; color: var(--text-bright); margin: 40px 0 16px; border-bottom: 1px solid var(--surface-border); padding-bottom: 8px; }
+    .prose h3 { font-size: 17px; font-weight: 700; color: var(--accent); margin: 28px 0 12px; font-family: 'Fira Code', monospace; }
+    .prose p { margin-bottom: 20px; }
+    .prose ul, .prose ol { margin-left: 24px; margin-bottom: 20px; }
+    .prose li { margin-bottom: 8px; }
+    .prose code { font-family: 'Fira Code', monospace; font-size: 0.88em; color: #7dd3fc; background: rgba(125,211,252,0.08); padding: 1px 5px; border-radius: 4px; }
+    .prose pre { background: #06080d; border: 1px solid var(--surface-border); border-radius: 8px; padding: 16px 20px; font-family: 'Fira Code', monospace; font-size: 12.5px; color: #38bdf8; overflow-x: auto; margin: 20px 0 24px; line-height: 1.6; }
+    .prose pre code { background: none; padding: 0; color: inherit; }
+    table.art-table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 13.5px; }
+    table.art-table th, table.art-table td { border: 1px solid var(--surface-border); padding: 12px 16px; text-align: left; }
+    table.art-table th { background: #111522; color: var(--text-bright); font-family: 'Fira Code', monospace; font-size: 12px; }
+    table.art-table td { background: var(--surface); color: #cbd5e1; }
+    .callout { background: var(--accent-dim); border: 1px solid rgba(32,194,14,0.3); border-left: 3px solid var(--accent); border-radius: 8px; padding: 16px 20px; margin: 24px 0; font-size: 14.5px; color: #d1fae5; }
+
+    .article-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--surface-border); }
+    .article-nav a { display: block; background: var(--surface); border: 1px solid var(--surface-border); border-radius: 10px; padding: 16px 18px; text-decoration: none; color: var(--text); transition: border-color 0.2s; }
+    .article-nav a:hover { border-color: rgba(32,194,14,0.4); }
+    .article-nav .dir { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 4px; }
+    .article-nav .title { font-size: 14px; font-weight: 700; color: var(--text-bright); }
+    .article-nav .right { text-align: right; }
+
+    footer { border-top: 1px solid var(--surface-border); padding: 56px 24px; text-align: center; font-size: 14px; color: var(--text-muted); margin-top: auto; }
+    footer a { color: var(--text-bright); text-decoration: none; font-weight: 600; }
+    footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="glow-aura-1"></div>
+
+  <nav>
+    <div class="nav-container">
+      <a href="../index.html" class="logo-brand">codive<span>_</span></a>
+      <div class="nav-center-links">
+        <a href="../index.html" class="nav-link">Home</a>
+        <a href="../docs.html" class="nav-link">Docs</a>
+        <a href="../blog.html" class="nav-link active">Blog</a>
+      </div>
+      <div class="nav-actions">
+        <a href="https://github.com/recscse/codive" target="_blank" class="btn-gh-badge">
+          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span>codive</span>
+        </a>
+        <a href="../index.html#install" class="btn-nav-cta">Get started</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="article-page">
+    <a href="../blog.html" class="back-link">&larr; Back to Blog</a>
+    <article class="prose">
+      <div class="tag-badge">Architecture &middot; Case Study</div>
+      <h1>Why Grep Fails for AI Coding Agents: Building a Local AST Engine in Go</h1>
+      <div class="byline">Published August 26, 2026 &middot; By Brijesh Yadav &middot; 9 min read</div>
+
+      <p>If you've used Claude Code, Cursor, Windsurf, or Google Antigravity on a real production repository, you've likely seen this pattern: the agent burns 6&ndash;10 turns searching for code, dumps thousands of irrelevant lines into the conversation, and occasionally breaks an upstream caller it never saw.</p>
+
+      <h2>The Brute-Force Grep Bottleneck</h2>
+      <p>When an AI coding agent explores a repository, its default fallback is raw <code>grep</code> or <code>ripgrep</code>. Grep is excellent for a human scanning a terminal &mdash; it is expensive for an LLM:</p>
+      <ul>
+        <li><strong>Noisy results.</strong> A search for a function like <code>GenerateToken</code> returns every mock, test fixture, and comment that mentions it &mdash; hundreds of lines the model has to read just to find the real declaration.</li>
+        <li><strong>Compound re-sending.</strong> LLM API calls are stateless. Whatever gets pulled into the transcript on turn 2 is re-sent, token for token, on every subsequent turn. A single noisy grep early in a session gets paid for repeatedly.</li>
+        <li><strong>Attention dilution.</strong> Dumping a 2,000-line file to find one method buries the relevant 40 lines inside 1,960 lines of noise, which is exactly the condition that produces hallucinated signatures and missed call sites.</li>
+      </ul>
+
+      <pre>Traditional grep flow                              codive flow
+&#9500;&#9472; grep -rn "GenerateToken" .                       &#9500;&#9472; find_symbol(query="GenerateToken")
+&#9474;   380 lines of mocks/tests (noisy)                &#9474;   exact file:line + signature (&lt;2ms)
+&#9500;&#9472; open auth_service.go in full                     &#9500;&#9472; get_file_skeleton(path=...)
+&#9474;   2,100-line dump                                 &#9474;   ~120-token structural outline
+&#9500;&#9472; guess the edit, 3 callers break on import        &#9500;&#9472; blast_radius(symbol="GenerateToken")
+&#9474;   retry loop, hallucinated signature               &#9474;   exact caller list + tests to run
+&#9492;&#9472; many turns, large re-sent context                &#9492;&#9472; 1&ndash;2 targeted turns</pre>
+
+      <h2>The Local AST Solution</h2>
+      <p>Instead of treating source as unstructured text, <code>codive</code> parses each file's Abstract Syntax Tree with a per-language extractor (Go's own <code>go/parser</code>, dedicated extractors for TypeScript/JavaScript, Python, Java/C#, and Rust). Every function, struct, interface, method, and annotation becomes a row in an embedded SQLite database at <code>.codive/index.db</code>, running in WAL (Write-Ahead Logging) mode so reads and writes don't block each other.</p>
+
+      <pre>Your Repository
+  &#9492;&#9472; AST parser (per language) + file-content indexer
+        &#9492;&#9472; .codive/index.db  (SQLite, WAL mode)
+              &#9500;&#9472; files    &mdash; path, language, size, mtime
+              &#9500;&#9472; symbols  &mdash; kind, name, signature, line
+              &#9500;&#9472; files_fts &mdash; FTS5 full-text index
+              &#9492;&#9472; decisions &mdash; recorded architectural memory
+                    &#9500;&#9472; MCP server (JSON-RPC over stdio)
+                    &#9492;&#9472; CLI (codive search / symbol / blast / ...)</pre>
+
+      <p>Because the index lives on disk as a plain SQLite file, every query &mdash; <code>find_symbol</code>, <code>search_code</code>, <code>find_callers</code> &mdash; is a B-tree or FTS5 lookup instead of a filesystem regex sweep, which is why typical latency stays under a few milliseconds even on large repositories.</p>
+
+      <h2>What This Actually Changes for an Agent</h2>
+      <p>The highest-leverage tool is <code>pack_feature_context</code>: instead of five sequential turns finding route handlers, models, and tests for a feature, one call bundles the relevant symbol matches, file skeletons, and test suites for a topic keyword. Paired with <code>get_file_skeleton</code> &mdash; which collapses function bodies to <code>{ /* L45-L92 */ }</code> line markers while preserving every signature &mdash; an agent can understand a 1,200-line file's entire public surface for roughly 120 tokens instead of the ~6,500 tokens a full read costs.</p>
+
+      <div class="callout"><strong>Why this matters beyond cost:</strong> it isn't only about token spend. A smaller, structured context is also a <em>more accurate</em> one &mdash; the model sees exact line numbers and signatures instead of reconstructing them from a wall of text, which is what actually reduces broken-caller regressions on refactors.</div>
+
+      <h2>Where This Fits</h2>
+      <p>codive doesn't replace your editor's search or a human doing a deliberate <code>grep -R</code> &mdash; it replaces the AI agent's default fallback to raw text search with a structured index built for exactly the kind of question an autonomous coding agent asks over and over: <em>where is this defined, who calls it, what will break if I change it, what does this file's API surface look like.</em> Those are exactly the four questions <code>find_symbol</code>, <code>find_callers</code>/<code>find_references</code>, <code>blast_radius</code>, and <code>get_file_skeleton</code> answer directly.</p>
+    </article>
+
+    <div class="article-nav">
+      <div></div>
+      <a href="zero-lock-sqlite-wal-concurrency.html" class="right">
+        <div class="dir">Next</div>
+        <div class="title">Zero-Lock SQLite WAL Concurrency &rarr;</div>
+      </a>
+    </div>
+  </main>
+
+  <footer>
+    <p>codive is open-source under the MIT License &middot; Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a> &middot; <a href="https://github.com/recscse/codive" target="_blank">GitHub</a> &middot; <a href="../docs.html">Docs</a> &middot; <a href="../blog.html">Blog</a></p>
+  </footer>
+</body>
+</html>

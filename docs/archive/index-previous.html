@@ -1,0 +1,1864 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>codive &middot; Local AST Knowledge Graph for AI Coding Assistants</title>
+  <meta name="description" content="Turn any codebase into a queryable AST knowledge graph. Local SQLite queries, signature-only file skeletons, and blast-radius analysis for Claude Code, Cursor, and Antigravity.">
+  <meta name="keywords" content="codive, code knowledge graph, AST context engine, MCP server, model context protocol, AI coding assistant, Claude Code, Cursor IDE, Antigravity, SQLite WAL, token optimizer">
+  <meta name="author" content="Brijesh Yadav">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#07090e">
+  <link rel="canonical" href="https://recscse.github.io/codive/">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://recscse.github.io/codive/">
+  <meta property="og:title" content="codive &middot; Local AST Knowledge Graph for AI Coding Assistants">
+  <meta property="og:description" content="Stop letting AI assistants burn context on blind grep. Local AST knowledge graph with signature-only file skeletons.">
+  <meta property="og:image" content="https://recscse.github.io/codive/favicon.svg">
+
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+
+  <style>
+    :root {
+      --bg: #07090e;
+      --bg-surface: #0c101a;
+      --bg-elevated: #111726;
+      --bg-card: #0e1422;
+      --bg-card-hover: #151d30;
+      
+      --border: rgba(255, 255, 255, 0.08);
+      --border-subtle: rgba(255, 255, 255, 0.04);
+      --border-hover: rgba(255, 255, 255, 0.2);
+      --border-accent: rgba(16, 185, 129, 0.4);
+      
+      --accent: #10b981;
+      --accent-light: #34d399;
+      --accent-dim: rgba(16, 185, 129, 0.12);
+      --accent-glow: rgba(16, 185, 129, 0.25);
+      
+      --cyan: #38bdf8;
+      --blue: #3b82f6;
+      --purple: #a855f7;
+      --orange: #f97316;
+      --red: #f43f5e;
+      --amber: #f59e0b;
+      
+      --text-bright: #f8fafc;
+      --text: #cbd5e1;
+      --text-muted: #8492a6;
+      --text-dim: #475569;
+      
+      --code-bg: #030509;
+      --max-w: 1140px;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-xl: 20px;
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --bg-surface: #f1f5f9;
+      --bg-elevated: #ffffff;
+      --bg-card: #ffffff;
+      --bg-card-hover: #f8fafc;
+      --border: rgba(0, 0, 0, 0.08);
+      --border-subtle: rgba(0, 0, 0, 0.04);
+      --border-hover: rgba(0, 0, 0, 0.2);
+      --border-accent: rgba(16, 185, 129, 0.5);
+      --text-bright: #0f172a;
+      --text: #334155;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
+      --code-bg: #f1f5f9;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; font-size: 15px; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.6;
+      transition: background-color 0.2s, color 0.2s;
+    }
+
+    /* Ambient Hero Radial Glow */
+    .hero-glow-layer {
+      position: absolute;
+      top: 0; left: 50%;
+      transform: translateX(-50%);
+      width: 1000px; height: 460px;
+      background: radial-gradient(ellipse 65% 50% at 50% 0%, rgba(16, 185, 129, 0.14), transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Background Grid Pattern */
+    .bg-grid-layer {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 850px;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 36px 36px;
+      mask-image: radial-gradient(circle at 50% 20%, black 40%, transparent 80%);
+      -webkit-mask-image: radial-gradient(circle at 50% 20%, black 40%, transparent 80%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    [data-theme="light"] .bg-grid-layer {
+      background-image: 
+        linear-gradient(to right, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+    }
+
+    /* Typography Gradients */
+    .gradient-headline {
+      background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    [data-theme="light"] .gradient-headline {
+      background: linear-gradient(135deg, #0f172a 40%, #475569 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .gradient-accent {
+      background: linear-gradient(135deg, #34d399 0%, #10b981 60%, #059669 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.25); }
+
+    /* Top Sticky Navigation Bar */
+    header.site-header {
+      position: sticky;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      background: rgba(7, 9, 14, 0.88);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    [data-theme="light"] header.site-header {
+      background: rgba(255, 255, 255, 0.88);
+    }
+    .nav-container {
+      max-width: var(--max-w);
+      margin: 0 auto;
+      height: 54px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+    .brand-beacon {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
+    }
+    .brand-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-bright);
+      letter-spacing: -0.03em;
+    }
+    .brand-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--accent);
+      border: 1px solid var(--border-accent);
+      padding: 1px 7px;
+      border-radius: 9999px;
+      background: var(--accent-dim);
+      font-weight: 600;
+    }
+
+    .nav-menu {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    @media (max-width: 900px) { .nav-menu { display: none; } }
+    .nav-menu a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+    .nav-menu a:hover { color: var(--text-bright); }
+    .nav-menu a.active { color: var(--text-bright); font-weight: 600; }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .theme-toggle-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 5px 9px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      transition: all 0.15s;
+    }
+    .theme-toggle-btn:hover { border-color: var(--border-hover); color: var(--text-bright); }
+
+    .btn-github-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 11px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      text-decoration: none;
+      background: rgba(255, 255, 255, 0.02);
+      transition: all 0.15s;
+    }
+    .btn-github-pill:hover {
+      border-color: var(--border-hover);
+      color: var(--text-bright);
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .btn-install-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 13px;
+      border-radius: var(--radius-sm);
+      background: var(--text-bright);
+      color: var(--bg);
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+    .btn-install-cta:hover {
+      opacity: 0.92;
+      box-shadow: 0 0 16px rgba(255, 255, 255, 0.25);
+    }
+    .btn-mobile-toggle {
+      display: none;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 9px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 15px;
+    }
+    @media (max-width: 900px) { .btn-mobile-toggle { display: block; } }
+
+    .mobile-nav-drawer {
+      display: none;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 20px;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .mobile-nav-drawer.open { display: flex; }
+    .mobile-nav-drawer a {
+      color: var(--text);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    /* Hero Stage */
+    .hero-stage {
+      position: relative;
+      z-index: 1;
+      max-width: var(--max-w);
+      margin: 0 auto;
+      padding: 48px 20px 16px;
+      text-align: center;
+    }
+    .hero-badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 13px;
+      border-radius: 9999px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.02);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-bright);
+      margin-bottom: 20px;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .hero-badge-pill:hover {
+      border-color: var(--border-hover);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .badge-live-beacon {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }
+
+    .hero-main-title {
+      font-size: clamp(32px, 4.8vw, 58px);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      margin-bottom: 16px;
+    }
+    .hero-lead-text {
+      font-size: clamp(15px, 1.3vw, 17.5px);
+      color: var(--text-muted);
+      max-width: 760px;
+      margin: 0 auto 26px;
+      line-height: 1.6;
+      font-weight: 400;
+    }
+    .hero-lead-text strong {
+      color: var(--text-bright);
+      font-weight: 600;
+    }
+
+    /* Minimalist Quickstart Terminal */
+    .quickstart-terminal-pill {
+      max-width: 580px;
+      margin: 0 auto 24px;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 9px 12px 9px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+    .quickstart-cmd-text {
+      color: #e2e8f0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: left;
+    }
+    .quickstart-cmd-text span { color: var(--accent); font-weight: 600; }
+    .btn-copy-quickstart {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 9px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+      transition: all 0.15s;
+    }
+    .btn-copy-quickstart:hover {
+      border-color: var(--border-hover);
+      color: var(--text-bright);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    /* Assistant support badges */
+    .assistant-support-strip {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      flex-wrap: wrap;
+      margin-bottom: 36px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .support-badge-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text);
+    }
+    .support-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+
+    /* Studio Showcase Window */
+    .studio-window-shell {
+      max-width: var(--max-w);
+      margin: 0 auto 64px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--bg-elevated);
+      overflow: hidden;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+      display: flex;
+      flex-direction: column;
+      text-align: left;
+    }
+    .studio-top-bar {
+      height: 42px;
+      background: #090d16;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      user-select: none;
+    }
+    [data-theme="light"] .studio-top-bar { background: #e2e8f0; }
+    .window-dots-wrap {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .window-dot { width: 9px; height: 9px; border-radius: 50%; }
+    .dot-close { background: #ff5f56; border: 1px solid #e0443e; }
+    .dot-min { background: #ffbd2e; border: 1px solid #dea123; }
+    .dot-max { background: #27c93f; border: 1px solid #1aab29; }
+
+    .studio-segmented-tabs {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 3px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-subtle);
+    }
+    [data-theme="light"] .studio-segmented-tabs { background: rgba(0, 0, 0, 0.05); }
+    .studio-segment-btn {
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+    .studio-segment-btn:hover { color: var(--text-bright); }
+    .studio-segment-btn.active {
+      color: var(--text-bright);
+      background: rgba(255, 255, 255, 0.1);
+      font-weight: 600;
+    }
+    [data-theme="light"] .studio-segment-btn.active {
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .studio-wal-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--accent);
+      font-size: 11px;
+    }
+    .wal-pulse-beacon {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+    }
+
+    /* Graph Canvas Viewport */
+    .graph-viewer-stage {
+      display: flex;
+      height: 560px;
+      position: relative;
+      overflow: hidden;
+    }
+    @media (max-width: 900px) {
+      .graph-viewer-stage { flex-direction: column; height: auto; }
+    }
+
+    .canvas-viewport-wrap {
+      flex: 1;
+      position: relative;
+      background: #030509;
+      overflow: hidden;
+      min-height: 440px;
+    }
+    [data-theme="light"] .canvas-viewport-wrap { background: #f8fafc; }
+    #visNetworkCanvas { width: 100%; height: 100%; }
+    #vis3DCanvas { width: 100%; height: 100%; display: none; }
+
+    .canvas-action-toolbar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      gap: 6px;
+      z-index: 10;
+      flex-wrap: wrap;
+    }
+    .action-chip-btn {
+      background: rgba(13, 19, 36, 0.9);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 10px;
+      border-radius: var(--radius-sm);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+    [data-theme="light"] .action-chip-btn { background: rgba(255, 255, 255, 0.9); }
+    .action-chip-btn:hover {
+      border-color: var(--border-hover);
+      color: var(--text-bright);
+    }
+    .action-chip-btn.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .action-chip-btn.danger-active {
+      border-color: var(--red);
+      color: #fca5a5;
+      background: rgba(244, 63, 94, 0.15);
+    }
+
+    .canvas-3d-hint {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      color: var(--text-muted);
+      background: rgba(0, 0, 0, 0.65);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      pointer-events: none;
+      display: none;
+    }
+
+    /* Inspector Sidebar */
+    .inspector-sidebar-panel {
+      width: 320px;
+      background: var(--bg-surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 10;
+    }
+    @media (max-width: 900px) {
+      .inspector-sidebar-panel { width: 100%; border-left: none; border-top: 1px solid var(--border); }
+    }
+
+    .inspector-search-row {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+    .inspector-search-input {
+      width: 100%;
+      background: #060912;
+      border: 1px solid var(--border);
+      color: var(--text-bright);
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    [data-theme="light"] .inspector-search-input { background: #f1f5f9; }
+    .inspector-search-input:focus { border-color: var(--accent); }
+    .search-results-menu {
+      position: absolute;
+      top: 46px; left: 12px; right: 12px;
+      background: #0d1424;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      max-height: 180px;
+      overflow-y: auto;
+      display: none;
+      z-index: 30;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.8);
+    }
+    [data-theme="light"] .search-results-menu { background: #ffffff; }
+    .search-result-row {
+      padding: 6px 9px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .search-result-row:hover {
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--accent);
+    }
+
+    .inspector-node-card {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+    }
+    .inspector-card-label {
+      font-size: 9.5px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 4px;
+    }
+    .inspector-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2px;
+    }
+    .inspector-node-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-bright);
+    }
+    .node-badge-tag {
+      font-size: 9px;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .badge-god { background: rgba(244, 63, 94, 0.2); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.4); }
+    .badge-data { background: rgba(59, 130, 246, 0.2); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.4); }
+    .badge-auth { background: rgba(168, 85, 247, 0.2); color: #e9d5ff; border: 1px solid rgba(168, 85, 247, 0.4); }
+    .badge-core { background: rgba(56, 189, 248, 0.2); color: #a5f3fc; border: 1px solid rgba(56, 189, 248, 0.4); }
+    .badge-pay { background: rgba(249, 115, 22, 0.2); color: #fed7aa; border: 1px solid rgba(249, 115, 22, 0.4); }
+
+    .inspector-filepath {
+      color: var(--text-muted);
+      font-size: 10px;
+      margin-bottom: 6px;
+    }
+    .inspector-snippet-box {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 6px 8px;
+      font-size: 10px;
+      color: #7dd3fc;
+      margin-bottom: 6px;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .inspector-metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 4px;
+      text-align: center;
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 5px;
+      margin-bottom: 6px;
+    }
+    .metric-value-num {
+      font-size: 12.5px;
+      font-weight: 700;
+    }
+
+    .neighbors-links-box {
+      max-height: 75px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .neighbor-anchor-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 3px 6px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 10.5px;
+      background: rgba(255, 255, 255, 0.02);
+      border-left: 2px solid var(--accent);
+      color: var(--text);
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .neighbor-anchor-row:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-bright);
+    }
+    .confidence-tag {
+      font-size: 8.5px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-muted);
+    }
+
+    /* Subsystem Communities */
+    .inspector-subsystems-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .subsystem-row-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 6px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      user-select: none;
+      transition: background 0.15s;
+    }
+    .subsystem-row-item:hover { background: rgba(255, 255, 255, 0.04); }
+    
+    /* Sleek Custom Checkboxes */
+    .subsystem-cb {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border: 1.5px solid rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+      background: rgba(0, 0, 0, 0.3);
+      cursor: pointer;
+      position: relative;
+      flex-shrink: 0;
+      transition: all 0.15s;
+    }
+    .subsystem-cb:checked {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .subsystem-cb:checked::after {
+      content: '';
+      position: absolute;
+      left: 3.5px; top: 1px;
+      width: 4px; height: 7px;
+      border: solid #000;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+
+    .subsystem-dot-badge { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .subsystem-name-text { flex: 1; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .subsystem-count-text { color: var(--text-muted); font-size: 9.5px; }
+
+    .inspector-status-footer {
+      padding: 8px 14px;
+      border-top: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* Execution Flow Tracer Mode */
+    .flow-tracer-stage {
+      display: none;
+      height: 560px;
+      background: var(--code-bg);
+      padding: 20px;
+      flex-direction: column;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .flow-controls-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+    .flow-picker-btn {
+      background: #0c1222;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .flow-picker-btn:hover { border-color: var(--border-hover); color: var(--text-bright); }
+    .flow-picker-btn.active {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .flow-timeline-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 820px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .flow-step-item {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      position: relative;
+    }
+    .flow-step-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: var(--accent-dim); color: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10.5px; font-weight: 700; flex-shrink: 0;
+    }
+    .flow-step-info { flex: 1; }
+    .flow-step-title { font-size: 12.5px; font-weight: 700; color: var(--text-bright); margin-bottom: 2px; }
+    .flow-step-path { font-size: 10px; color: var(--text-muted); }
+    .flow-step-badge {
+      font-size: 9.5px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* Blast Radius Simulator Mode */
+    .blast-simulator-stage {
+      display: none;
+      height: 560px;
+      background: #030509;
+      padding: 20px;
+      flex-direction: column;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .blast-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .blast-risk-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.35);
+      padding: 6px 14px;
+      border-radius: var(--radius-md);
+      color: #fda4af;
+      font-size: 11.5px;
+    }
+    .blast-metrics-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 768px) { .blast-metrics-row { grid-template-columns: repeat(2, 1fr); } }
+    .blast-metric-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      text-align: center;
+    }
+    .blast-metric-val { font-size: 18px; font-weight: 800; color: var(--text-bright); }
+    .blast-metric-lbl { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; margin-top: 2px; }
+
+    .blast-files-list {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 11px;
+    }
+    .blast-file-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 8px;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.25);
+    }
+
+    /* Common Section Headings */
+    section.section-block {
+      max-width: var(--max-w);
+      margin: 0 auto 64px;
+      padding: 0 20px;
+    }
+    .section-title-wrap {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+    .section-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      color: var(--accent);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .section-heading-text {
+      font-size: clamp(24px, 3vw, 34px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text-bright);
+      margin-bottom: 8px;
+      line-height: 1.2;
+    }
+    .section-desc-text {
+      font-size: 14.5px;
+      color: var(--text-muted);
+      max-width: 660px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    /* Section 1: Three Tangible Outputs (3-Column Grid) */
+    .outputs-tri-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    @media (max-width: 900px) {
+      .outputs-tri-grid { grid-template-columns: 1fr; }
+    }
+    .output-item-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    .output-item-card:hover {
+      border-color: var(--border-accent);
+      transform: translateY(-2px);
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.4);
+    }
+    .output-item-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .output-item-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .output-item-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9.5px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-muted);
+    }
+    .output-item-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text-bright);
+      margin-bottom: 8px;
+    }
+    .output-item-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      flex: 1;
+    }
+    .output-item-specs {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-subtle);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      color: var(--accent);
+      display: flex;
+      gap: 12px;
+    }
+
+    /* Section 2: Split Skeletons */
+    .skeleton-split-view {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--bg-elevated);
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+    }
+    @media (max-width: 820px) { .skeleton-split-view { grid-template-columns: 1fr; } }
+    .split-code-col { display: flex; flex-direction: column; }
+    .split-code-col.accented {
+      border-left: 1px solid var(--border);
+      background: rgba(16, 185, 129, 0.02);
+    }
+    .split-col-header {
+      padding: 10px 16px;
+      background: #090d16;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+    }
+    [data-theme="light"] .split-col-header { background: #e2e8f0; }
+    .split-col-body {
+      padding: 18px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      line-height: 1.65;
+      color: #cbd5e1;
+      height: 250px;
+      overflow-y: auto;
+    }
+    [data-theme="light"] .split-col-body { color: #0f172a; }
+
+    /* Section 3: Architecture Comparison Matrix */
+    .table-scroll-container {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--bg-elevated);
+      overflow-x: auto;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+    }
+    .matrix-comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+      text-align: left;
+    }
+    .matrix-comparison-table th {
+      padding: 12px 16px;
+      background: #090d16;
+      border-bottom: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+    [data-theme="light"] .matrix-comparison-table th { background: #e2e8f0; }
+    .matrix-comparison-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text);
+    }
+    .matrix-comparison-table tr.active-row td {
+      background: var(--accent-dim);
+      color: var(--text-bright);
+      font-weight: 600;
+    }
+    .col-highlight {
+      background: rgba(16, 185, 129, 0.05);
+      color: var(--accent) !important;
+      font-weight: 600;
+    }
+
+    /* Section 4: Engineered for Autonomous Agents (2x3 Grid) */
+    .features-card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    @media (max-width: 900px) {
+      .features-card-grid { grid-template-columns: 1fr; }
+    }
+    .feature-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .feature-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+    }
+    .feature-icon-box {
+      width: 34px; height: 34px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 12px;
+      color: var(--accent);
+    }
+    .feature-card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-bright);
+      margin-bottom: 6px;
+    }
+    .feature-card-desc {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      line-height: 1.55;
+      flex: 1;
+    }
+    .feature-mcp-tag {
+      margin-top: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      color: var(--accent);
+    }
+
+    /* Section 5: Setup Tabs */
+    .setup-guide-box {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--bg-elevated);
+      overflow: hidden;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+    }
+    .setup-guide-nav {
+      display: flex;
+      background: #090d16;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    [data-theme="light"] .setup-guide-nav { background: #e2e8f0; }
+    .setup-guide-btn {
+      padding: 10px 16px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      position: relative;
+      white-space: nowrap;
+      transition: color 0.15s;
+    }
+    .setup-guide-btn:hover { color: var(--text-bright); }
+    .setup-guide-btn.active {
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .setup-guide-btn.active::after {
+      content: "";
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent);
+    }
+    .setup-guide-content {
+      padding: 20px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      line-height: 1.65;
+      color: #e2e8f0;
+      overflow-x: auto;
+    }
+    [data-theme="light"] .setup-guide-content { color: #0f172a; }
+
+    /* Section 6: FAQ Accordion */
+    .faq-accordion-list {
+      max-width: 800px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .faq-accordion-row {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg-elevated);
+      overflow: hidden;
+    }
+    .faq-question-toggle {
+      width: 100%;
+      padding: 14px 18px;
+      background: transparent;
+      border: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      text-align: left;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-bright);
+      transition: color 0.15s;
+    }
+    .faq-question-toggle:hover { color: var(--accent); }
+    .faq-cross-icon {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 15px;
+      color: var(--text-muted);
+      transition: transform 0.2s, color 0.2s;
+    }
+    .faq-accordion-row.open .faq-cross-icon {
+      transform: rotate(45deg);
+      color: var(--accent);
+    }
+    .faq-answer-pane {
+      display: none;
+      padding: 0 18px 16px;
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 10px;
+    }
+    .faq-answer-pane strong { color: var(--text-bright); }
+    .faq-accordion-row.open .faq-answer-pane { display: block; }
+
+    /* Footer */
+    footer.site-footer-bar {
+      border-top: 1px solid var(--border);
+      padding: 36px 20px;
+      text-align: center;
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-top: auto;
+    }
+    footer.site-footer-bar a {
+      color: var(--text-bright);
+      text-decoration: none;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+    footer.site-footer-bar a:hover { color: var(--accent); }
+    .real-shot { width: 100%; max-width: var(--max-w); margin: 28px auto 0; position: relative; z-index: 1; }
+    .real-shot img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
+    .real-shot figcaption { margin-top: 10px; font-size: 12.5px; color: var(--text-muted); text-align: center; }
+    .real-shot a { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient Hero Radial Glow -->
+  <div class="hero-glow-layer"></div>
+
+  <!-- Engineering Background Grid -->
+  <div class="bg-grid-layer"></div>
+
+  <!-- Sticky Header Navigation -->
+  <header class="site-header">
+    <div class="nav-container">
+      <a href="index.html" class="brand-group">
+        <span class="brand-beacon"></span>
+        <span class="brand-title">codive</span>
+        <span class="brand-tag">v1.2.1</span>
+      </a>
+
+      <nav class="nav-menu">
+        <a href="#overview" class="active">Overview</a>
+        <a href="#studio">Explorer</a>
+        <a href="#outputs">Outputs</a>
+        <a href="#skeletons">Skeletons</a>
+        <a href="#comparison">Comparison</a>
+        <a href="#features">MCP Tools</a>
+        <a href="docs.html">Docs</a>
+      </nav>
+
+      <div class="nav-actions">
+        <button class="theme-toggle-btn" onclick="toggleTheme()" title="Switch Light/Dark Theme">
+          <span id="themeToggleLabel">Theme</span>
+        </button>
+
+        <a href="https://github.com/recscse/codive" target="_blank" class="btn-github-pill">
+          <svg width="13" height="13" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span>GitHub</span>
+        </a>
+
+        <a href="#quickstart" class="btn-install-cta">Install CLI</a>
+        <button class="btn-mobile-toggle" onclick="toggleMobileMenu()" aria-label="Toggle navigation">&equiv;</button>
+      </div>
+    </div>
+
+    <!-- Mobile Drawer -->
+    <div class="mobile-nav-drawer" id="mobileNavDrawer">
+      <a href="#overview" onclick="toggleMobileMenu()">Overview</a>
+      <a href="#studio" onclick="toggleMobileMenu()">Explorer</a>
+      <a href="#outputs" onclick="toggleMobileMenu()">Outputs</a>
+      <a href="#skeletons" onclick="toggleMobileMenu()">Skeletons</a>
+      <a href="#comparison" onclick="toggleMobileMenu()">Comparison</a>
+      <a href="#features" onclick="toggleMobileMenu()">MCP Tools</a>
+      <a href="docs.html">Documentation</a>
+      <a href="https://github.com/recscse/codive" target="_blank">GitHub Repository</a>
+    </div>
+  </header>
+
+  <!-- Hero Stage -->
+  <main class="hero-stage" id="overview">
+    <a href="https://github.com/recscse/codive/releases" target="_blank" class="hero-badge-pill">
+      <span class="badge-live-beacon"></span>
+      <span>EMBEDDED AST KNOWLEDGE GRAPH FOR CODING AGENTS</span>
+      <span style="opacity: 0.5;">&rarr;</span>
+    </a>
+
+    <h1 class="hero-main-title">
+      <span class="gradient-headline">The Code Knowledge Graph</span><br>
+      <span class="gradient-accent">for AI Coding Assistants.</span>
+    </h1>
+
+    <p class="hero-lead-text">
+      Index your codebase into a local SQLite database. Give Claude Code, Cursor, and Antigravity multi-hop AST context, <strong>signature-only file skeletons</strong>, and blast-radius analysis.
+    </p>
+
+    <!-- Sleek Quickstart Terminal Pill -->
+    <div class="quickstart-terminal-pill" id="quickstart">
+      <div class="quickstart-cmd-text">
+        <span>$</span> curl -fsSL https://recscse.github.io/codive/install.sh | bash &amp;&amp; codive setup
+      </div>
+      <button class="btn-copy-quickstart" onclick="copyQuickstartCommand()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        <span id="copyQuickstartBadge">Copy</span>
+      </button>
+    </div>
+
+    <!-- Assistant Support Badges -->
+    <div class="assistant-support-strip">
+      <span style="opacity: 0.6; text-transform: uppercase; font-size: 10px; letter-spacing: 0.08em;">Native MCP Integration:</span>
+      <div class="support-badge-item"><span class="support-dot"></span>Claude Code</div>
+      <div class="support-badge-item"><span class="support-dot"></span>Cursor IDE</div>
+      <div class="support-badge-item"><span class="support-dot"></span>Google Antigravity</div>
+      <div class="support-badge-item"><span class="support-dot"></span>Windsurf</div>
+      <div class="support-badge-item"><span class="support-dot"></span>VS Code (Cline)</div>
+    </div>
+
+    <!-- Real output, unedited -->
+    <figure class="real-shot" id="studio">
+      <img src="shots/gin-impact.png" width="1400" height="860" loading="lazy" alt="codive explorer showing the blast radius of Context.Render in the gin web framework: risk HIGH, 18 direct callers, 4 indirect callers, 2 files, 102 tests to run">
+      <figcaption>Real output: <code>codive web</code> on <a href="https://github.com/gin-gonic/gin/tree/0f09c3a" target="_blank" rel="noopener">gin-gonic/gin at 0f09c3a</a>, showing what changing <code>Context.Render</code> affects. Run it on your own repo to check.</figcaption>
+    </figure>
+  </main>
+
+  <!-- Section 1: "Three Tangible Outputs Every Run" (Clean 3-Column Grid) -->
+  <section class="section-block" id="outputs">
+    <div class="section-title-wrap">
+      <div class="section-label">deterministic local assets</div>
+      <h2 class="section-heading-text">Three Tangible Outputs Every Run</h2>
+      <p class="section-desc-text">
+        Running <code>codive init</code> generates exact, deterministic local outputs stored directly in your repository with zero cloud dependencies:
+      </p>
+    </div>
+
+    <div class="outputs-tri-grid">
+      <!-- Card 1 -->
+      <div class="output-item-card">
+        <div class="output-item-top">
+          <span class="output-item-num">01 / LOCAL DATABASE</span>
+          <span class="output-item-badge">SQLite WAL</span>
+        </div>
+        <div class="output-item-title">.codive/index.db</div>
+        <p class="output-item-desc">
+          Embedded SQLite in WAL mode with busy timeouts. Stores parsed AST symbol declarations, caller/callee graphs, and FTS5 full-text trigram tables. Supports concurrent multi-agent reads.
+        </p>
+        <div class="output-item-specs">
+          <span>&check; 1.8 MB WAL file</span>
+          <span>&check; Zero daemons</span>
+        </div>
+      </div>
+
+      <!-- Card 2 -->
+      <div class="output-item-card">
+        <div class="output-item-top">
+          <span class="output-item-num">02 / LOCAL EXPLORER</span>
+          <span class="output-item-badge">127.0.0.1:7890</span>
+        </div>
+        <div class="output-item-title">codive web</div>
+        <p class="output-item-desc">
+          Embedded code explorer on localhost. Search symbols, see a package map, trace execution flow, check blast radius, and read source in any browser, even offline.
+        </p>
+        <div class="output-item-specs">
+          <span>&check; Runs on localhost</span>
+          <span>&check; Live source inspector</span>
+        </div>
+      </div>
+
+      <!-- Card 3 -->
+      <div class="output-item-card">
+        <div class="output-item-top">
+          <span class="output-item-num">03 / AGENT PROTOCOL &amp; MEMORY</span>
+          <span class="output-item-badge">18 MCP Tools</span>
+        </div>
+        <div class="output-item-title">codive serve .</div>
+        <p class="output-item-desc">
+          18 native tools for your AI assistant over stdio: <code>get_file_skeleton</code>, <code>blast_radius</code>, <code>find_callers</code>, <code>find_tests_for</code>, and persistent architectural memory stored in <code>.codive/decisions.jsonl</code>.
+        </p>
+        <div class="output-item-specs">
+          <span>&check; Stdio JSON-RPC</span>
+          <span>&check; Decision Memory</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 2: "Before & After AST Skeletons" -->
+  <section class="section-block" id="skeletons">
+    <div class="section-title-wrap">
+      <div class="section-label">token compression</div>
+      <h2 class="section-heading-text">Raw File Grep vs. codive AST Skeletons</h2>
+      <p class="section-desc-text">
+        Feeding entire files into LLMs causes "lost-in-the-middle" hallucinations. Skeletons preserve exact signatures and line ranges while leaving out function bodies.
+      </p>
+    </div>
+
+    <div class="skeleton-split-view">
+      <div class="split-code-col">
+        <div class="split-col-header">
+          <span style="color: var(--red); font-weight: 600;">TRADITIONAL RAW FILE READ</span>
+          <span style="color: var(--text-muted);">Whole file</span>
+        </div>
+        <div class="split-col-body">
+<span style="color: #64748b;">// Reading 1,200 raw lines exhausts model context window</span>
+<span style="color: #c084fc;">func</span> <span style="color: #38bdf8;">ProcessPayment</span>(ctx context.Context, order *Order) error {
+    <span style="color: #c084fc;">if</span> order.Amount &lt;= 0 {
+        <span style="color: #c084fc;">return</span> ErrInvalidAmount
+    }
+    client := stripe.New(cfg.StripeSecret)
+    charge, err := client.Charges.Create(&amp;stripe.ChargeParams{
+        Amount:   stripe.Int64(order.AmountMinor),
+        Currency: stripe.String(string(stripe.CurrencyUSD)),
+    })
+    <span style="color: #64748b;">// ... 75 lines of validation, webhook retries, and error branches ...</span>
+    auditLog(order.ID, charge.ID)
+    <span style="color: #c084fc;">return</span> nil
+}
+        </div>
+      </div>
+
+      <div class="split-code-col accented">
+        <div class="split-col-header" style="background: rgba(16, 185, 129, 0.08);">
+          <span style="color: var(--accent); font-weight: 600;">codive get_file_skeleton</span>
+          <span style="color: var(--accent); font-weight: 600;">Signatures and line ranges</span>
+        </div>
+        <div class="split-col-body">
+<span style="color: #64748b;">// Full structure preserved with exact line anchors</span>
+<span style="color: #c084fc;">func</span> <span style="color: #38bdf8;">ProcessPayment</span>(ctx context.Context, order *Order) error {
+    <span style="color: var(--accent);">/* L45-L92 */</span>
+}
+
+<span style="color: #c084fc;">func</span> <span style="color: #38bdf8;">RefundOrder</span>(ctx context.Context, chargeID string) error {
+    <span style="color: var(--accent);">/* L94-L138 */</span>
+}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 3: Architecture Comparison Matrix -->
+  <section class="section-block" id="comparison">
+    <div class="section-title-wrap">
+      <div class="section-label">architecture comparison</div>
+      <h2 class="section-heading-text">Why Vector Embeddings and Grep Fail for Code</h2>
+      <p class="section-desc-text">
+        Comparing code intelligence approaches: Deterministic AST graphs vs. fuzzy cosine similarity.
+      </p>
+    </div>
+
+    <div class="table-scroll-container">
+      <table class="matrix-comparison-table">
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>Grep / Regex</th>
+            <th>Vector RAG (Embeddings)</th>
+            <th>Language Server (LSP)</th>
+            <th class="col-highlight">codive Knowledge Graph</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Call Graph Traversal</strong></td>
+            <td>None (Blind string match)</td>
+            <td>Inaccurate (Chunk hallucination)</td>
+            <td>Single-file / Workspace</td>
+            <td class="col-highlight">Multi-hop AST call chains</td>
+          </tr>
+          <tr>
+            <td><strong>Context Token Overhead</strong></td>
+            <td>Extreme (Reads entire files)</td>
+            <td>High (Dumps irrelevant chunks)</td>
+            <td>Medium</td>
+            <td class="col-highlight">Signature-only skeletons</td>
+          </tr>
+          <tr>
+            <td><strong>Cross-Language Edges</strong></td>
+            <td>None</td>
+            <td>Fuzzy embeddings</td>
+            <td>Requires multiple LSPs</td>
+            <td class="col-highlight">Unified polyglot graph (Go, TS, Python, Rust)</td>
+          </tr>
+          <tr>
+            <td><strong>Architecture Memory</strong></td>
+            <td>None</td>
+            <td>Ephemeral session</td>
+            <td>None</td>
+            <td class="col-highlight">Persistent invariants in SQLite WAL (decisions.jsonl)</td>
+          </tr>
+          <tr class="active-row">
+            <td><strong>Setup Time &amp; Overhead</strong></td>
+            <td>0s (Raw CLI)</td>
+            <td>Minutes + Heavy Vector DB</td>
+            <td>High memory background daemons</td>
+            <td class="col-highlight">&lt; 2s single binary, zero background daemons</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Section 4: Engineered for Autonomous AI Coding Agents (2x3 Grid) -->
+  <section class="section-block" id="features">
+    <div class="section-title-wrap">
+      <div class="section-label">autonomous agent features</div>
+      <h2 class="section-heading-text">Engineered for Autonomous AI Coding Agents</h2>
+      <p class="section-desc-text">
+        Every tool is built around zero-token overhead, blast-radius refactoring safety, and persistent architectural memory.
+      </p>
+    </div>
+
+    <div class="features-card-grid">
+      <!-- Feature 1 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-9"></path><path d="M14 17H5"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg>
+        </div>
+        <h3 class="feature-card-title">18 Native MCP Tools</h3>
+        <p class="feature-card-desc">
+          Zero-latency stdio JSON-RPC protocol compatible with Claude Code, Cursor IDE, Antigravity, and Windsurf out of the box.
+        </p>
+        <div class="feature-mcp-tag">stdio &middot; json-rpc</div>
+      </div>
+
+      <!-- Feature 2 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+        </div>
+        <h3 class="feature-card-title">Zero-Token Grep Skeletons</h3>
+        <p class="feature-card-desc">
+          Extract structural signatures with exact line ranges without opening full files, so agents read less of each file.
+        </p>
+        <div class="feature-mcp-tag">codive:get_file_skeleton</div>
+      </div>
+
+      <!-- Feature 3 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 class="feature-card-title">Blast Radius &amp; Callers</h3>
+        <p class="feature-card-desc">
+          Recursively trace upstream callers and pair unit test suites before touching code, preventing regressions and broken signatures.
+        </p>
+        <div class="feature-mcp-tag">codive:blast_radius</div>
+      </div>
+
+      <!-- Feature 4 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"></circle><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path></svg>
+        </div>
+        <h3 class="feature-card-title">Repo Map</h3>
+        <p class="feature-card-desc">
+          See the whole project structure, file tree, and declared symbol signatures in a single call.
+        </p>
+        <div class="feature-mcp-tag">codive:get_repo_map</div>
+      </div>
+
+      <!-- Feature 5 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+        </div>
+        <h3 class="feature-card-title">SQLite WAL Concurrency</h3>
+        <p class="feature-card-desc">
+          Lock-free multi-agent reads and atomic transactions with zero background daemons.
+        </p>
+        <div class="feature-mcp-tag">Local SQLite</div>
+      </div>
+
+      <!-- Feature 6 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        </div>
+        <h3 class="feature-card-title">Architecture Invariant Memory</h3>
+        <p class="feature-card-desc">
+          Record critical engineering decisions directly to <code>.codive/decisions.jsonl</code> so subsequent agent sessions never repeat old mistakes.
+        </p>
+        <div class="feature-mcp-tag">codive:save_decision</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 5: One Command Setup Across All Assistants -->
+  <section class="section-block" id="setup">
+    <div class="section-title-wrap">
+      <div class="section-label">configuration</div>
+      <h2 class="section-heading-text">One Command Setup Across All Assistants</h2>
+      <p class="section-desc-text">
+        Run <code>codive setup</code> in your project root. It auto-detects installed AI coding environments and generates valid configurations:
+      </p>
+    </div>
+
+    <div class="setup-guide-box">
+      <div class="setup-guide-nav">
+        <button class="setup-guide-btn active" onclick="switchSetupTab(0, this)">Claude Code</button>
+        <button class="setup-guide-btn" onclick="switchSetupTab(1, this)">Cursor IDE</button>
+        <button class="setup-guide-btn" onclick="switchSetupTab(2, this)">Google Antigravity</button>
+        <button class="setup-guide-btn" onclick="switchSetupTab(3, this)">Windsurf</button>
+        <button class="setup-guide-btn" onclick="switchSetupTab(4, this)">Cline (VS Code)</button>
+      </div>
+
+      <div class="setup-guide-content" id="setupPanel0">
+<span style="color: #64748b;">// ~/.claude.json or claude_desktop_config.json</span>
+{
+  "mcpServers": {
+    "codive": {
+      "command": "codive",
+      "args": ["serve", "."]
+    }
+  }
+}
+      </div>
+
+      <div class="setup-guide-content" id="setupPanel1" style="display: none;">
+<span style="color: #64748b;">// .cursor/mcp.json</span>
+{
+  "mcpServers": {
+    "codive": {
+      "command": "codive",
+      "args": ["serve", "${workspaceFolder}"]
+    }
+  }
+}
+      </div>
+
+      <div class="setup-guide-content" id="setupPanel2" style="display: none;">
+<span style="color: #64748b;">// Antigravity MCP settings</span>
+{
+  "mcpServers": {
+    "codive": {
+      "command": "codive",
+      "args": ["serve", "."]
+    }
+  }
+}
+      </div>
+
+      <div class="setup-guide-content" id="setupPanel3" style="display: none;">
+<span style="color: #64748b;">// ~/.codeium/windsurf/mcp_config.json</span>
+{
+  "mcpServers": {
+    "codive": {
+      "command": "codive",
+      "args": ["serve", "."]
+    }
+  }
+}
+      </div>
+
+      <div class="setup-guide-content" id="setupPanel4" style="display: none;">
+<span style="color: #64748b;">// cline_mcp_settings.json</span>
+{
+  "mcpServers": {
+    "codive": {
+      "command": "codive",
+      "args": ["serve", "."]
+    }
+  }
+}
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 6: FAQ Section -->
+  <section class="section-block" id="faq">
+    <div class="section-title-wrap">
+      <div class="section-label">frequently asked questions</div>
+      <h2 class="section-heading-text">Everything You Need to Know</h2>
+      <p class="section-desc-text">
+        Straightforward technical answers to questions developers ask before installing.
+      </p>
+    </div>
+
+    <div class="faq-accordion-list">
+      <div class="faq-accordion-row">
+        <button class="faq-question-toggle" onclick="toggleFaqAccordion(this)">
+          <span>Does any of my source code leave my machine?</span>
+          <span class="faq-cross-icon">+</span>
+        </button>
+        <div class="faq-answer-pane">
+          <strong>Never.</strong> codive operates 100% locally. The AST index, symbol tables, and caller trees are stored in an embedded SQLite database inside your repository at <code>.codive/index.db</code>. Zero cloud APIs, zero analytics, zero external telemetry.
+        </div>
+      </div>
+
+      <div class="faq-accordion-row">
+        <button class="faq-question-toggle" onclick="toggleFaqAccordion(this)">
+          <span>How is codive different from Graphify?</span>
+          <span class="faq-cross-icon">+</span>
+        </button>
+        <div class="faq-answer-pane">
+          Graphify is a Python-based knowledge graph tool that outputs static HTML/JSON files. <strong>codive is a compiled, single-binary Go context engine</strong> designed specifically for real-time AI assistant integration via the Model Context Protocol (MCP). It features local SQLite queries, a localhost graph explorer, signature-only AST skeletons, blast-radius analysis, and persistent memory across agent turns.
+        </div>
+      </div>
+
+      <div class="faq-accordion-row">
+        <button class="faq-question-toggle" onclick="toggleFaqAccordion(this)">
+          <span>How do I configure Claude Code, Cursor, or Antigravity?</span>
+          <span class="faq-cross-icon">+</span>
+        </button>
+        <div class="faq-answer-pane">
+          Simply run <code>codive setup</code> in your terminal. codive automatically detects installed AI tools (Claude Code, Cursor IDE, Google Antigravity, Windsurf) and writes the necessary MCP configuration and architecture guidelines into their respective config files.
+        </div>
+      </div>
+
+      <div class="faq-accordion-row">
+        <button class="faq-question-toggle" onclick="toggleFaqAccordion(this)">
+          <span>What programming languages are supported?</span>
+          <span class="faq-cross-icon">+</span>
+        </button>
+        <div class="faq-answer-pane">
+          codive natively parses and extracts detailed symbol declarations, function signatures, receiver methods, and call sites for <strong>Go, TypeScript, JavaScript, Python, Java, C#, and Rust</strong>. Any additional text file (Markdown, JSON, YAML, SQL) is indexed for lightning-fast FTS5 full-text search.
+        </div>
+      </div>
+
+      <div class="faq-accordion-row">
+        <button class="faq-question-toggle" onclick="toggleFaqAccordion(this)">
+          <span>Can I use codive in CI/CD pipelines?</span>
+          <span class="faq-cross-icon">+</span>
+        </button>
+        <div class="faq-answer-pane">
+          Yes. You can run <code>codive index</code> in your GitHub Actions or GitLab CI workflows to verify that code builds clean and index metadata remains current. Because codive is a single Go binary, it installs in less than 2 seconds with no Python virtual environment dependencies.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer-bar">
+    <p>codive is open-source under the MIT License &bull; Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a> &bull; <a href="https://github.com/recscse/codive" target="_blank">GitHub</a> &bull; <a href="docs.html">Documentation</a></p>
+  </footer>
+
+  <!-- Interactive Vis-Network, 3D WebGL & Studio Script -->
+  <script>
+    // Theme Toggle
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme') || 'dark';
+      const next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      document.getElementById('themeToggleLabel').textContent = next === 'dark' ? 'Theme' : 'Dark Mode';
+      
+      if (network) {
+        network.redraw();
+      }
+      if (graph3D) {
+        graph3D.backgroundColor(next === 'dark' ? '#030509' : '#f8fafc');
+      }
+    }
+
+    // Mobile Drawer Toggle
+    function toggleMobileMenu() {
+      document.getElementById('mobileNavDrawer').classList.toggle('open');
+    }
+
+    // Copy Quickstart Command
+    function copyQuickstartCommand() {
+      const code = 'curl -fsSL https://recscse.github.io/codive/install.sh | bash && codive setup';
+      navigator.clipboard.writeText(code).then(() => {
+        const lbl = document.getElementById('copyQuickstartBadge');
+        lbl.textContent = 'Copied! ✓';
+        setTimeout(() => lbl.textContent = 'Copy', 2000);
+      });
+    }
+
+    // Setup Tab Switcher
+    function switchSetupTab(idx, btn) {
+      document.querySelectorAll('.setup-guide-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.setup-guide-content').forEach(p => p.style.display = 'none');
+      btn.classList.add('active');
+      document.getElementById('setupPanel' + idx).style.display = 'block';
+    }
+
+    // FAQ Accordion
+    function toggleFaqAccordion(btn) {
+      btn.closest('.faq-accordion-row').classList.toggle('open');
+    }
+
+  </script>
+</body>
+</html>

@@ -1,846 +1,190 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>codive — Developer Context Engine for AI Coding Agents</title>
-  <meta name="description" content="Stop letting AI coding agents burn millions of tokens on raw grep. codive indexes AST symbols into local SQLite (WAL mode) and delivers exact code context in <2ms via MCP or the CLI.">
-  <meta name="keywords" content="codive, AST context engine, MCP server, model context protocol, AI coding assistant, Claude Code, Cursor IDE, Antigravity, SQLite WAL, token optimizer">
-  <meta name="author" content="Brijesh Yadav">
-  <meta name="robots" content="index, follow">
-  <meta name="theme-color" content="#06070b">
-  <link rel="canonical" href="https://recscse.github.io/codive/">
-
-  <!-- Open Graph / Facebook -->
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://recscse.github.io/codive/">
-  <meta property="og:title" content="codive — Developer Context Engine for AI Coding Agents">
-  <meta property="og:description" content="Stop letting AI coding agents burn millions of tokens on raw grep. 95% token reduction with sub-millisecond AST symbol search and MCP integration.">
-  <meta property="og:image" content="https://recscse.github.io/codive/favicon.svg">
-  <meta property="og:site_name" content="codive">
-
-  <!-- Twitter -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="https://recscse.github.io/codive/">
-  <meta name="twitter:title" content="codive — Developer Context Engine for AI Coding Agents">
-  <meta name="twitter:description" content="Stop letting AI coding agents burn millions of tokens on raw grep. 95% token reduction with sub-millisecond AST symbol search and MCP integration.">
-  <meta name="twitter:image" content="https://recscse.github.io/codive/favicon.svg">
-
-  <!-- JSON-LD Structured Data -->
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "codive",
-    "headline": "Developer Context Engine for AI Coding Agents",
-    "description": "Local-first AST code context engine for AI coding assistants via MCP.",
-    "applicationCategory": "DeveloperApplication",
-    "operatingSystem": "Windows, macOS, Linux",
-    "author": {
-      "@type": "Person",
-      "name": "Brijesh Yadav",
-      "url": "https://recscse.github.io"
-    },
-    "offers": {
-      "@type": "Offer",
-      "price": "0",
-      "priceCurrency": "USD"
-    },
-    "url": "https://recscse.github.io/codive/",
-    "downloadUrl": "https://github.com/recscse/codive/releases",
-    "softwareVersion": "1.0.0"
-  }
-  </script>
-
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-  
-  <style>
-    :root {
-      --bg: #06070b;
-      --surface: #0b0e17;
-      --surface-card: #101422;
-      --surface-card-hover: #151b2d;
-      --surface-border: rgba(255, 255, 255, 0.08);
-      --surface-border-focus: rgba(32, 194, 14, 0.4);
-      --accent: #20c20e;
-      --accent-glow: rgba(32, 194, 14, 0.25);
-      --accent-dim: rgba(32, 194, 14, 0.08);
-      --cyan: #00f0ff;
-      --cyan-dim: rgba(0, 240, 255, 0.08);
-      --purple: #8b5cf6;
-      --text: #94a3b8;
-      --text-muted: #64748b;
-      --text-bright: #ffffff;
-      --code-bg: #0d111a;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; }
-    body {
-      background-color: var(--bg);
-      color: var(--text);
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      overflow-x: hidden;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    /* Ambient Background Glow Effect */
-    .glow-aura-1 {
-      position: absolute;
-      top: -220px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 1000px;
-      height: 800px;
-      background: radial-gradient(circle, rgba(32, 194, 14, 0.12) 0%, transparent 65%);
-      border-radius: 9999px;
-      filter: blur(160px);
-      pointer-events: none;
-      z-index: 0;
-    }
-    .glow-aura-2 {
-      position: absolute;
-      top: -80px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 600px;
-      height: 500px;
-      background: radial-gradient(circle, rgba(0, 240, 255, 0.07) 0%, transparent 70%);
-      border-radius: 9999px;
-      filter: blur(120px);
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    /* Navigation */
-    nav {
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      z-index: 100;
-      border-bottom: 1px solid var(--surface-border);
-      background: rgba(6, 7, 11, 0.85);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-    }
-    .nav-container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 0 24px;
-      height: 64px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: relative;
-    }
-    .logo-brand {
-      font-family: 'Fira Code', monospace;
-      font-size: 24px;
-      font-weight: 800;
-      color: var(--text-bright);
-      text-decoration: none;
-      display: flex;
-      align-items: center;
-      letter-spacing: -0.5px;
-    }
-    .logo-brand span { color: var(--accent); }
-    .nav-center-links {
-      position: absolute;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      align-items: center;
-      gap: 32px;
-    }
-    @media (max-width: 860px) { .nav-center-links { display: none; } }
-    .nav-link {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text);
-      text-decoration: none;
-      transition: color 0.2s;
-    }
-    .nav-link:hover, .nav-link.active { color: var(--text-bright); }
-    .nav-link.active {
-      border-bottom: 2px solid var(--accent);
-      padding-bottom: 4px;
-      margin-bottom: -6px;
-    }
-    .nav-actions { display: flex; align-items: center; gap: 12px; }
-    .btn-gh-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 14px;
-      border-radius: 6px;
-      border: 1px solid var(--surface-border);
-      background: rgba(255, 255, 255, 0.03);
-      color: #cbd5e1;
-      font-size: 13px;
-      font-family: 'Fira Code', monospace;
-      text-decoration: none;
-      transition: all 0.2s;
-    }
-    .btn-gh-badge:hover {
-      border-color: rgba(32, 194, 14, 0.4);
-      background: var(--accent-dim);
-      color: var(--text-bright);
-    }
-    .btn-nav-cta {
-      background: var(--accent);
-      color: #000;
-      font-weight: 800;
-      font-size: 13px;
-      padding: 8px 18px;
-      border-radius: 6px;
-      text-decoration: none;
-      transition: all 0.2s;
-    }
-    .btn-nav-cta:hover {
-      background: #2ee615;
-      box-shadow: 0 0 24px var(--accent-glow);
-    }
-
-    /* Hero Section */
-    .hero-section {
-      position: relative;
-      padding-top: 145px;
-      padding-bottom: 60px;
-      text-align: center;
-      max-width: 960px;
-      margin: 0 auto;
-      padding-left: 24px;
-      padding-right: 24px;
-      z-index: 1;
-    }
-    .hero-tag {
-      font-family: 'Fira Code', monospace;
-      font-size: 13px;
-      color: var(--accent);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      margin-bottom: 20px;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 12px;
-      border-radius: 20px;
-      background: var(--accent-dim);
-      border: 1px solid rgba(32, 194, 14, 0.25);
-    }
-    .hero-title {
-      font-size: clamp(48px, 7.5vw, 84px);
-      font-weight: 900;
-      letter-spacing: -0.04em;
-      line-height: 1.04;
-      color: var(--text-bright);
-      margin-bottom: 24px;
-    }
-    .hero-subtitle {
-      font-size: clamp(16.5px, 2vw, 20px);
-      color: #94a3b8;
-      max-width: 720px;
-      margin: 0 auto 36px;
-      line-height: 1.6;
-      font-weight: 400;
-    }
-    .hero-buttons {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 16px;
-      margin-bottom: 60px;
-    }
-    .btn-primary-glow {
-      padding: 13px 30px;
-      background: var(--accent);
-      color: #000;
-      font-weight: 800;
-      font-size: 15px;
-      border-radius: 8px;
-      text-decoration: none;
-      transition: all 0.2s;
-      box-shadow: 0 0 24px var(--accent-glow);
-    }
-    .btn-primary-glow:hover {
-      background: #2ee615;
-      transform: translateY(-1px);
-      box-shadow: 0 0 36px rgba(32, 194, 14, 0.6);
-    }
-    .btn-secondary-link {
-      padding: 13px 24px;
-      color: var(--accent);
-      font-weight: 700;
-      font-size: 15px;
-      text-decoration: none;
-      transition: color 0.2s;
-    }
-    .btn-secondary-link:hover { color: var(--text-bright); }
-
-    /* Code Tabs Box */
-    .code-tabs-wrapper {
-      max-width: 780px;
-      margin: 0 auto 100px;
-      border: 1px solid var(--surface-border);
-      border-radius: 12px;
-      background: #090c14;
-      overflow: hidden;
-      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(32, 194, 14, 0.12);
-    }
-    .code-tabs-header {
-      display: flex;
-      align-items: center;
-      background: #111522;
-      border-bottom: 1px solid var(--surface-border);
-      padding: 0 8px;
-    }
-    .tab-btn {
-      padding: 13px 20px;
-      font-family: 'Fira Code', monospace;
-      font-size: 13px;
-      background: transparent;
-      border: none;
-      color: #64748b;
-      cursor: pointer;
-      position: relative;
-      transition: all 0.2s;
-    }
-    .tab-btn:hover { color: #cbd5e1; }
-    .tab-btn.tab-active { color: var(--accent); font-weight: 600; }
-    .tab-btn.tab-active::after {
-      content: "";
-      position: absolute;
-      bottom: 0; left: 0; right: 0;
-      height: 2px;
-      background: var(--accent);
-    }
-    .copy-btn {
-      margin-left: auto;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
-      border-radius: 6px;
-      border: 1px solid var(--surface-border);
-      background: rgba(255, 255, 255, 0.02);
-      color: #94a3b8;
-      font-family: 'Fira Code', monospace;
-      font-size: 12px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .copy-btn:hover {
-      border-color: rgba(255, 255, 255, 0.2);
-      color: var(--text-bright);
-      background: rgba(255, 255, 255, 0.05);
-    }
-    .tab-panel {
-      padding: 24px;
-      text-align: left;
-      font-family: 'Fira Code', monospace;
-      font-size: 13.5px;
-      line-height: 1.7;
-      color: #e2e8f0;
-      overflow-x: auto;
-    }
-    .tab-panel.hidden { display: none; }
-    .code-tabs-footer {
-      text-align: center;
-      padding: 14px 0;
-      font-family: 'Fira Code', monospace;
-      font-size: 13px;
-      color: var(--text-muted);
-      border-top: 1px solid rgba(255, 255, 255, 0.04);
-    }
-
-    /* Logo Strip */
-    .logos-strip {
-      border-top: 1px solid var(--surface-border);
-      border-bottom: 1px solid var(--surface-border);
-      padding: 44px 24px;
-      text-align: center;
-      margin-bottom: 100px;
-    }
-    .logos-label {
-      font-family: 'Fira Code', monospace;
-      font-size: 11.5px;
-      text-transform: uppercase;
-      letter-spacing: 0.2em;
-      color: #475569;
-      margin-bottom: 24px;
-    }
-    .logos-flex {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 48px;
-      flex-wrap: wrap;
-      font-family: 'Fira Code', monospace;
-      font-size: 14.5px;
-      font-weight: 600;
-      color: #94a3b8;
-    }
-
-    /* Section Container */
-    .section-container {
-      max-width: 1120px;
-      margin: 0 auto 120px;
-      padding: 0 24px;
-    }
-    .section-tag {
-      font-family: 'Fira Code', monospace;
-      font-weight: 500;
-      font-size: 13px;
-      color: var(--accent);
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      text-align: center;
-      margin-bottom: 48px;
-    }
-
-    /* 3-Step Flow Diagram */
-    .flow-diagram {
-      display: grid;
-      grid-template-columns: 1fr auto 1.3fr auto 1fr;
-      align-items: center;
-      gap: 16px;
-    }
-    @media (max-width: 860px) { .flow-diagram { grid-template-columns: 1fr; text-align: center; } }
-    .flow-card {
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      border-radius: 12px;
-      padding: 28px 24px;
-      text-align: center;
-    }
-    .flow-card.accent-card {
-      border-color: rgba(32, 194, 14, 0.35);
-      background: var(--accent-dim);
-    }
-    .flow-card h4 { font-size: 17px; color: var(--text-bright); margin-bottom: 6px; font-weight: 700; }
-    .flow-card p { font-size: 13.5px; color: var(--text-muted); }
-    .flow-arrow {
-      color: var(--accent);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    /* Bento Grid */
-    .bento-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 24px;
-    }
-    @media (max-width: 768px) { .bento-grid { grid-template-columns: 1fr; } }
-    .bento-card {
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      border-radius: 16px;
-      padding: 32px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      transition: all 0.25s;
-    }
-    .bento-card:hover { border-color: rgba(32, 194, 14, 0.4); transform: translateY(-2px); }
-    .bento-title {
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--text-bright);
-      margin-bottom: 10px;
-      display: flex;
-      align-items: baseline;
-      gap: 10px;
-    }
-    .bento-title span { font-family: 'Fira Code', monospace; color: var(--accent); font-size: 24px; }
-    .bento-desc { font-size: 14.5px; color: var(--text); line-height: 1.6; }
-    .bento-mock {
-      background: #090c14;
-      border: 1px solid var(--surface-border);
-      border-radius: 8px;
-      padding: 16px;
-      margin-top: 20px;
-      font-family: 'Fira Code', monospace;
-      font-size: 12.5px;
-      color: #7dd3fc;
-      overflow-x: auto;
-    }
-
-    /* ROI Calculator */
-    .calc-card {
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      border-radius: 16px;
-      padding: 48px 36px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 40px;
-      align-items: center;
-    }
-    @media (max-width: 768px) { .calc-card { grid-template-columns: 1fr; } }
-    .slider-row { margin-bottom: 24px; }
-    .slider-label { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; font-weight: 600; color: var(--text-bright); }
-    input[type=range] {
-      width: 100%;
-      height: 6px;
-      background: #1e293b;
-      border-radius: 4px;
-      outline: none;
-      accent-color: var(--accent);
-    }
-    .stat-box {
-      background: #090c14;
-      border: 1px solid rgba(32, 194, 14, 0.25);
-      border-radius: 12px;
-      padding: 32px;
-      text-align: center;
-    }
-    .stat-val { font-size: 48px; font-weight: 900; color: var(--accent); font-family: 'Fira Code', monospace; margin: 10px 0; }
-
-    /* Footer */
-    footer {
-      border-top: 1px solid var(--surface-border);
-      padding: 56px 24px;
-      text-align: center;
-      font-size: 14px;
-      color: var(--text-muted);
-      margin-top: auto;
-    }
-    footer a { color: var(--text-bright); text-decoration: none; font-weight: 600; }
-    footer a:hover { color: var(--accent); }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>codive: know what breaks before your AI agent edits your code</title>
+<meta name="description" content="A local code graph and MCP server. See callers, affected files and tests for any Go change. One binary, no account.">
+<link rel="canonical" href="https://recscse.github.io/codive/index.html">
+<meta name="theme-color" content="#08090b">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://recscse.github.io/codive/index.html">
+<meta property="og:title" content="codive: know what breaks before your AI agent edits your code">
+<meta property="og:description" content="A local code graph and MCP server. See callers, affected files and tests for any Go change. One binary, no account.">
+<meta property="og:image" content="https://recscse.github.io/codive/assets/shots/changes.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preload" href="assets/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
 </head>
-<body>
-
-  <!-- Ambient Glow Backgrounds -->
-  <div class="glow-aura-1"></div>
-  <div class="glow-aura-2"></div>
-
-  <!-- Navigation -->
-  <nav>
-    <div class="nav-container">
-      <a href="index.html" class="logo-brand">
-        codive<span>_</span>
-      </a>
-
-      <div class="nav-center-links">
-        <a href="index.html" class="nav-link active">Home</a>
-        <a href="docs.html" class="nav-link">Docs</a>
-        <a href="blog.html" class="nav-link">Blog</a>
-        <a href="#how-it-works" class="nav-link">How it Works</a>
-        <a href="#features" class="nav-link">Features</a>
-        <a href="#calculator" class="nav-link">Calculator</a>
-        <a href="#about" class="nav-link">About</a>
-      </div>
-
-      <div class="nav-actions">
-        <a href="https://github.com/recscse/codive" target="_blank" class="btn-gh-badge">
-          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-          <span>codive</span>
-        </a>
-        <a href="#install" class="btn-nav-cta">Get started</a>
-      </div>
-    </div>
+<body class="min-h-screen bg-ink">
+<header class="sticky top-0 z-40 border-b border-white/[.06] bg-ink/75 backdrop-blur-xl">
+  <nav class="mx-auto flex h-14 max-w-[88rem] items-center gap-7 px-6 text-sm text-zinc-400">
+    <a href="index.html" class="mr-auto text-[15px] font-semibold tracking-tight text-white">codive</a>
+    <a href="docs.html" class="transition hover:text-white ">Docs</a>
+    <a href="blog.html" class="transition hover:text-white ">Blog</a>
+    <a href="https://github.com/recscse/codive" class="transition hover:text-white">GitHub</a>
+    <a href="docs.html#quickstart" class="hidden rounded-lg bg-white px-3 py-1.5 text-[13px] font-medium text-black transition hover:bg-zinc-200 sm:block">Get started</a>
   </nav>
-
-  <!-- Hero Header -->
-  <header class="hero-section">
-    <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
-      <div class="hero-tag" style="margin-bottom: 0;">⚡ Developer Context Engine for AI Agents</div>
-      <a href="https://github.com/recscse/codive/releases" target="_blank" style="text-decoration: none;">
-        <img src="https://img.shields.io/github/downloads/recscse/codive/total?style=flat-square&color=20c20e&label=Downloads" alt="Release Downloads" height="26" style="vertical-align: middle; border-radius: 4px;" />
-      </a>
+</header>
+<main>
+<section class="relative overflow-hidden">
+  <div class="pointer-events-none absolute inset-x-0 -top-40 h-[560px] bg-[radial-gradient(50%_60%_at_50%_30%,rgba(62,207,142,.13),transparent)]"></div>
+  <div class="relative mx-auto max-w-6xl px-6 pt-20 pb-14 text-center sm:pt-28">
+    <p class="font-mono text-[13px] text-brand">Local code graph + MCP server for Go</p>
+    <h1 class="mx-auto mt-5 max-w-4xl text-5xl leading-[1.04] font-semibold tracking-[-0.035em] text-balance text-white sm:text-7xl">Know what breaks before your AI agent edits your code.</h1>
+    <p class="mx-auto mt-6 max-w-2xl text-lg leading-8 text-pretty text-zinc-400">The callers, affected files and tests to run for a Go change, resolved with the Go type checker. One binary. No account.</p>
+    <div class="mx-auto mt-9 flex max-w-2xl items-center gap-3 rounded-xl border border-edge bg-surface/90 py-2.5 pr-2.5 pl-4 text-left font-mono text-[13px] text-zinc-200 shadow-2xl shadow-black/40">
+      <span class="text-brand select-none">$</span>
+      <code id="install-cmd" class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">curl -fsSL https://recscse.github.io/codive/install.sh | bash</code>
+      <button data-copy="install-cmd" class="cursor-pointer rounded-lg bg-white px-3 py-1.5 font-sans text-xs font-medium text-black transition hover:bg-zinc-200">Copy</button>
     </div>
-    <h1 class="hero-title">
-      Your code,<br>any AI agent
-    </h1>
-    <p class="hero-subtitle">
-      Stop letting AI coding agents burn millions of tokens on raw grep. <code>codive</code> indexes AST symbols into local SQLite and makes it searchable in &lt;2ms via MCP or the CLI.
-    </p>
-
-    <div class="hero-buttons">
-      <a href="#install" class="btn-primary-glow">Get started</a>
-      <a href="docs.html" class="btn-secondary-link">Read the docs →</a>
+    <p class="mt-3.5 text-[13px] text-zinc-500">Windows and other install options are in the <a class="text-zinc-300 underline decoration-zinc-600 underline-offset-2 hover:text-white" href="docs.html#installation">docs</a>.</p>
+  </div>
+  <figure class="relative mx-auto max-w-6xl px-6">
+    <div class="overflow-hidden rounded-t-2xl border border-b-0 border-white/10 shadow-[0_-20px_120px_-30px_rgba(62,207,142,.22)]">
+      <img src="assets/shots/changes.png" width="2720" height="1720" alt="codive explorer on the gin framework after a one-line edit to Context.Render: 1 symbol changed, 22 callers affected, 2 files affected and 102 tests to run, with a go test command to copy">
     </div>
+    <figcaption class="border-t border-edge pt-3.5 text-center text-[13px] text-zinc-500">Real output from <code class="font-mono text-zinc-400">codive web</code> on <a class="text-zinc-300 underline decoration-zinc-600 underline-offset-2" href="https://github.com/gin-gonic/gin/tree/0f09c3a">gin at 0f09c3a</a>, after a one-line edit to <code class="font-mono text-zinc-400">Context.Render</code>.</figcaption>
+  </figure>
+</section>
 
-    <!-- Code Tabs Box -->
-    <div class="code-tabs-wrapper" id="install">
-      <div class="code-tabs-header">
-        <button class="tab-btn tab-active" onclick="showTab(0, this)">1-Liner (curl / irm)</button>
-        <button class="tab-btn" onclick="showTab(1, this)">CLI Search</button>
-        <button class="tab-btn" onclick="showTab(2, this)">MCP Config</button>
-        <button class="tab-btn" onclick="showTab(3, this)">Feature Packing</button>
-
-        <button class="copy-btn" onclick="copyActiveCode()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-          <span id="copyLabel">copy</span>
-        </button>
+<section class="mx-auto max-w-6xl px-6 pt-28">
+  <h2 class="max-w-2xl text-4xl font-semibold tracking-tight text-balance text-white">Answers for each moment of a change</h2>
+  <div class="mt-10 grid gap-4 md:grid-cols-2">
+    <article class="overflow-hidden rounded-2xl border border-edge bg-surface md:col-span-2 md:grid md:grid-cols-5">
+      <div class="p-8 md:col-span-2">
+        <p class="font-mono text-xs text-brand">Before you edit</p>
+        <h3 class="mt-3 text-2xl font-semibold tracking-tight text-white">See the blast radius</h3>
+        <p class="mt-3 leading-7">Pick any function. See direct and indirect callers, the files involved and the tests to run, with a command you can copy.</p>
       </div>
-
-      <!-- Tab 0: 1-Liner -->
-      <div class="tab-panel" id="panel-0">
-<span style="color: #64748b;"># macOS & Linux (curl)</span>
-<span style="color: #20c20e;">curl</span> -fsSL https://recscse.github.io/codive/install.sh | bash && codive setup
-
-<span style="color: #64748b;"># Windows (PowerShell)</span>
-<span style="color: #20c20e;">irm</span> https://recscse.github.io/codive/install.ps1 | iex; codive setup
-
-<span style="color: #64748b;"># Windows (Command Prompt / CMD via curl)</span>
-<span style="color: #20c20e;">curl</span> -fsSL https://recscse.github.io/codive/install.cmd -o install.cmd && install.cmd && del install.cmd
+      <div class="relative min-h-72 overflow-hidden md:col-span-3"><img class="absolute top-8 left-8 max-w-none w-[900px] rounded-tl-xl border border-white/10" src="assets/shots/impact.png" loading="lazy" alt="Blast radius of Context.Render in gin: 18 direct callers, 4 indirect callers, 2 files, 102 tests"></div>
+    </article>
+    <article class="flex flex-col overflow-hidden rounded-2xl border border-edge bg-surface">
+      <div class="p-8">
+        <p class="font-mono text-xs text-brand">While you trace</p>
+        <h3 class="mt-3 text-2xl font-semibold tracking-tight text-white">Follow the execution flow</h3>
+        <p class="mt-3 leading-7">Start at an HTTP route, CLI command or function and walk what it reaches, down to database tables.</p>
       </div>
-
-      <!-- Tab 1: CLI -->
-      <div class="tab-panel hidden" id="panel-1">
-<span style="color: #64748b;">$</span> codive search "PaymentProcessor"
-<span style="color: #20c20e;">✓ Found 4 symbols in 1.4ms:</span>
-  1. PaymentProcessor <span style="color: #64748b;">(struct, internal/payment/processor.go:L14)</span>
-  2. NewProcessor <span style="color: #64748b;">(func, internal/payment/processor.go:L28)</span>
-  3. ProcessPayment <span style="color: #64748b;">(func, internal/payment/processor.go:L45)</span>
+      <div class="relative h-64 overflow-hidden"><img class="absolute top-0 left-8 max-w-none w-[820px] rounded-tl-xl border border-white/10" src="assets/shots/flow.png" loading="lazy" alt="Execution flow call tree for Context.Render in gin"></div>
+    </article>
+    <article class="flex flex-col overflow-hidden rounded-2xl border border-edge bg-surface">
+      <div class="p-8">
+        <p class="font-mono text-xs text-brand">While you learn a repo</p>
+        <h3 class="mt-3 text-2xl font-semibold tracking-tight text-white">Read the architecture</h3>
+        <p class="mt-3 leading-7">A package map drawn from real call sites, with test code left out so production dependencies stand out.</p>
       </div>
+      <div class="relative h-64 overflow-hidden"><img class="absolute top-0 left-8 max-w-none w-[820px] rounded-tl-xl border border-white/10" src="assets/shots/map.png" loading="lazy" alt="Package map of gin showing dependencies between packages"></div>
+    </article>
+  </div>
+</section>
 
-      <!-- Tab 2: MCP Config -->
-      <div class="tab-panel hidden" id="panel-2">
-{
-  <span style="color: #38bdf8;">"mcpServers"</span>: {
-    <span style="color: #38bdf8;">"codive"</span>: {
-      <span style="color: #38bdf8;">"command"</span>: <span style="color: #20c20e;">"codive"</span>,
-      <span style="color: #38bdf8;">"args"</span>: [<span style="color: #20c20e;">"serve"</span>]
-    }
-  }
+<section class="mx-auto max-w-6xl px-6 pt-28">
+  <div class="grid gap-12 md:grid-cols-2 md:items-center">
+    <div>
+      <p class="font-mono text-xs text-brand">For your agent</p>
+      <h2 class="mt-3 text-4xl font-semibold tracking-tight text-balance text-white">The same knowledge, inside your AI tools</h2>
+      <p class="mt-4 max-w-md leading-7"><code class="font-mono text-[14px] text-zinc-200">codive setup</code> connects 18 MCP tools, so your agent can look up symbols, callers and file outlines instead of searching and opening whole files.</p>
+      <p class="mt-6 text-sm leading-6 text-zinc-500">Claude Code · Claude Desktop · Cursor · Windsurf · Cline · Gemini CLI · Codex CLI · Google Antigravity</p>
+    </div>
+    <pre class="overflow-x-auto rounded-2xl border border-edge bg-surface p-6 font-mono text-[13px] leading-7 text-zinc-300"><span class="text-zinc-600"># index this repo into .codive/index.db</span>
+<span class="text-brand">$</span> codive init .
+
+<span class="text-zinc-600"># connect your AI coding tools</span>
+<span class="text-brand">$</span> codive setup
+
+<span class="text-zinc-600"># open the explorer on localhost</span>
+<span class="text-brand">$</span> codive web .</pre>
+  </div>
+</section>
+
+<section id="accuracy" class="mx-auto max-w-6xl px-6 pt-28">
+  <div class="grid gap-12 md:grid-cols-5">
+    <div class="md:col-span-2">
+      <p class="font-mono text-xs text-brand">Accuracy</p>
+      <h2 class="mt-3 text-4xl font-semibold tracking-tight text-balance text-white">Checked against gopls. Published with the misses.</h2>
+      <p class="mt-4 leading-7">We compared codive's callers with <code class="font-mono text-[14px] text-zinc-200">gopls</code>, the official Go language server, on random samples. codive reported no caller that gopls didn't, and missed some that it did.</p>
+      <p class="mt-4 text-sm"><a class="text-brand underline decoration-brand/30 underline-offset-2" href="blog/checking-codive-against-gopls.html">How we tested</a> &nbsp;·&nbsp; <a class="text-brand underline decoration-brand/30 underline-offset-2" href="https://github.com/recscse/codive/blob/main/benchmarks/accuracy.py">Rerun the script</a></p>
+    </div>
+    <div class="md:col-span-3">
+      <div class="overflow-x-auto rounded-2xl border border-edge bg-surface">
+        <table class="w-full text-sm tabular-nums">
+          <thead><tr class="border-b border-edge text-xs text-zinc-500"><th class="px-5 py-3 text-left font-medium">Repository</th><th class="px-5 py-3 text-right font-medium">Functions</th><th class="px-5 py-3 text-right font-medium">Agreed</th><th class="px-5 py-3 text-right font-medium">codive only</th><th class="px-5 py-3 text-right font-medium">gopls only</th></tr></thead>
+          <tbody class="divide-y divide-edge/60 text-right">
+            <tr><td class="px-5 py-3 text-left text-zinc-200">spf13/cobra</td><td class="px-5">60</td><td class="px-5">411</td><td class="px-5">0</td><td class="px-5">0</td></tr>
+            <tr><td class="px-5 py-3 text-left text-zinc-200">gin-gonic/gin</td><td class="px-5">58</td><td class="px-5">122</td><td class="px-5">0</td><td class="px-5">0</td></tr>
+            <tr><td class="px-5 py-3 text-left text-zinc-200">junegunn/fzf</td><td class="px-5">39</td><td class="px-5">102</td><td class="px-5">0</td><td class="px-5 text-amber-400">12</td></tr>
+            <tr><td class="px-5 py-3 text-left text-zinc-200">go-chi/chi</td><td class="px-5">60</td><td class="px-5">79</td><td class="px-5">0</td><td class="px-5 text-amber-400">24</td></tr>
+            <tr><td class="px-5 py-3 text-left text-zinc-200">go-gitea/gitea</td><td class="px-5">11</td><td class="px-5">18</td><td class="px-5">0</td><td class="px-5">0</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-4 text-[13.5px] leading-6 text-zinc-500">Small samples, and cobra supplies most agreed links. Known gaps: calls through standard library interfaces, platform-specific files, reflection, and route prefixes set in another function. Treat results as known callers, not a guarantee.</p>
+    </div>
+  </div>
+</section>
+
+<section class="mx-auto max-w-6xl px-6 pt-28">
+  <div class="grid gap-4 md:grid-cols-2">
+    <div class="rounded-2xl border border-edge bg-surface p-8">
+      <h3 class="text-xl font-semibold tracking-tight text-white">Language support</h3>
+      <dl class="mt-5 space-y-3 text-sm">
+        <div class="flex justify-between gap-6"><dt class="text-zinc-200">Go</dt><dd class="text-right">Calls, flow, blast radius, routes, symbols</dd></div>
+        <div class="flex justify-between gap-6"><dt class="text-zinc-200">Python, JS, TS, Java</dt><dd class="text-right">Symbols, search, pattern-matched routes</dd></div>
+        <div class="flex justify-between gap-6"><dt class="text-zinc-200">C#, Rust</dt><dd class="text-right">Symbols, search</dd></div>
+      </dl>
+      <p class="mt-5 text-[13.5px] text-zinc-500">Call graphs for more languages aren't built yet.</p>
+    </div>
+    <div class="rounded-2xl border border-edge bg-surface p-8">
+      <h3 class="text-xl font-semibold tracking-tight text-white">Does it save tokens?</h3>
+      <p class="mt-5 text-sm leading-6">We haven't measured this on real agent tasks yet, so we don't claim a number. <a class="text-brand underline decoration-brand/30 underline-offset-2" href="https://github.com/recscse/codive/blob/main/docs/BENCHMARK_REPORT.md">An output-size comparison</a> on one repo shows large savings on diffs and big files, and <code class="font-mono text-zinc-200">git grep</code> winning small lookups. The agent benchmark will appear here when it exists.</p>
+    </div>
+  </div>
+</section>
+
+<section class="mx-auto max-w-6xl px-6 pt-28 text-center">
+  <h2 class="text-4xl font-semibold tracking-tight text-white">Try it on your own repo</h2>
+  <p class="mt-3">See what your next change touches.</p>
+  <div class="mt-7 flex justify-center gap-3">
+    <a href="docs.html#quickstart" class="rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-black transition hover:bg-zinc-200">Read the quickstart</a>
+    <a href="https://github.com/recscse/codive" class="rounded-lg border border-edge px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-raised">View on GitHub</a>
+  </div>
+</section>
+
+</main>
+<footer class="mx-auto mt-28 flex max-w-[88rem] flex-wrap items-center gap-6 border-t border-edge px-6 py-8 text-[13px] text-zinc-500">
+  <span class="mr-auto">codive is open source under the MIT License.</span>
+  <a class="hover:text-white" href="docs.html">Docs</a>
+  <a class="hover:text-white" href="blog.html">Blog</a>
+  <a class="hover:text-white" href="https://github.com/recscse/codive/releases">Releases</a>
+  <a class="hover:text-white" href="https://github.com/recscse/codive">GitHub</a>
+</footer>
+<script>
+document.querySelectorAll('[data-copy]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent).then(function () {
+      var t = b.textContent; b.textContent = 'Copied'; setTimeout(function () { b.textContent = t; }, 1200);
+    });
+  });
+});
+function copyCode(b) {
+  navigator.clipboard.writeText(b.closest('.codeblock').querySelector('pre').textContent).then(function () {
+    b.textContent = 'copied'; setTimeout(function () { b.textContent = 'copy'; }, 1200);
+  });
 }
-      </div>
-
-      <!-- Tab 3: Feature Packing -->
-      <div class="tab-panel hidden" id="panel-3">
-<span style="color: #64748b;"># Pack complete feature context in 1 single turn (240 tokens vs 8,000)</span>
-<span style="color: #20c20e;">codive</span> pack auth --json
-      </div>
-
-      <div class="code-tabs-footer">
-        ⚡ Works autonomously with Claude Code, Cursor, Windsurf, Google Antigravity, & VS Code.
-      </div>
-    </div>
-  </header>
-
-  <!-- Partner Logos Strip -->
-  <section class="logos-strip">
-    <p class="logos-label">Seamless Integration With Leading AI Assistants</p>
-    <div class="logos-flex">
-      <span>Claude Code</span>
-      <span>Cursor IDE</span>
-      <span>Google Antigravity</span>
-      <span>Windsurf</span>
-      <span>VS Code (Cline / Continue)</span>
-    </div>
-  </section>
-
-  <!-- How It Works Flow -->
-  <section class="section-container" id="how-it-works">
-    <h2 class="section-tag">how it works</h2>
-
-    <div class="flow-diagram">
-      <div class="flow-card">
-        <h4>Your Codebase</h4>
-        <p>Go, TS/JS, Python, Java, C#, Rust</p>
-        <div style="margin-top: 10px; font-size: 12px; color: #64748b;">Files & AST definitions</div>
-      </div>
-
-      <div class="flow-arrow">
-        <svg width="40" height="16" viewBox="0 0 48 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M0 8h40m0 0l-6-6m6 6l-6 6"></path></svg>
-      </div>
-
-      <div class="flow-card accent-card">
-        <h4 style="color: var(--accent); font-family: 'Fira Code', monospace; font-size: 20px;">codive_</h4>
-        <p>Parse. Skeletonize. Graph. Index.</p>
-        <div style="margin-top: 8px; font-size: 12px; color: #20c20e;">Local SQLite WAL • &lt;2ms</div>
-      </div>
-
-      <div class="flow-arrow">
-        <svg width="40" height="16" viewBox="0 0 48 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M0 8h40m0 0l-6-6m6 6l-6 6"></path></svg>
-      </div>
-
-      <div class="flow-card">
-        <h4>Any AI Agent</h4>
-        <p>MCP, CLI, or Web UI</p>
-        <div style="margin-top: 10px; font-size: 12px; color: #20c20e; font-weight: 600;">95% Token Savings</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Four Core Capabilities Bento Grid -->
-  <section class="section-container" id="features">
-    <h2 class="section-tag">six core capabilities</h2>
-
-    <div class="bento-grid">
-      <!-- 1. MCP -->
-      <div class="bento-card">
-        <div>
-          <h3 class="bento-title"><span>mcp</span> / for agents</h3>
-          <p class="bento-desc">Any MCP-compatible assistant calls codive natively to discover symbols, intent-expanded subwords, and Attention U-Curve context in 1 turn.</p>
-        </div>
-        <div class="bento-mock">
-          <span style="color: #64748b;">// 1-turn intent-expanded bundle</span><br>
-          codive:pack_feature_context(topic="billing") ➔ 240 tokens
-        </div>
-      </div>
-
-      <!-- 2. Code Skeletonizer -->
-      <div class="bento-card">
-        <div>
-          <h3 class="bento-title"><span>ast</span> / skeletonizer</h3>
-          <p class="bento-desc">Strips function bodies into line stubs with session working-set deduplication, compressing 1,200 lines (~6,500 tokens) into a ~120-token outline.</p>
-        </div>
-        <div class="bento-mock">
-          func ProcessPayment(...) { <span style="color: #38bdf8;">/* L45-L92 */</span> }
-        </div>
-      </div>
-
-      <!-- 3. PR Blast Radius -->
-      <div class="bento-card">
-        <div>
-          <h3 class="bento-title"><span>blast</span> / regression guard</h3>
-          <p class="bento-desc">Answers "If I refactor this symbol, what will break?" by tracing upstream callers and test suites.</p>
-        </div>
-        <div class="bento-mock">
-          💥 Risk Level: HIGH (14 direct callers across 5 files)
-        </div>
-      </div>
-
-      <!-- 4. Persistent Memory -->
-      <div class="bento-card">
-        <div>
-          <h3 class="bento-title"><span>mem</span> / durable memory</h3>
-          <p class="bento-desc">Allows AI agents to store architectural invariants in SQLite so future sessions never repeat mistakes.</p>
-        </div>
-        <div class="bento-mock">
-          ✓ Recorded [database]: PgBouncer transaction mode; prepared statements disabled.
-        </div>
-      </div>
-
-      <!-- 5. Automatic Drift Sync -->
-      <div class="bento-card">
-        <div>
-          <h3 class="bento-title"><span>sync</span> / zero maintenance</h3>
-          <p class="bento-desc">Micro-parses dirty files on-the-fly in milliseconds on every AI tool call. Auto-syncs on every commit &amp; branch switch via git hooks.</p>
-        </div>
-        <div class="bento-mock">
-          ⚡ Auto-synced modified file in 0.8ms
-        </div>
-      </div>
-
-      <!-- 6. Total Local Control -->
-      <div class="bento-card">
-        <div>
-          <h3 class="bento-title"><span>wipe</span> / instant reset</h3>
-          <p class="bento-desc">Wipe and rebuild the entire SQLite index anytime with <code>codive reindex</code>. 100% local, zero cloud telemetry.</p>
-        </div>
-        <div class="bento-mock">
-          $ codive reindex ➔ Clean SQLite rebuilt
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ROI Calculator -->
-  <section class="section-container" id="calculator">
-    <h2 class="section-tag">token & cost savings calculator</h2>
-
-    <div class="calc-card">
-      <div>
-        <h3 style="font-size: 22px; color: var(--text-bright); margin-bottom: 8px;">Estimate Your Team's Monthly Savings</h3>
-        <p style="font-size: 14.5px; color: var(--text-muted); margin-bottom: 24px;">Based on typical frontier-model input pricing (~$3.00 per 1M tokens).</p>
-
-        <div class="slider-row">
-          <div class="slider-label">
-            <span>Developers on Team:</span>
-            <span id="devVal" style="color: var(--accent); font-family: 'Fira Code', monospace;">5 devs</span>
-          </div>
-          <input type="range" id="devs" min="1" max="100" value="5" oninput="calculateSavings()">
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-label">
-            <span>Daily AI Turns per Developer:</span>
-            <span id="turnsVal" style="color: var(--accent); font-family: 'Fira Code', monospace;">40 turns</span>
-          </div>
-          <input type="range" id="turns" min="10" max="200" value="40" oninput="calculateSavings()">
-        </div>
-      </div>
-
-      <div class="stat-box">
-        <div style="font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">ANNUAL CLOUD AI SAVINGS</div>
-        <div class="stat-val" id="savingsDollars">$0</div>
-        <div style="font-size: 14px; font-weight: 600; color: var(--accent);">⚡ <span id="savingsTokens">0</span> Tokens Saved / Year</div>
-        <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 10px; line-height: 1.5;">Assumes ~6,380 tokens saved per AI turn (6,500 raw file read vs. 120 via <code>get_file_skeleton</code>) across 250 working days/year.</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- About Section -->
-  <section class="section-container" id="about">
-    <h2 class="section-tag">about codive</h2>
-    <div style="background: var(--surface); border: 1px solid var(--surface-border); border-radius: 16px; padding: 40px; text-align: left; max-width: 840px; margin: 0 auto;">
-      <h3 style="font-size: 22px; color: var(--text-bright); margin-bottom: 12px;">Local-First Code Context for the AI Era</h3>
-      <p style="font-size: 15px; color: var(--text); line-height: 1.7; margin-bottom: 20px;">
-        <code>codive</code> was built to solve the compound token explosion problem in modern AI coding agents. By indexing your local AST into embedded SQLite (WAL mode), it eliminates noisy grep sweeps and delivers sub-millisecond symbol lookups, function skeletons, and PR blast radius protection.
-      </p>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; font-family: 'Fira Code', monospace; font-size: 13px; color: #7dd3fc; border-top: 1px solid var(--surface-border); padding-top: 20px;">
-        <div>👤 Author: <a href="https://recscse.github.io" target="_blank" style="color: var(--accent); text-decoration: none;">Brijesh Yadav</a></div>
-        <div>📜 License: <span style="color: var(--text-bright);">MIT License</span></div>
-        <div>📦 Upgrade: <code style="color: var(--accent);">codive upgrade</code></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Footer -->
-  <footer>
-    <p>codive is open-source under the MIT License • Created by <a href="https://recscse.github.io" target="_blank">Brijesh Yadav</a> • <a href="https://github.com/recscse/codive" target="_blank">GitHub</a> • <a href="docs.html">Docs</a> • <a href="blog.html">Blog</a></p>
-  </footer>
-
-  <script>
-    function showTab(index, btn) {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
-      btn.classList.add('tab-active');
-      document.getElementById('panel-' + index).classList.remove('hidden');
-    }
-
-    function copyActiveCode() {
-      const activePanel = document.querySelector('.tab-panel:not(.hidden)');
-      const text = activePanel.textContent.trim();
-      navigator.clipboard.writeText(text).then(() => {
-        const label = document.getElementById('copyLabel');
-        label.textContent = 'copied!';
-        setTimeout(() => label.textContent = 'copy', 2000);
-      });
-    }
-
-    // Grounded in the benchmark quoted throughout this site: reading a 1,200-line
-    // file costs ~6,500 tokens raw vs. ~120 tokens via get_file_skeleton (~6,380 saved/turn).
-    const TOKENS_SAVED_PER_TURN = 6380;
-    const WORKING_DAYS_PER_YEAR = 250;
-    const PRICE_PER_MILLION_TOKENS = 3.00; // Claude Sonnet / GPT-4o-class input pricing
-
-    function calculateSavings() {
-      const devs = parseInt(document.getElementById('devs').value);
-      const turns = parseInt(document.getElementById('turns').value);
-      document.getElementById('devVal').textContent = devs + (devs === 1 ? ' dev' : ' devs');
-      document.getElementById('turnsVal').textContent = turns + ' turns';
-
-      const totalTokens = devs * turns * WORKING_DAYS_PER_YEAR * TOKENS_SAVED_PER_TURN;
-      const dollars = (totalTokens / 1000000) * PRICE_PER_MILLION_TOKENS;
-      document.getElementById('savingsDollars').textContent = '$' + Math.round(dollars).toLocaleString();
-      document.getElementById('savingsTokens').textContent =
-        (totalTokens / 1000000000).toFixed(2) + 'B';
-    }
-
-    calculateSavings();
-  </script>
+var links = document.querySelectorAll('.side a[href^="#"]');
+if (links.length && 'IntersectionObserver' in window) {
+  var byId = {}; links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (e.isIntersecting && byId[e.target.id]) {
+        links.forEach(function (a) { a.classList.remove('active'); });
+        byId[e.target.id].classList.add('active');
+      }
+    });
+  }, { rootMargin: '-10% 0px -80% 0px' });
+  Object.keys(byId).forEach(function (id) { var el = document.getElementById(id); if (el) io.observe(el); });
+}
+</script>
 </body>
 </html>

@@ -1,6 +1,6 @@
-# ⚡ codive — Developer Context Engine for AI Coding Agents
+# codive — Local Code Knowledge Graph for AI Coding Agents
 
-> **High-performance, local-first code context engine & Model Context Protocol (MCP) server for autonomous AI coding agents.**
+> **Turn any codebase into an instant, queryable AST knowledge graph. Local SQLite queries, signature-only file skeletons, and blast-radius analysis for Claude Code, Cursor, Antigravity, and VS Code. 100% local-first, zero vector store, zero cloud leaks.**
 
 [![CI](https://github.com/recscse/codive/actions/workflows/ci.yml/badge.svg)](https://github.com/recscse/codive/actions)
 [![Release](https://img.shields.io/github/v/release/recscse/codive?style=flat-square)](https://github.com/recscse/codive/releases)
@@ -10,20 +10,47 @@
 
 ---
 
-## 🏛️ Why codive?
+## 🏛️ Why codive? (Understand Your Code — Don't Grep It)
 
-When AI coding assistants (Claude Desktop, Cursor, Google Antigravity, VS Code, Windsurf) work on real-world repositories, they face two massive bottlenecks:
-1. **Token Exhaustion**: Dumping multi-thousand-line files into the context window burns 8,000+ tokens per turn ($0.05–$0.25 per query) and leads to LLM "lost-in-the-middle" hallucinations.
-2. **Slow, Blind Grep**: Raw file regex searches take seconds on large repos and lack cross-file caller awareness, causing agents to break downstream API contracts.
+When AI coding assistants (Claude Code, Cursor, Google Antigravity, VS Code, Windsurf) work on real-world repositories, they face two massive bottlenecks:
+1. **Token Exhaustion & Lost-in-the-Middle**: Dumping multi-thousand-line files into the context window uses up the context window on code the agent doesn't need.
+2. **Slow, Blind Grep**: Raw regex searches take seconds on large repos and lack cross-file caller awareness, causing agents to break downstream API contracts.
+3. **Fuzzy Vector Drift**: Vector embeddings guess approximate semantic similarity rather than deterministic syntactic truth, hallucinating caller connections.
 
-`codive` solves this by indexing your repository's Abstract Syntax Tree (AST), symbol declarations, and call graphs into an embedded, high-concurrency SQLite database (WAL mode). It exposes **15 specialized MCP tools** that return exact function bodies and signatures, structural file skeletons, caller graphs, and test pairings, typically in milliseconds.
+`codive` solves this by indexing your repository's Abstract Syntax Tree (AST), symbol declarations, and call graphs into an embedded, high-concurrency SQLite database (WAL mode). It exposes **18 specialized MCP tools** that return exact function bodies, token-compressed skeletons, upstream caller trees, and test pairings.
+
+---
+
+## 📦 Three Tangible Outputs Every Run
+
+Running `codive init` or `codive serve` produces three deterministic local assets:
+
+1. **`.codive/index.db` (Local SQLite WAL Engine)**:
+   A lightweight, zero-latency database storing full AST tables, caller/callee trees, and FTS5 full-text indexes. Zero cloud egress.
+2. **`codive web` (Local Code Explorer)**:
+   An embedded HTTP server at `http://127.0.0.1:7890` with symbol search, a package map, callers and callees, execution flow, blast radius, and a live source view. It works offline; use `--port` to change the port.
+3. **18 MCP Tools**:
+   Auto-registers seamlessly into Claude Code, Cursor, Antigravity, and VS Code with one command (`codive setup`).
+
+---
+
+## ⚖️ Architectural Matrix: Vector RAG vs. Grep vs. codive
+
+| Capability | Vector RAG (Embeddings) | Raw File Grep | `codive` AST Knowledge Graph |
+| :--- | :--- | :--- | :--- |
+| **Parsing Precision** | Approximate / Semantic drift | Flat regex strings | **Exact Deterministic AST** |
+| **Token Consumption** | Chunks raw text (~4,000 tokens) | Dumps entire files (~8,000 tokens) | **Signatures and line ranges only (via skeletons)** |
+| **Cross-File Call Graph** | Blind | Manual regex | **Exact caller & callee hierarchy** |
+| **Refactoring Safety** | Hallucinates safety | Blind guesses | **`blast_radius` + auto-linked test suites** |
+| **Agent Memory** | Static context | No memory | **`save_decision` durable SQLite memory** |
+| **Runtime & Privacy** | Heavy Python / Cloud API | Local | **Single compiled Go binary, 100% local** |
 
 ---
 
 ## 🚀 Key Features
 
-- **⚡ Sub-Millisecond Queries**: Local SQLite with Write-Ahead Logging (`WAL`), `synchronous = NORMAL`, and `busy_timeout = 10000ms` delivers symbol lookups in `< 1.8ms`.
-- **🦴 Token-Compressed Skeletons (`get_file_skeleton`)**: Replaces function and method bodies with `{ /* L45-L92 */ }` line references, reducing token consumption by **95–98%** while preserving structural awareness.
+- **⚡ Local Queries**: Local SQLite with Write-Ahead Logging (`WAL`), `synchronous = NORMAL`, and `busy_timeout = 10000ms` serves symbol lookups locally.
+- **🦴 Token-Compressed Skeletons (`get_file_skeleton`)**: Replaces function and method bodies with `{ /* L45-L92 */ }` line references, reducing token consumption while preserving structural awareness.
 - **📦 1-Shot Feature Bundling (`pack_feature_context`)**: Aggregates route handlers, data models, skeletons, and test suites matching a feature in a single query turn. Powered by **Subword Intent Decomposition** (finds `VerifyCredentials` from `"login"`) and **Karpathy's Attention U-Curve** (interfaces at the top, active tests and functions at the bottom).
 - **🗺️ Proportional Architecture Maps (`get_repo_map`)**: Employs two-pass proportional tree budgeting so all modules (including late-alphabet folders like `services/`, `utils/`, `web/`) are guaranteed representation without truncation.
 - **🧠 Session Working-Set Deduplication**: In multi-turn chat sessions with AI agents, re-queries for already-delivered files or symbols return compact reference anchors, saving 3,000–8,000 redundant tokens per turn.
@@ -35,14 +62,7 @@ When AI coding assistants (Claude Desktop, Cursor, Google Antigravity, VS Code, 
 
 ## 📊 Benchmarks & Token Cost Savings
 
-Tested on a production monorepo containing **100,000+ lines across 1,500 files**:
-
-| Operation | Traditional LLM Approach | `codive` MCP Engine | Performance Advantage |
-| :--- | :--- | :--- | :--- |
-| **Inspecting a 1,200-Line File** | 6,500 tokens ($0.065/turn) | **120 tokens** ($0.001/turn via `get_file_skeleton`) | **98.2% Token Reduction** |
-| **Cross-Repo Symbol Resolution** | 5–15s (disk grep) | **< 1.8 milliseconds** (`find_symbol`) | **99.9% Faster** |
-| **Refactoring Blast Radius** | Blind guesses & broken tests | Instant upstream call tree & linked test suites | **Zero Regressions** |
-| **Cold Repository Initialization** | 30+ minutes (eager full scan) | **1.2 – 1.8 seconds** (Parallel Goroutine Pool) | **1,500x Speedup** |
+Output-size measurements on this repo, including the cases where `git grep` wins, are in [the benchmark report](docs/BENCHMARK_REPORT.md). They compare tool output, not agent results on real tasks.
 
 ---
 
@@ -134,14 +154,14 @@ codive setup --undo      # remove everything setup added
 
 ---
 
-## 🛠️ The 15 Production MCP Tools
+## 🛠️ The 18 MCP Tools
 
 When running as an MCP server (`codive serve`), your AI coding agent has access to:
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
 | **`pack_feature_context`** | `topic` *(string)*, `workspace_path` *(opt)* | One-shot feature discovery: bundles symbol matches, skeletons, test suites, and stored decisions matching a topic. |
-| **`get_file_skeleton`** | `path` *(string)*, `workspace_path` *(opt)* | Returns structural outline with `{ /* L45-L92 */ }` line ranges, cutting 95% of tokens. |
+| **`get_file_skeleton`** | `path` *(string)*, `workspace_path` *(opt)* | Returns structural outline with `{ /* L45-L92 */ }` line ranges, leaving out function bodies. |
 | **`blast_radius`** | `symbol` *(string)*, `workspace_path` *(opt)* | Traces all upstream callers, affected files, and test suites before refactoring. |
 | **`find_symbol`** | `query` *(string)*, `workspace_path` *(opt)* | Returns exact declaration file, line number, signature, and symbol kind. |
 | **`find_callers`** | `symbol` *(string)*, `limit` *(opt)*, `workspace_path` *(opt)* | Discovers all call sites and functions invoking the specified symbol. |
@@ -150,7 +170,7 @@ When running as an MCP server (`codive serve`), your AI coding agent has access 
 | **`find_tests_for`** | `target` *(string)*, `workspace_path` *(opt)* | Resolves the corresponding unit test suite (`*_test.go`, `test_*.py`, `*.spec.ts`). |
 | **`get_repo_map`** | `workspace_path`, `max_depth`, `directory_filter`, `include_symbols`, `token_budget` *(all opt)* | Emits a token-budgeted structural architecture map with declared symbols. |
 | **`get_git_changes`** | `workspace_path` *(opt)* | Summarizes uncommitted git diffs mapped to enclosing AST functions. |
-| **`search_code`** | `query` *(string)*, `limit` *(opt)*, `workspace_path` *(opt)* | Sub-millisecond FTS5 full-text search across all indexed files. |
+| **`search_code`** | `query` *(string)*, `limit` *(opt)*, `workspace_path` *(opt)* | FTS5 full-text search across all indexed files. |
 | **`read_symbol`** | `symbol` *(string: `Name`, `Type.Method`, or `path:Name`)*, `path` *(opt)*, `limit` *(opt)* | Returns just one definition — doc comment, signature, and full body — instead of the whole file. Typically 10–80× fewer tokens than reading the file. |
 | **`read_file_context`** | `path` *(string)*, `start_line`/`end_line` *(opt)*, `workspace_path` *(opt)* | Reads a file (up to 1,000 lines per call) plus its declared symbol outline, with automatic line-drift verification. |
 | **`save_decision`** | `topic` *(string)*, `summary` *(string)*, `workspace_path` *(opt)* | Stores persistent architectural invariants and decisions in SQLite. |
@@ -163,7 +183,7 @@ When running as an MCP server (`codive serve`), your AI coding agent has access 
 ```bash
 # Repository Indexing & Health
 codive init [path]           # Initialize repository with parallel workers & live progress bar
-codive update [path]         # Incrementally synchronize modified files in <100ms
+codive update [path]         # Incrementally synchronize modified files
 codive reindex [path]        # Clean wipe and rebuild index from scratch
 codive watch [path]          # Live file watcher auto-syncing changes in real-time
 
@@ -189,7 +209,7 @@ codive decisions [topic]     # View recorded architectural invariants & decision
 codive logs [path]           # Tail recent log entries
 
 # Runtime
-codive web [path]            # Launch interactive architecture network graph
+codive web [path] [--port N] # Launch the local code explorer
 codive serve [path]          # Run the MCP (Model Context Protocol) server
 codive upgrade               # Self-update codive binary to latest release
 codive version               # Show version and build info
