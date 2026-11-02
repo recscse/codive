@@ -66,6 +66,14 @@ func TestExplorerPageServedSelfContained(t *testing.T) {
 		t.Errorf("page must insert repo content as text, found innerHTML")
 	}
 
+	req = httptest.NewRequest("GET", "/fonts/geist.woff2", nil)
+	req.Host = "127.0.0.1:7890"
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Body.Len() == 0 {
+		t.Errorf("bundled font not served: %d", rec.Code)
+	}
+
 	req = httptest.NewRequest("GET", "/nope", nil)
 	req.Host = "127.0.0.1:7890"
 	rec = httptest.NewRecorder()

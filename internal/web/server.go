@@ -4,7 +4,7 @@ package web
 import (
 	"bufio"
 	"database/sql"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -32,6 +32,9 @@ type SnippetResponse struct {
 
 //go:embed explorer.html
 var explorerHTML []byte
+
+//go:embed fonts
+var explorerFonts embed.FS
 
 // StartWebServer starts the local explorer on port (default 7890) and opens the browser.
 func StartWebServer(targetDir string, database *sql.DB, port int) error {
@@ -73,6 +76,7 @@ func newHandler(absDir string, database *sql.DB) http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(explorerHTML)
 	})
+	mux.Handle("/fonts/", http.FileServerFS(explorerFonts))
 	mux.HandleFunc("/api/snippet", handleSnippet(absDir))
 	mux.HandleFunc("/api/explorer/flow", handleExplorerFlow(database))
 	mux.HandleFunc("/api/explorer/impact", handleExplorerImpact(database))
@@ -96,7 +100,7 @@ func secureLocal(next http.Handler) http.Handler {
 			http.Error(w, "forbidden host", http.StatusForbidden)
 			return
 		}
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		next.ServeHTTP(w, r)
