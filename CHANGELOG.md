@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`codive config`**: shows, gets, sets and unsets per-project settings stored in `.codive.json` at the repository root, and lists `.codiveignore` exclusions. Settings: `port` for `codive web` (`--port` still overrides it) and `watch_interval` for `codive watch`. The file lives outside `.codive/`, so `codive clean` keeps it and teams can commit it.
 
 ### Fixed
+- The explorer explains when it can't reach `codive web`, for example after the server stops, instead of showing "Failed to fetch".
 - Tests that run `codive init` no longer record their temporary folders in the developer's real project list.
 
 ## [v1.3.1] - 2026-11-10

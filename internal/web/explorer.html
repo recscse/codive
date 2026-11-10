@@ -581,7 +581,13 @@ document.addEventListener("keydown", e => {
 
 /* ---------- plumbing ---------- */
 async function fetchJSON(url) {
-  const res = await fetch(url);
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    // The browser couldn't reach the server, usually because codive web stopped.
+    throw new Error("Can't reach codive web at " + location.host + ". It may have stopped: run codive web again, then reload this page.");
+  }
   if (!res.ok) throw new Error((await res.text()).trim() || "HTTP " + res.status);
   return res.json();
 }
