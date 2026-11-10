@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.3.1] - 2026-11-10
+
+### Added
+- **`codive clean`**: lists every indexed project with its index size, and deletes one project's `.codive` folder after confirmation (`-y` skips the prompt). Project code is never touched. Projects are recorded when `codive init` runs, so ones indexed with older versions appear after their next `init`.
+
+### Changed
+- **Warning when the Go toolchain is missing**: without Go, standard library types can't be loaded and some callers are missed. `codive init`, `codive blast`, the `blast_radius` MCP tool and the explorer now say so and explain how to fix it.
+
 ## [v1.3.0] - 2026-11-10
 
 ### Added
