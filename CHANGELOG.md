@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **`codive bench` measures intent search on the repository's own history.** Each recent commit becomes a question: the subject (minus prefixes such as `fix(mcp):`) is the query, and the definitions the commit changed, if they still exist, are the right answers. Docs, chore, merge and broad-refactor commits are skipped. The report shows how often the right function and the right file rank 1st, in the top 3 and in the top 10, next to a grep-style baseline that ranks files by how often the query's words appear. It logs nothing, so it never feeds the ranker. Measured with the starting weights:
+  - go-chi/chi, 306 questions: the right function ranked first 35% of the time and in the top 3 53%. The right file ranked first 51% of the time, against 17% for the grep-style baseline.
+  - spf13/cobra, 210 questions: the right function ranked first 17% of the time and in the top 3 37%. The right file ranked first 43% of the time, against 28% for the baseline.
+- **`codive ranker history` trains the intent ranker on git history,** so ranking can improve on day one instead of waiting for 20 real uses. Test functions don't count as right answers: commits change a test alongside the code, but an agent asking where something happens wants the code. Without this rule, training made ranking worse. The trained model is kept only if it ranks held-out commits better. Held-out MRR went from 0.57 to 0.66 on chi and from 0.43 to 0.63 on cobra. After training, `codive bench` scores the same commits it learned from; use `CODIVE_LEARNING=off codive bench` to see the starting weights.
+
 ## [v1.3.0] - 2026-11-10
 
 ### Added

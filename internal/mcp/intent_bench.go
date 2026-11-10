@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/ranker"
 	"github.com/recscse/codive/internal/scanner"
 	"github.com/recscse/codive/internal/symbols"
 )
@@ -49,6 +51,10 @@ type IntentBenchCase struct {
 	KeywordFileRank int           `json:"keyword_file_rank"`
 	Latency         time.Duration `json:"latency_ns"`
 	Top             []string      `json:"top3"`
+
+	// example is the case as ranker training data: every candidate's
+	// features, and which candidates were answers.
+	example ranker.Example
 }
 
 // IntentBenchReport summarizes a benchmark run.
@@ -101,6 +107,10 @@ func rankStats(ranks []int) RankStats {
 // uses the ranker currently stored for the workspace (cold start if none)
 // and logs nothing, so running it doesn't feed the learner.
 func RunIntentBenchmark(ctx context.Context, database *sql.DB, dir string, maxCommits int) (*IntentBenchReport, error) {
+	return runIntentBenchmark(ctx, database, dir, maxCommits, loadRanker(ctx, database))
+}
+
+func runIntentBenchmark(ctx context.Context, database *sql.DB, dir string, maxCommits int, model ranker.Model) (*IntentBenchReport, error) {
 	// One git log for every commit's diff, and one cat-file process for every
 	// old file version: starting git per commit made a run take minutes.
 	out, err := gitOutput(ctx, dir, "log", "--no-merges", "-n", strconv.Itoa(maxCommits),
@@ -113,7 +123,6 @@ func RunIntentBenchmark(ctx context.Context, database *sql.DB, dir string, maxCo
 		return nil, err
 	}
 	defer blobs.close()
-	model := loadRanker(ctx, database)
 	rep := &IntentBenchReport{Skipped: make(map[string]int), ModelVersion: model.Version}
 	current := newFileCache(dir)
 	keyword, err := newKeywordBaseline(ctx, database)
@@ -169,6 +178,10 @@ func RunIntentBenchmark(ctx context.Context, database *sql.DB, dir string, maxCo
 		seenFile := make(map[string]bool)
 		for i, r := range ranked {
 			key := r.FilePath + ":" + r.Name
+			c.example.Candidates = append(c.example.Candidates, r.features)
+			if answers[key] {
+				c.example.Positives = append(c.example.Positives, i)
+			}
 			if i < 3 {
 				c.Top = append(c.Top, key)
 			}
@@ -435,4 +448,49 @@ func (kb *keywordBaseline) rank(terms []string, want map[string]bool) int {
 		}
 	}
 	return 0
+}
+
+// historyShown is how many top candidates of a history question count as
+// "seen" when training: the ones an agent would plausibly look at.
+const historyShown = 10
+
+// LearnFromHistory trains the intent ranker on the repository's own history
+// (see RunIntentBenchmark): each commit's subject is a query, and the code
+// definitions it changed are the useful results. Test functions are not
+// counted as useful: a commit changes a test alongside the code, but an
+// agent asking where something happens wants the code. The trained model is
+// stored only if ranker.Retrain adopts it, i.e. it ranks held-out commits at
+// least as well as the current model and the starting weights.
+func LearnFromHistory(ctx context.Context, database *sql.DB, dir string, maxCommits int) (current, trained ranker.Model, adopted bool, examples int, err error) {
+	current = loadRanker(ctx, database)
+	rep, err := runIntentBenchmark(ctx, database, dir, maxCommits, ranker.DefaultModel())
+	if err != nil {
+		return current, current, false, 0, err
+	}
+	var exs []ranker.Example
+	for i := len(rep.Cases) - 1; i >= 0; i-- { // oldest first
+		ex := rep.Cases[i].example
+		var pos []int
+		for _, p := range ex.Positives {
+			if ex.Candidates[p][ranker.FeatTestFile] == 0 {
+				pos = append(pos, p)
+			}
+		}
+		if len(pos) == 0 {
+			continue
+		}
+		ex.Positives, ex.Shown = pos, min(historyShown, len(ex.Candidates))
+		exs = append(exs, ex)
+	}
+	trained, adopted = ranker.Retrain(exs, current, time.Now())
+	if adopted {
+		data, err := json.Marshal(trained)
+		if err != nil {
+			return current, trained, false, len(exs), err
+		}
+		if err := db.SetMeta(ctx, database, ranker.MetaKey, string(data)); err != nil {
+			return current, trained, false, len(exs), err
+		}
+	}
+	return current, trained, adopted, len(exs), nil
 }

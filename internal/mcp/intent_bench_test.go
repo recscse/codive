@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/recscse/codive/internal/db"
@@ -92,5 +94,75 @@ func TestRunIntentBenchmark(t *testing.T) {
 	}
 	if stats, _ := db.GetLearningStats(context.Background(), database); stats.Logged != 0 {
 		t.Errorf("benchmark logged %d intent queries; it must not feed the learner", stats.Logged)
+	}
+}
+
+// History training counts only code definitions as useful: commits that
+// changed nothing but a test give it no example.
+func TestLearnFromHistory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	dir := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	names := []string{"charge", "refund", "invoice", "receipt", "ledger"}
+	render := func(rev int) (code, test string) {
+		code, test = "package pay\n", "package pay\n\nimport \"testing\"\n"
+		for _, n := range names {
+			code += "\nfunc " + n + "Payment() {\n\t_ = " + strconv.Itoa(rev) + "\n}\n"
+			test += "\nfunc Test" + n + "Payment(t *testing.T) {\n\t_ = " + strconv.Itoa(rev) + "\n}\n"
+		}
+		return
+	}
+	write := func(code, test string) {
+		t.Helper()
+		_ = os.WriteFile(filepath.Join(dir, "pay.go"), []byte(code), 0644)
+		_ = os.WriteFile(filepath.Join(dir, "pay_test.go"), []byte(test), 0644)
+	}
+	git("init", "-q")
+	code, test := render(0)
+	write(code, test)
+	git("add", ".")
+	git("commit", "-q", "-m", "initial")
+	for i := 1; i <= 30; i++ {
+		n := names[i%len(names)]
+		code = strings.Replace(code, "func "+n+"Payment() {\n\t_ = ", "func "+n+"Payment() {\n\t_ = 1+", 1)
+		test = strings.Replace(test, "func Test"+n+"Payment(t *testing.T) {\n\t_ = ", "func Test"+n+"Payment(t *testing.T) {\n\t_ = 1+", 1)
+		write(code, test)
+		msg := "fix " + n + " payment rounding"
+		if i > 25 {
+			git("add", "pay_test.go")
+			git("checkout", "--", "pay.go")
+			git("commit", "-q", "-m", "cover "+n+" payment rounding")
+			b, _ := os.ReadFile(filepath.Join(dir, "pay.go"))
+			code = string(b)
+			continue
+		}
+		git("commit", "-qam", msg)
+	}
+
+	indexForTest(t, dir)
+	server := NewServer(dir, nil, "test")
+	defer server.Close()
+	database, _, err := server.getDBForPath(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, trained, adopted, n, err := LearnFromHistory(context.Background(), database, dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 25 {
+		t.Errorf("want 25 examples (the 5 test-only commits give none), got %d", n)
+	}
+	stored := loadRanker(context.Background(), database)
+	if adopted != (stored.Version == 1) || (adopted && stored.Weights != trained.Weights) {
+		t.Errorf("adopted=%v but stored model is %+v", adopted, stored)
 	}
 }

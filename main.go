@@ -67,7 +67,7 @@ func printUsage() {
 				{"status        ", "[path]  ", "Display index status and language breakdown"},
 				{"doctor        ", "[path]  ", "Diagnose index health and agent configurations"},
 				{"stats         ", "[path]  ", "Token savings and efficiency metrics"},
-				{"ranker        ", "[reset] ", "What read_symbol intent ranking has learned (or forget it)"},
+				{"ranker        ", "[history|reset]", "What intent ranking has learned; learn from git history; forget it"},
 				{"bench         ", "[path] [commits] [misses]", "Measure intent search using the repo's own git history"},
 				{"decisions     ", "[topic] ", "View recorded architectural decisions"},
 				{"logs          ", "[path]  ", "Tail recent log entries"},
@@ -292,7 +292,7 @@ func main() {
 	case "ranker":
 		action, targetDir := "status", "."
 		rest := args[1:]
-		if len(rest) > 0 && (rest[0] == "status" || rest[0] == "reset") {
+		if len(rest) > 0 && (rest[0] == "status" || rest[0] == "reset" || rest[0] == "history") {
 			action, rest = rest[0], rest[1:]
 		}
 		if len(rest) > 0 {
