@@ -607,7 +607,13 @@ async function start() {
     }
     const count = kind => state.nodes.filter(n => n.kind === kind).length;
     $("stats").textContent = count("file") + " files · " + (state.nodes.filter(n => SYMBOL_KINDS.has(n.kind)).length) + " symbols";
-    if (graph.truncated) {
+    const notices = [...(graph.warnings || [])];
+    if (graph.truncated) notices.push("Large repo: showing " + state.nodes.length + " of " + graph.total_nodes + " graph nodes. Some symbols and links are not listed here.");
+    if (notices.length) {
+      $("notice").textContent = notices.join(" ");
+      $("notice").hidden = false;
+    }
+    if (false) {
       $("notice").textContent = "Large repo: showing " + state.nodes.length + " of " + graph.total_nodes + " graph nodes. Some symbols and links are not listed here.";
       $("notice").hidden = false;
     }
