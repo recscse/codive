@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/recscse/codive/internal/config"
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/graph"
 	"github.com/recscse/codive/internal/ui"
@@ -65,6 +66,14 @@ func RunMapWeb(targetDir string, port int) error {
 		return fmt.Errorf("failed to open index database: %w", err)
 	}
 	defer database.Close()
+
+	if port <= 0 {
+		settings, err := config.Load(absDir)
+		if err != nil {
+			return err
+		}
+		port = settings.EffectivePort()
+	}
 
 	if err := graph.EnsureFresh(context.Background(), database, absDir); err != nil {
 		ui.Warning(fmt.Sprintf("Code graph refresh failed: %v", err))
