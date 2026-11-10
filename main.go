@@ -68,6 +68,7 @@ func printUsage() {
 				{"doctor        ", "[path]  ", "Diagnose index health and agent configurations"},
 				{"stats         ", "[path]  ", "Token savings and efficiency metrics"},
 				{"ranker        ", "[reset] ", "What read_symbol intent ranking has learned (or forget it)"},
+				{"bench         ", "[path] [commits] [misses]", "Measure intent search using the repo's own git history"},
 				{"decisions     ", "[topic] ", "View recorded architectural decisions"},
 				{"logs          ", "[path]  ", "Tail recent log entries"},
 			},
@@ -264,6 +265,26 @@ func main() {
 			targetDir = args[1]
 		}
 		if err := cmd.RunStats(targetDir, asJSON); err != nil {
+			ui.Error(err.Error())
+			os.Exit(1)
+		}
+
+	case "bench":
+		targetDir, commits, show := ".", 300, 0
+		if len(args) >= 2 {
+			targetDir = args[1]
+		}
+		if len(args) >= 3 {
+			if n, err := strconv.Atoi(args[2]); err == nil && n > 0 {
+				commits = n
+			}
+		}
+		if len(args) >= 4 {
+			if n, err := strconv.Atoi(args[3]); err == nil && n >= 0 {
+				show = n
+			}
+		}
+		if err := cmd.RunBench(targetDir, commits, show, asJSON); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}
