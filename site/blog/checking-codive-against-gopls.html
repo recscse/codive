@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>We checked codive's call graph against gopls. Here's what broke. | codive</title>
+<meta name="description" content="How we measured codive's Go callers against the official language server, the real bugs that turned up, and the gaps that remain.">
+<link rel="canonical" href="https://recscse.github.io/codive/blog/checking-codive-against-gopls.html">
+<meta name="theme-color" content="#fbfaf6">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://recscse.github.io/codive/blog/checking-codive-against-gopls.html">
+<meta property="og:title" content="We checked codive's call graph against gopls. Here's what broke. | codive">
+<meta property="og:description" content="How we measured codive's Go callers against the official language server, the real bugs that turned up, and the gaps that remain.">
+<meta property="og:image" content="https://recscse.github.io/codive/assets/shots/changes.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="preload" href="../assets/fonts/geist.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body class="min-h-screen">
+<header class="sticky top-0 z-40 border-b border-line bg-paper/85 backdrop-blur-lg">
+  <nav class="mx-auto flex h-16 max-w-[76rem] items-center gap-8 px-6 text-[15px] text-body">
+    <a href="../index.html" class="mr-auto text-xl font-medium tracking-[-0.03em] text-ink">codive<span class="text-signal">.</span></a>
+    <a href="../docs.html" class="transition hover:text-signal ">Docs</a>
+    <a href="../blog.html" class="transition hover:text-signal text-signal">Blog</a>
+    <a href="https://github.com/recscse/codive" class="transition hover:text-signal">GitHub</a>
+    <a href="../docs.html#quickstart" class="hidden rounded bg-ink px-3.5 py-2 text-sm font-medium text-paper transition hover:bg-signal sm:block">Get started</a>
+  </nav>
+</header>
+<main>
+<article class="mx-auto max-w-[42rem] px-6 pt-20">
+  <a href="../blog.html" class="text-sm text-mute transition hover:text-signal">&larr; Blog</a>
+  <p class="mt-12 text-sm text-mute">Accuracy &nbsp;·&nbsp; November 1, 2026</p>
+  <h1 class="mt-3 text-[44px] leading-[1.08] font-medium tracking-[-0.03em] text-balance text-ink sm:text-[56px]">We checked codive's call graph against gopls. Here's what broke.</h1>
+  <div class="doc mt-10 text-[17.5px] leading-[1.75]"><p>A blast radius tool has one job: tell you what a change can break. If it invents callers, you stop trusting it. If it misses them, it's worse, because you feel safe when you aren't. So we compared codive's Go call graph with <code>gopls</code>, the official Go language server.</p>
+
+<h2>How the check works</h2>
+<p>For a seeded random sample of functions, a <a href="https://github.com/recscse/codive/blob/main/benchmarks/accuracy.py">small script</a> asks <code>gopls</code> for every reference, maps each one to its enclosing function, and compares that list with the callers codive reports. Anything found by only one tool gets counted and printed so it can be read.</p>
+<p><code>gopls</code> is a strong reference, not absolute truth, and this is a small sample. We exclude folders starting with an underscore, such as <code>_examples</code>, because <code>gopls</code> doesn't load them.</p>
+
+<h2>The first run was humbling</h2>
+<p>On 25 functions each from chi, cobra and gin, codive reported no false callers, but found only 193 of the 242 that <code>gopls</code> listed. Reading the misses turned up four causes:</p>
+<ul>
+  <li><strong>A real bug.</strong> gin's <code>ginS.Run</code> calls <code>Engine.Run</code>, but its engine comes from <code>sync.OnceValue</code>. codive stubbed the standard library, so the type vanished and the link went with it.</li>
+  <li><strong>Hidden interface calls.</strong> We recorded these as low-confidence guesses, then hid them.</li>
+  <li><strong>Functions passed as values.</strong> A route handler passed to a router is a real dependency, but it isn't a call.</li>
+  <li><strong>A flaw in our own test.</strong> We were sampling types and constants, and one lookup could land on the wrong word on a line. That made the score look worse than it was.</li>
+</ul>
+
+<h2>What we changed</h2>
+<p>codive now loads real standard library types using the data the Go toolchain already keeps in its build cache. Interface calls link to the repo types that actually implement the interface, marked as <code>inferred</code>. Functions used as values are recorded as references.</p>
+
+<h2>Large repos found what small ones couldn't</h2>
+<p>Our first version of the standard library fix took gin's reindex from about 9 seconds to 50. The first interface fix took a one-file update on Gitea to 218 seconds. Reading export data and caching interface lookups brought those down to about 5 to 12 seconds and 17 seconds on our machine.</p>
+<p>Gitea also crashed codive outright. Its <code>go.mod</code> selects a newer toolchain, so running <code>go</code> inside the repo produced data our binary couldn't read, and the library panicked. codive now runs <code>go</code> outside the repo with the local toolchain, so a repository can't choose what gets executed, and it falls back safely if the data can't be read.</p>
+
+<h2>Current results</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>Repository</th><th>Functions</th><th>Agreed</th><th>codive only</th><th>gopls only</th></tr></thead>
+  <tbody>
+    <tr><td>spf13/cobra</td><td>60</td><td>411</td><td>0</td><td>0</td></tr>
+    <tr><td>gin-gonic/gin</td><td>58</td><td>122</td><td>0</td><td>0</td></tr>
+    <tr><td>junegunn/fzf</td><td>39</td><td>102</td><td>0</td><td>12</td></tr>
+    <tr><td>go-chi/chi</td><td>60</td><td>79</td><td>0</td><td>24</td></tr>
+    <tr><td>go-gitea/gitea</td><td>11</td><td>18</td><td>0</td><td>0</td></tr>
+  </tbody>
+</table></div>
+<p>Cobra supplies most of the agreed links, and only 11 Gitea functions could be checked, so read the rows separately rather than as one score.</p>
+
+<h2>What's still missing</h2>
+<ul>
+  <li><strong>Standard library interfaces.</strong> A call through <code>http.ResponseWriter</code> doesn't link to your own implementation. The chi misses we reviewed follow this pattern. Expanding them could add a lot of noise, so we've left it as a stated limit for now.</li>
+  <li><strong>Platform-specific files.</strong> In fzf, the misses we reviewed include code in files like <code>util_windows.go</code>.</li>
+  <li><strong>Reflection</strong> and other runtime-only behaviour.</li>
+  <li><strong>Other languages.</strong> None of this applies outside Go yet.</li>
+</ul>
+<p>Treat codive's results as known callers, not a guarantee. If you find a wrong result, <a href="https://github.com/recscse/codive/issues">please open an issue</a> with the repo and symbol.</p>
+</div>
+  <div class="mt-16 grid gap-3 border-t border-line pt-8 sm:grid-cols-2"><a href="parallel-goroutine-indexing.html" class="text-[17px] font-medium text-ink transition-colors hover:text-signal">Parallel Goroutine Indexing: Scanning Large Monorepos Fast</a><a href="durable-ai-agent-memory.html" class="text-[17px] font-medium text-ink transition-colors hover:text-signal">Durable AI Agent Memory: Recording Architectural Decisions in SQLite</a></div>
+</article>
+</main>
+<footer class="mx-auto mt-32 flex max-w-[76rem] flex-wrap items-center gap-6 border-t border-line px-6 py-10 text-sm text-mute">
+  <span class="mr-auto">codive is open source under the MIT License.</span>
+  <a class="hover:text-signal" href="../docs.html">Docs</a>
+  <a class="hover:text-signal" href="../blog.html">Blog</a>
+  <a class="hover:text-signal" href="https://github.com/recscse/codive/releases">Releases</a>
+  <a class="hover:text-signal" href="https://github.com/recscse/codive">GitHub</a>
+</footer>
+<script>
+document.querySelectorAll('[data-copy]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent).then(function () {
+      var t = b.textContent; b.textContent = 'Copied'; setTimeout(function () { b.textContent = t; }, 1200);
+    });
+  });
+});
+function copyCode(b) {
+  navigator.clipboard.writeText(b.closest('.codeblock').querySelector('pre').textContent).then(function () {
+    b.textContent = 'copied'; setTimeout(function () { b.textContent = 'copy'; }, 1200);
+  });
+}
+var links = document.querySelectorAll('.side a[href^="#"]');
+if (links.length && 'IntersectionObserver' in window) {
+  var byId = {}; links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (e.isIntersecting && byId[e.target.id]) {
+        links.forEach(function (a) { a.classList.remove('active'); });
+        byId[e.target.id].classList.add('active');
+      }
+    });
+  }, { rootMargin: '-10% 0px -80% 0px' });
+  Object.keys(byId).forEach(function (id) { var el = document.getElementById(id); if (el) io.observe(el); });
+}
+</script>
+</body>
+</html>

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.3.0] - 2026-11-10
+
+### Added
+- **Type-checked Go code graph**: calls are resolved with the Go type checker instead of matching names. Interface calls link to the repo types that implement the interface, marked as inferred, and functions passed as values are recorded as references.
+- **Routes and CLI commands from parsed code**: HTTP routes, including router group prefixes, and CLI subcommands are read from Go source. Database tables are read from SQL strings and linked to the functions using them.
+- **`codive web` explorer, rebuilt**: search-first home page, your uncommitted changes and what they affect, callers and callees, execution flow, blast radius with a `go test` command to copy, and a package map. It works offline and handles large repositories.
+- **`codive web --port N`**.
+- **`get_execution_flow` and `get_codebase_graph` MCP tools**.
+- **Accuracy check against gopls**: `benchmarks/accuracy.py` compares codive's Go callers with the official language server.
+
+### Changed
+- **`codive blast` and the `blast_radius` MCP tool** use the type-checked graph for Go functions. Other symbols fall back to the previous text search, and the output says which method was used.
+- **Website, docs and blog** rebuilt, with unmeasured performance and token-savings figures removed.
+
+### Fixed
+- **Installers** downloaded a `v1.0.0` file that doesn't exist, so installing only worked when Go was present. They now fetch the latest release. The PowerShell installer no longer reports success when nothing was installed.
+- **Explorer server** rejects requests whose Host header isn't localhost, which blocks DNS rebinding.
+- **Go toolchain selection**: codive runs `go` outside the indexed repository with the local toolchain, so a repository's `go.mod` can't choose what is executed. Indexing gitea previously crashed.
+
+### Known limitations
+- Calls through standard library interfaces, reflection and some platform-specific files may be missing. Treat blast radius as known callers, not a guarantee.
+- Call graphs are Go only.
+- Full results need the Go toolchain installed.
+
 ## [v1.2.2] - 2026-10-23
 
 ### Added

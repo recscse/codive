@@ -57,7 +57,7 @@ type RepoStats struct {
 }
 
 // CurrentSchemaVersion is the latest database schema version.
-const CurrentSchemaVersion = 9
+const CurrentSchemaVersion = 10
 
 // Open initializes and opens the SQLite database at dbPath, creating parent dirs and migrating schema.
 func Open(dbPath string) (*sql.DB, error) {
@@ -270,7 +270,42 @@ var Migrations = []Migration{
 			PRIMARY KEY (file_path, name, kind)
 		);
 		`,
+	},	{
+		Version:     10,
+		Description: "Create graph_nodes and graph_edges tables for unified codebase explorer",
+		SQL: `
+		CREATE TABLE IF NOT EXISTS graph_nodes (
+			id TEXT PRIMARY KEY,
+			kind TEXT NOT NULL,
+			label TEXT NOT NULL,
+			file_path TEXT NOT NULL,
+			line_number INTEGER NOT NULL DEFAULT 0,
+			end_line_number INTEGER NOT NULL DEFAULT 0,
+			language TEXT NOT NULL DEFAULT '',
+			signature TEXT NOT NULL DEFAULT '',
+			metadata_json TEXT NOT NULL DEFAULT '{}'
+		);
+		CREATE INDEX IF NOT EXISTS idx_gn_kind ON graph_nodes(kind);
+		CREATE INDEX IF NOT EXISTS idx_gn_file ON graph_nodes(file_path);
+
+		CREATE TABLE IF NOT EXISTS graph_edges (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			source_id TEXT NOT NULL,
+			target_id TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			evidence TEXT NOT NULL,
+			location_file TEXT NOT NULL DEFAULT '',
+			location_line INTEGER NOT NULL DEFAULT 0,
+			confidence REAL NOT NULL DEFAULT 1.0,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE(source_id, target_id, kind)
+		);
+		CREATE INDEX IF NOT EXISTS idx_ge_source ON graph_edges(source_id);
+		CREATE INDEX IF NOT EXISTS idx_ge_target ON graph_edges(target_id);
+		CREATE INDEX IF NOT EXISTS idx_ge_kind ON graph_edges(kind);
+		`,
 	},
+
 }
 
 // GetMeta returns an index-wide setting, or "" if it has never been set.

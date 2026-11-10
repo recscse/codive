@@ -1,0 +1,43 @@
+<!-- title: Blast Radius: Preventing Breaking Changes Before an AI Agent Refactors -->
+<!-- tag: Developer Tools -->
+<!-- date: September 1, 2026 -->
+<!-- summary: An AI agent asked to rename or change the signature of a shared function has no built-in sense of how widely it's used. -->
+<p>An AI agent asked to rename or change the signature of a shared function has no built-in sense of how widely it's used. Without that context, it either refactors too cautiously (leaving stale callers) or too confidently (breaking three services it never read). <code>blast_radius</code> exists to answer one question before the edit happens: <em>if I change this symbol, what will break?</em></p>
+
+      <h2>What It Actually Traces</h2>
+      <p>Given a symbol name, the tool runs the same reference index used by <code>find_callers</code> &mdash; up to 50 matches &mdash; then groups the results by file and cross-references <code>find_tests_for</code> to surface every test suite that should be re-run:</p>
+      <pre>$ codive blast GenerateToken
+
+💥 Blast Radius Analysis for 'GenerateToken':
+  • Risk Level: HIGH (5 direct callers across 3 files)
+  • Affected Files:
+     - internal/auth/token.go
+     - internal/cmd/login.go
+     - internal/mcp/server.go
+  • Tests to Run:
+     - internal/auth/token_test.go
+     - TestGenerateToken_ExpiredClaims</pre>
+
+      <h2>The Risk Level Is Not a Guess</h2>
+      <p>The LOW/MEDIUM/HIGH label isn't a model's subjective judgment &mdash; it's computed directly from the caller count and file spread returned by the index:</p>
+      <pre>riskLevel := "LOW"
+if len(affectedFiles) >= 3 || len(refs) >= 5 {
+    riskLevel = "HIGH"
+} else if len(affectedFiles) >= 2 || len(refs) >= 2 {
+    riskLevel = "MEDIUM"
+}</pre>
+      <table class="art-table">
+        <thead><tr><th>Risk</th><th>Trigger</th><th>What it usually means</th></tr></thead>
+        <tbody>
+          <tr><td>LOW</td><td>&lt;2 files, &lt;2 callers</td><td>A locally-scoped function or one used from a single call site &mdash; safe for a direct edit.</td></tr>
+          <tr><td>MEDIUM</td><td>&ge;2 files or &ge;2 callers</td><td>Used across a couple of modules &mdash; worth reading the callers before editing the signature.</td></tr>
+          <tr><td>HIGH</td><td>&ge;3 files or &ge;5 callers</td><td>A shared API contract &mdash; the tool's output becomes the checklist for what to verify after the change.</td></tr>
+        </tbody>
+      </table>
+
+      <p>Because the thresholds are fixed and deterministic, the same symbol always gets the same risk label across sessions &mdash; which matters for an agent workflow where the previous turn's "HIGH risk, 3 files" assessment needs to still be true when the agent circles back to it two turns later.</p>
+
+      <h2>Namespaced Symbols</h2>
+      <p>Some languages (Java in particular, via Spring annotations and qualified method references) pass symbols in a <code>package:Symbol</code> or <code>Class:method</code> shape. <code>blast_radius</code> strips everything up to the final <code>:</code> before querying the reference index, so <code>com.example.service.PaymentService:processPayment</code> and a bare <code>processPayment</code> resolve to the same underlying lookup.</p>
+
+      <div class="callout"><strong>Where this fits in a workflow:</strong> the intended pattern is <code>blast_radius</code> before the edit, then the CLI's <code>codive diff</code> (or the MCP <code>get_git_changes</code> tool) after, to confirm the actual diff only touched the files the blast-radius analysis predicted. If it touched something outside that list, that's the signal to double-check the change.</div>

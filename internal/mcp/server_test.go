@@ -128,8 +128,8 @@ func TestMCPServer(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &listResp); err != nil {
 		t.Fatalf("failed to unmarshal tools/list response: %v", err)
 	}
-	if len(listResp.Result.Tools) != 16 {
-		t.Errorf("expected 16 tools, got %d", len(listResp.Result.Tools))
+	if len(listResp.Result.Tools) != 18 {
+		t.Errorf("expected 18 tools, got %d", len(listResp.Result.Tools))
 	}
 
 	// Test save_decision and get_decisions

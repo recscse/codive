@@ -1,0 +1,26 @@
+[
+  {
+    "id": "gin-rename-method",
+    "repo": "https://github.com/gin-gonic/gin",
+    "commit": "0f09c3a",
+    "prompt": "Rename the exported method Context.ShouldBindWith to Context.BindUsing everywhere in this repository, including tests and documentation. The code must still build and pass its tests.",
+    "absent": ["ShouldBindWith"],
+    "checks": [["go", "vet", "./..."], ["go", "test", "./..."]]
+  },
+  {
+    "id": "cobra-rename-method",
+    "repo": "https://github.com/spf13/cobra",
+    "commit": "HEAD",
+    "prompt": "Rename the exported method Command.InheritedFlags to Command.AllInheritedFlags everywhere in this repository, including tests and documentation. The code must still build and pass its tests.",
+    "absent": ["InheritedFlags()"],
+    "checks": [["go", "vet", "./..."], ["go", "test", "./..."]]
+  },
+  {
+    "id": "chi-rename-interface-method",
+    "repo": "https://github.com/go-chi/chi",
+    "commit": "HEAD",
+    "prompt": "Rename the method Route on the Router interface to SubRoute, and update every implementation and caller in this repository, including tests. HeaderRouter.Route in the middleware package is unrelated and must keep its name. The code must still build and pass its tests.",
+    "absent": ["r.Route(", "mx.Route("],
+    "checks": [["go", "vet", "./..."], ["go", "test", "./..."]]
+  }
+]

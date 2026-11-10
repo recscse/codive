@@ -1,0 +1,35 @@
+<!-- title: Durable AI Agent Memory: Recording Architectural Decisions in SQLite -->
+<!-- tag: Agent Memory -->
+<!-- date: September 1, 2026 -->
+<!-- summary: Every new AI coding session starts from zero. -->
+<p>Every new AI coding session starts from zero. An agent that spent an hour last week establishing "this service uses PgBouncer in transaction mode, so prepared statements must stay disabled" has no memory of that fact today &mdash; unless something outside the model's own context window recorded it. That's what <code>save_decision</code> and <code>get_decisions</code> are for.</p>
+
+      <h2>The Mechanism Is Deliberately Simple</h2>
+      <p>A decision is just two required fields &mdash; a <code>topic</code> and a <code>summary</code> &mdash; written into a <code>decisions</code> table in the same <code>.codive/index.db</code> SQLite file everything else lives in:</p>
+      <pre>codive:save_decision(
+    topic="database",
+    summary="PgBouncer runs in transaction pool mode; prepared statements must stay disabled."
+)
+&rarr; ✓ Recorded architectural decision for [database]: PgBouncer runs in
+   transaction pool mode; prepared statements must stay disabled. (ID: 14)</pre>
+      <p>No categorization scheme, no required schema beyond a topic label &mdash; the tool description is intentionally aimed at "tricky bug root causes and design invariants," and it's the agent (or the developer) that decides what's worth writing down. Retrieval is the same shape in reverse: <code>get_decisions(topic="database")</code> returns every stored decision whose topic matches, newest information available to any session that queries it, indexed since it's a normal SQLite row.</p>
+
+      <h2>Auto-Recall: Decisions Show Up Without Being Asked For</h2>
+      <p>The more interesting behavior is that an agent doesn't have to remember to call <code>get_decisions</code> at all. <code>find_symbol</code> and <code>get_file_skeleton</code> both auto-recall any decision whose topic matches the current query or filename, and inject it directly into their response before the actual results:</p>
+      <pre>### Symbol Matches for `PaymentService` (Found: 3)
+
+📌 Architectural Constraints (auto-recalled)
+- [database] PgBouncer runs in transaction pool mode; prepared
+  statements must stay disabled. (recorded 2026-08-14)
+
+---
+
+1. [Type Definition] `PaymentService`
+   - File: internal/payment/service.go (L22)
+   ...</pre>
+      <p>For <code>find_symbol</code>, the match is against the search query itself. For <code>get_file_skeleton</code>, it's matched against the filename with its extension stripped &mdash; so opening <code>service.go</code> after a decision was recorded under topic <code>service</code> surfaces it automatically. <code>pack_feature_context</code> does the same thing for whatever topic keyword it was given, meaning a single feature-discovery call can return both the code <em>and</em> the constraints a previous session already worked out about that code.</p>
+
+      <h2>Why This Beats Putting It in a Comment</h2>
+      <p>A code comment documenting an invariant only surfaces to an agent that happens to read that exact file. A decision recorded via <code>save_decision</code> surfaces proactively, attached to every symbol search, file skeleton, and feature pack that touches the matching topic &mdash; without the agent needing to know in advance that the constraint exists.</p>
+
+      <div class="callout"><strong>Practical use:</strong> <code>codive decisions [topic]</code> from the CLI lets a human audit what an AI agent has recorded during a session &mdash; useful both to catch a wrong assumption early and to see, in one place, every invariant your agents have independently discovered about the codebase over time.</div>

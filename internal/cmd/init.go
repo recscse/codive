@@ -12,6 +12,7 @@ import (
 
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/indexer"
+	"github.com/recscse/codive/internal/graph"
 	"github.com/recscse/codive/internal/ui"
 )
 
@@ -65,6 +66,10 @@ func indexRepositoryWithHooks(absDir string, hooks indexer.RebuildHooks) (*Index
 	rebuilt, err := indexer.RebuildWithHooks(context.Background(), database, absDir, hooks)
 	if err != nil {
 		return nil, fmt.Errorf("indexing failed: %w", err)
+	}
+	// Populate unified codebase graph
+	if _, err := graph.BuildGraph(context.Background(), database, absDir); err != nil {
+		ui.Warning(fmt.Sprintf("Code graph build failed: %v", err))
 	}
 	scanResult := rebuilt.Scan
 

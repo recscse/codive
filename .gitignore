@@ -35,3 +35,6 @@ codive.log
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Website build tooling
+site-src/node_modules/

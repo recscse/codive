@@ -15,10 +15,12 @@ $TargetBin = Join-Path $InstallDir "codive.exe"
 $Installed = $false
 
 # 1. Try downloading pre-compiled binary from GitHub Releases
-$DownloadUrl = "https://github.com/recscse/codive/releases/latest/download/codive_v1.0.0_windows_amd64.zip"
-$ZipPath = Join-Path $env:TEMP "codive_v1.0.0_windows_amd64.zip"
-
 try {
+    # Asset names include the version, so find the latest release's tag first.
+    $Tag = (Invoke-RestMethod -Uri "https://api.github.com/repos/recscse/codive/releases/latest" -UseBasicParsing).tag_name
+    $AssetName = "codive_${Tag}_windows_amd64.zip"
+    $DownloadUrl = "https://github.com/recscse/codive/releases/download/$Tag/$AssetName"
+    $ZipPath = Join-Path $env:TEMP $AssetName
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $ZipPath -UseBasicParsing
     Expand-Archive -Path $ZipPath -DestinationPath $InstallDir -Force
     Remove-Item $ZipPath -Force
@@ -37,6 +39,12 @@ if (-not $Installed -and (Get-Command go -ErrorAction SilentlyContinue)) {
         Copy-Item $GoBin $TargetBin -Force
         $Installed = $true
     }
+}
+
+if (-not (Test-Path $TargetBin)) {
+    Write-Host "[ERROR] Could not download codive, and Go is not installed to build it." -ForegroundColor Red
+    Write-Host "Download it from https://github.com/recscse/codive/releases" -ForegroundColor Red
+    exit 1
 }
 
 # 3. Update User PATH environment variable

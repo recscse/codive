@@ -21,12 +21,15 @@ esac
 TARGET_BIN="${INSTALL_DIR}/codive"
 
 # 1. Try downloading pre-compiled release binary from GitHub Releases
-DOWNLOAD_URL="https://github.com/recscse/codive/releases/latest/download/codive_v1.0.0_${OS}_${ARCH}.tar.gz"
 SUCCESS=false
 
 if command -v curl >/dev/null 2>&1; then
+    # Asset names include the version, so find the latest release's tag first.
+    LATEST_URL=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/recscse/codive/releases/latest 2>/dev/null || true)
+    TAG="${LATEST_URL##*/}"
+    DOWNLOAD_URL="https://github.com/recscse/codive/releases/download/${TAG}/codive_${TAG}_${OS}_${ARCH}.tar.gz"
     TMP_DIR=$(mktemp -d)
-    if curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/codive.tar.gz" 2>/dev/null; then
+    if [ -n "$TAG" ] && curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/codive.tar.gz" 2>/dev/null; then
         tar -xzf "${TMP_DIR}/codive.tar.gz" -C "${INSTALL_DIR}"
         chmod +x "${TARGET_BIN}"
         SUCCESS=true
