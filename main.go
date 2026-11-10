@@ -70,6 +70,7 @@ func printUsage() {
 				{"ranker        ", "[reset] ", "What read_symbol intent ranking has learned (or forget it)"},
 				{"decisions     ", "[topic] ", "View recorded architectural decisions"},
 				{"clean         ", "[path]  ", "Show index disk usage, or delete one project's index"},
+				{"config        ", "[set KEY VALUE]", "Show or change this project's settings"},
 				{"logs          ", "[path]  ", "Tail recent log entries"},
 			},
 		},
@@ -415,6 +416,12 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "config":
+		if err := cmd.RunConfig(args[1:]); err != nil {
+			ui.Error(err.Error())
+			os.Exit(1)
+		}
+
 	case "clean":
 		target, assumeYes := "", false
 		for _, a := range args[1:] {
@@ -517,7 +524,7 @@ func parseWebArgs(args []string) (string, int, error) {
 			targetDir = arg
 		}
 	}
-	port := 7890
+	port := 0 // 0 means the project's configured port, or the default
 	if portStr != "" {
 		parsed, err := strconv.Atoi(portStr)
 		if err != nil || parsed < 1 || parsed > 65535 {
