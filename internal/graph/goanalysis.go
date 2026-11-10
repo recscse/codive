@@ -293,6 +293,13 @@ func importStdlib(importPath string) (pkg *types.Package, err error) {
 	return stdlibImporter.Import(importPath)
 }
 
+// StdlibAvailable reports whether standard library types can be loaded, which
+// needs a working Go toolchain.
+func StdlibAvailable() bool {
+	_, err := importStdlib("fmt")
+	return err == nil
+}
+
 // isStdlibPath reports import paths whose first element has no dot, the rule
 // the go command uses to tell the standard library from downloaded modules.
 func isStdlibPath(importPath string) bool {

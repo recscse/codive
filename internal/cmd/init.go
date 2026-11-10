@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/recscse/codive/internal/db"
-	"github.com/recscse/codive/internal/indexer"
 	"github.com/recscse/codive/internal/graph"
+	"github.com/recscse/codive/internal/indexer"
 	"github.com/recscse/codive/internal/ui"
 )
 
@@ -71,6 +71,10 @@ func indexRepositoryWithHooks(absDir string, hooks indexer.RebuildHooks) (*Index
 	if _, err := graph.BuildGraph(context.Background(), database, absDir); err != nil {
 		ui.Warning(fmt.Sprintf("Code graph build failed: %v", err))
 	}
+	for _, w := range graph.Warnings(context.Background(), database) {
+		ui.Warning(w)
+	}
+	rememberProject(absDir)
 	scanResult := rebuilt.Scan
 
 	// Determine primary language(s)

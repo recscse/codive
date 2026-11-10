@@ -69,6 +69,7 @@ func printUsage() {
 				{"stats         ", "[path]  ", "Token savings and efficiency metrics"},
 				{"ranker        ", "[reset] ", "What read_symbol intent ranking has learned (or forget it)"},
 				{"decisions     ", "[topic] ", "View recorded architectural decisions"},
+				{"clean         ", "[path]  ", "Show index disk usage, or delete one project's index"},
 				{"logs          ", "[path]  ", "Tail recent log entries"},
 			},
 		},
@@ -410,6 +411,20 @@ func main() {
 			targetDir = args[1]
 		}
 		if err := cmd.RunServe(targetDir, Version); err != nil {
+			ui.Error(err.Error())
+			os.Exit(1)
+		}
+
+	case "clean":
+		target, assumeYes := "", false
+		for _, a := range args[1:] {
+			if a == "--yes" || a == "-y" {
+				assumeYes = true
+			} else {
+				target = a
+			}
+		}
+		if err := cmd.RunClean(target, assumeYes, os.Stdin); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}

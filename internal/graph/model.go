@@ -89,6 +89,9 @@ type GraphSnapshot struct {
 	TotalNodes int    `json:"total_nodes"`
 	TotalEdges int    `json:"total_edges"`
 	Truncated  bool   `json:"truncated,omitempty"`
+	// Warnings describes known accuracy limits of this graph, such as a
+	// missing Go toolchain.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // FlowStep represents a single hop in an execution flow.
