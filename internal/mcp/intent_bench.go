@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -100,10 +101,18 @@ func rankStats(ranks []int) RankStats {
 // uses the ranker currently stored for the workspace (cold start if none)
 // and logs nothing, so running it doesn't feed the learner.
 func RunIntentBenchmark(ctx context.Context, database *sql.DB, dir string, maxCommits int) (*IntentBenchReport, error) {
-	out, err := gitOutput(ctx, dir, "log", "--no-merges", "-n", strconv.Itoa(maxCommits), "--format=%H%x1f%s")
+	// One git log for every commit's diff, and one cat-file process for every
+	// old file version: starting git per commit made a run take minutes.
+	out, err := gitOutput(ctx, dir, "log", "--no-merges", "-n", strconv.Itoa(maxCommits),
+		"-p", "-U0", "--no-color", "--no-renames", "--format=%x1e%H%x1f%P%x1f%s")
 	if err != nil {
 		return nil, err
 	}
+	blobs, err := newBlobReader(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	defer blobs.close()
 	model := loadRanker(ctx, database)
 	rep := &IntentBenchReport{Skipped: make(map[string]int), ModelVersion: model.Version}
 	current := newFileCache(dir)
@@ -114,22 +123,24 @@ func RunIntentBenchmark(ctx context.Context, database *sql.DB, dir string, maxCo
 
 	var symRanks, fileRanks, kwRanks []int
 	var latencies []time.Duration
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		hash, subject, ok := strings.Cut(line, "\x1f")
-		if !ok {
+	for _, record := range strings.Split(string(out), "\x1e")[1:] {
+		header, diff, _ := strings.Cut(record, "\n")
+		fields := strings.SplitN(header, "\x1f", 3)
+		if len(fields) != 3 {
 			continue
 		}
+		hash, parents, subject := fields[0], fields[1], fields[2]
 		rep.CommitsScanned++
+		if parents == "" {
+			rep.Skipped["root commit (no diff to learn from)"]++
+			continue
+		}
 		query, reason := benchQuery(subject)
 		if reason != "" {
 			rep.Skipped[reason]++
 			continue
 		}
-		answers, err := changedDefinitions(ctx, dir, hash, current)
-		if err != nil {
-			rep.Skipped["diff unavailable (e.g. root commit)"]++
-			continue
-		}
+		answers := changedDefinitions(hash, []byte(diff), current, blobs)
 		if len(answers) == 0 {
 			rep.Skipped["changed no definition that still exists"]++
 			continue
@@ -210,11 +221,7 @@ func benchQuery(subject string) (query, skip string) {
 // changed and that still exist with the same name, kind, and file. A type
 // is left out when a definition inside it changed, since the inner one is
 // the precise answer.
-func changedDefinitions(ctx context.Context, dir, hash string, current *fileCache) (map[string]bool, error) {
-	diff, err := gitOutput(ctx, dir, "diff", "-U0", "--no-color", "--no-renames", hash+"^", hash)
-	if err != nil {
-		return nil, err
-	}
+func changedDefinitions(hash string, diff []byte, current *fileCache, blobs *blobReader) map[string]bool {
 	answers := make(map[string]bool)
 	for path, hunks := range parseNewSideHunks(diff) {
 		now, err := current.get(path)
@@ -225,7 +232,7 @@ func changedDefinitions(ctx context.Context, dir, hash string, current *fileCach
 		for _, s := range now.syms {
 			exists[s.Name+"\x00"+s.Kind] = true
 		}
-		then, err := gitOutput(ctx, dir, "show", hash+":"+path)
+		then, err := blobs.read(hash + ":" + path)
 		if err != nil {
 			continue
 		}
@@ -270,7 +277,62 @@ func changedDefinitions(ctx context.Context, dir, hash string, current *fileCach
 			}
 		}
 	}
-	return answers, nil
+	return answers
+}
+
+// blobReader reads file versions from one long-running `git cat-file --batch`.
+type blobReader struct {
+	cmd *exec.Cmd
+	in  io.WriteCloser
+	out *bufio.Reader
+}
+
+func newBlobReader(ctx context.Context, dir string) (*blobReader, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "cat-file", "--batch")
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("git cat-file: %w", err)
+	}
+	return &blobReader{cmd: cmd, in: in, out: bufio.NewReaderSize(out, 1<<20)}, nil
+}
+
+// read returns the content of object, such as "<commit>:<path>".
+func (b *blobReader) read(object string) ([]byte, error) {
+	if _, err := io.WriteString(b.in, object+"\n"); err != nil {
+		return nil, err
+	}
+	header, err := b.out.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.Fields(header)
+	if len(fields) != 3 {
+		return nil, fmt.Errorf("git cat-file: %s", strings.TrimSpace(header))
+	}
+	size, err := strconv.Atoi(fields[2])
+	if err != nil {
+		return nil, err
+	}
+	data := make([]byte, size+1) // content plus its trailing newline
+	if _, err := io.ReadFull(b.out, data); err != nil {
+		return nil, err
+	}
+	if fields[1] != "blob" {
+		return nil, fmt.Errorf("%s is a %s, not a file", object, fields[1])
+	}
+	return data[:size], nil
+}
+
+func (b *blobReader) close() {
+	b.in.Close()
+	_ = b.cmd.Wait()
 }
 
 var hunkHeader = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@`)
