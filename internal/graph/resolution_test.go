@@ -272,6 +272,18 @@ func TestStdlibTypesAndFunctionValues(t *testing.T) {
 	}
 }
 
+func TestToolchainWarningRecorded(t *testing.T) {
+	database, _, s := buildFixture(t)
+	got := Warnings(context.Background(), database)
+	if StdlibAvailable() {
+		if len(got) != 0 || len(s.Warnings) != 0 {
+			t.Errorf("toolchain present, expected no warnings, got %v", got)
+		}
+	} else if len(got) != 1 || got[0] != MissingToolchainWarning {
+		t.Errorf("toolchain missing, expected the warning, got %v", got)
+	}
+}
+
 func TestAnalyzeBlast(t *testing.T) {
 	database, root, _ := buildFixture(t)
 	ctx := context.Background()

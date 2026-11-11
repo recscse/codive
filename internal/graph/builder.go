@@ -399,6 +399,16 @@ func BuildGraph(ctx context.Context, database *sql.DB, rootDir string) (*GraphSn
 	if err := saveGraphToDB(ctx, database, nodes, edges); err != nil {
 		return nil, fmt.Errorf("failed to save graph to database: %w", err)
 	}
+	stdlib := ""
+	if hasGoFiles(allFiles) {
+		stdlib = "ok"
+		if !StdlibAvailable() {
+			stdlib = "missing"
+		}
+	}
+	if err := db.SetMeta(ctx, database, graphStdlibKey, stdlib); err != nil {
+		return nil, fmt.Errorf("failed to record toolchain status: %w", err)
+	}
 	if err := db.SetMeta(ctx, database, graphFingerprintKey, filesFingerprint(allFiles)); err != nil {
 		return nil, fmt.Errorf("failed to record graph fingerprint: %w", err)
 	}
@@ -452,7 +462,22 @@ func dedupeEdges(edges []Edge) []Edge {
 	return unique
 }
 
-const graphFingerprintKey = "graph_files_fingerprint"
+const (
+	graphFingerprintKey = "graph_files_fingerprint"
+	graphStdlibKey      = "graph_stdlib_types"
+)
+
+// MissingToolchainWarning explains the accuracy cost of indexing Go code
+// without a Go toolchain, where standard library types can't be loaded.
+const MissingToolchainWarning = "Go toolchain not found, so standard library types weren't loaded and some Go callers may be missing. Install Go (https://go.dev/dl/) and run codive reindex for full results."
+
+// Warnings lists accuracy problems recorded when the graph was last built.
+func Warnings(ctx context.Context, database *sql.DB) []string {
+	if v, _ := db.GetMeta(ctx, database, graphStdlibKey); v == "missing" {
+		return []string{MissingToolchainWarning}
+	}
+	return nil
+}
 
 // filesFingerprint changes whenever an indexed file is added, removed or modified.
 func filesFingerprint(allFiles map[string]db.FileRecord) string {
@@ -483,6 +508,15 @@ func EnsureFresh(ctx context.Context, database *sql.DB, rootDir string) error {
 	}
 	_, err = BuildGraph(ctx, database, rootDir)
 	return err
+}
+
+func hasGoFiles(allFiles map[string]db.FileRecord) bool {
+	for _, rec := range allFiles {
+		if rec.Language == "Go" {
+			return true
+		}
+	}
+	return false
 }
 
 func saveGraphToDB(ctx context.Context, database *sql.DB, nodes []Node, edges []Edge) error {
@@ -616,6 +650,7 @@ func LoadGraph(ctx context.Context, database *sql.DB, limit int) (*GraphSnapshot
 	return &GraphSnapshot{
 		Nodes:      nodes,
 		Edges:      edges,
+		Warnings:   Warnings(ctx, database),
 		TotalNodes: totalNodes,
 		TotalEdges: totalEdges,
 		Truncated:  totalNodes > len(nodes),

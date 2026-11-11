@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/recscse/codive/internal/config"
 	"github.com/recscse/codive/internal/db"
 	"github.com/recscse/codive/internal/indexer"
 )
@@ -29,7 +30,11 @@ func RunWatch(targetDir string, pollInterval time.Duration) error {
 	}
 
 	if pollInterval <= 0 {
-		pollInterval = 2 * time.Second
+		settings, err := config.Load(absDir)
+		if err != nil {
+			return err
+		}
+		pollInterval = settings.EffectiveWatchInterval()
 	}
 
 	database, err := db.Open(dbPath)

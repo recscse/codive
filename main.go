@@ -14,7 +14,7 @@ import (
 
 // Build metadata injected via -ldflags during build
 var (
-	Version   = "v1.3.0"
+	Version   = "v1.3.2"
 	GitCommit = "none"
 	BuildDate = "2026-10-23"
 )
@@ -70,6 +70,8 @@ func printUsage() {
 				{"ranker        ", "[history|reset]", "What intent ranking has learned; learn from git history; forget it"},
 				{"bench         ", "[path] [commits] [misses]", "Measure intent search using the repo's own git history"},
 				{"decisions     ", "[topic] ", "View recorded architectural decisions"},
+				{"clean         ", "[path]  ", "Show index disk usage, or delete one project's index"},
+				{"config        ", "[set KEY VALUE]", "Show or change this project's settings"},
 				{"logs          ", "[path]  ", "Tail recent log entries"},
 			},
 		},
@@ -435,6 +437,26 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "config":
+		if err := cmd.RunConfig(args[1:]); err != nil {
+			ui.Error(err.Error())
+			os.Exit(1)
+		}
+
+	case "clean":
+		target, assumeYes := "", false
+		for _, a := range args[1:] {
+			if a == "--yes" || a == "-y" {
+				assumeYes = true
+			} else {
+				target = a
+			}
+		}
+		if err := cmd.RunClean(target, assumeYes, os.Stdin); err != nil {
+			ui.Error(err.Error())
+			os.Exit(1)
+		}
+
 	case "upgrade", "self-update":
 		if err := cmd.RunUpgrade(Version); err != nil {
 			ui.Error(err.Error())
@@ -523,7 +545,7 @@ func parseWebArgs(args []string) (string, int, error) {
 			targetDir = arg
 		}
 	}
-	port := 7890
+	port := 0 // 0 means the project's configured port, or the default
 	if portStr != "" {
 		parsed, err := strconv.Atoi(portStr)
 		if err != nil || parsed < 1 || parsed > 65535 {

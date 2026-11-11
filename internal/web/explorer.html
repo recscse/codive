@@ -581,7 +581,13 @@ document.addEventListener("keydown", e => {
 
 /* ---------- plumbing ---------- */
 async function fetchJSON(url) {
-  const res = await fetch(url);
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    // The browser couldn't reach the server, usually because codive web stopped.
+    throw new Error("Can't reach codive web at " + location.host + ". It may have stopped: run codive web again, then reload this page.");
+  }
   if (!res.ok) throw new Error((await res.text()).trim() || "HTTP " + res.status);
   return res.json();
 }
@@ -607,7 +613,13 @@ async function start() {
     }
     const count = kind => state.nodes.filter(n => n.kind === kind).length;
     $("stats").textContent = count("file") + " files · " + (state.nodes.filter(n => SYMBOL_KINDS.has(n.kind)).length) + " symbols";
-    if (graph.truncated) {
+    const notices = [...(graph.warnings || [])];
+    if (graph.truncated) notices.push("Large repo: showing " + state.nodes.length + " of " + graph.total_nodes + " graph nodes. Some symbols and links are not listed here.");
+    if (notices.length) {
+      $("notice").textContent = notices.join(" ");
+      $("notice").hidden = false;
+    }
+    if (false) {
       $("notice").textContent = "Large repo: showing " + state.nodes.length + " of " + graph.total_nodes + " graph nodes. Some symbols and links are not listed here.";
       $("notice").hidden = false;
     }

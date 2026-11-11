@@ -20,6 +20,7 @@ type BlastResult struct {
 	Symbol           string          `json:"symbol"`
 	Method           string          `json:"method"`
 	TotalDefinitions int             `json:"total_definitions"`
+	Warnings         []string        `json:"warnings,omitempty"`
 	Definitions      []*ImpactReport `json:"definitions"`
 }
 
@@ -78,7 +79,7 @@ func AnalyzeBlast(ctx context.Context, database *sql.DB, rootDir, symbol string)
 	sort.SliceStable(reports, func(i, j int) bool {
 		return len(reports[i].DirectCallers)+len(reports[i].Transitive) > len(reports[j].DirectCallers)+len(reports[j].Transitive)
 	})
-	result := &BlastResult{Symbol: name, Method: "type_checked_call_graph", TotalDefinitions: len(reports), Definitions: reports}
+	result := &BlastResult{Symbol: name, Method: "type_checked_call_graph", TotalDefinitions: len(reports), Definitions: reports, Warnings: Warnings(ctx, database)}
 	if len(reports) > maxBlastDefinitions {
 		result.Definitions = reports[:maxBlastDefinitions]
 	}
@@ -102,6 +103,9 @@ func (r *BlastResult) Format() string {
 	}
 	if hidden := r.TotalDefinitions - len(r.Definitions); hidden > 0 {
 		fmt.Fprintf(&sb, "\n%d more definition(s) with fewer callers not shown.\n", hidden)
+	}
+	for _, w := range r.Warnings {
+		fmt.Fprintf(&sb, "\nWarning: %s\n", w)
 	}
 	sb.WriteString("\nThese are known callers, not a guarantee: calls through standard library interfaces and reflection are not included.")
 	return sb.String()
