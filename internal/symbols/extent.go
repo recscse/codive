@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"sort"
 	"strings"
 
 	"github.com/recscse/codive/internal/db"
@@ -21,6 +22,24 @@ const maxLeadingContextLines = 40
 // the range came from a real parser (Go) rather than a lexical heuristic.
 func SymbolExtent(language string, content []byte, sym db.SymbolRecord, nextDecl int) (start, end int, exact bool) {
 	return newExtentFinder(language, content).extent(sym, nextDecl)
+}
+
+// Extents returns the [start, end] lines of every symbol in syms, all
+// declared in content, splitting and parsing the file only once. A symbol
+// whose extent can't be found gets [0, 0].
+func Extents(language string, content []byte, syms []db.SymbolRecord) [][2]int {
+	f := newExtentFinder(language, content)
+	decls := make([]int, len(syms))
+	for i, s := range syms {
+		decls[i] = s.LineNumber
+	}
+	sort.Ints(decls)
+	out := make([][2]int, len(syms))
+	for i, s := range syms {
+		start, end, _ := f.extent(s, nextDecl(decls, s.LineNumber))
+		out[i] = [2]int{start, end}
+	}
+	return out
 }
 
 // extentFinder computes extents of many symbols in one file, splitting (and,

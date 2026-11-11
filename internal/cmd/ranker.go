@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/indexer"
+	"github.com/recscse/codive/internal/mcp"
 	"github.com/recscse/codive/internal/ranker"
 	"github.com/recscse/codive/internal/ui"
 )
@@ -22,6 +24,9 @@ type RankerReport struct {
 	ColdStart       map[string]float64 `json:"cold_start_weights"`
 	NeededToTrain   int                `json:"queries_needed_before_training"`
 }
+
+// historyCommits is how many recent commits `codive ranker history` learns from.
+const historyCommits = 1000
 
 // RunRanker prints (action "status") or forgets (action "reset") what the
 // intent ranker has learned in targetDir's index.
@@ -48,9 +53,28 @@ func RunRanker(targetDir, action string, asJSON bool) error {
 		}
 		ui.Success("Forgot all intent feedback; read_symbol intent ranking is back to its starting weights.")
 		return nil
+	case "history":
+		if _, err := indexer.Sync(ctx, database, absDir); err != nil {
+			return err
+		}
+		current, trained, adopted, n, err := mcp.LearnFromHistory(ctx, database, absDir, historyCommits)
+		if err != nil {
+			return err
+		}
+		switch {
+		case n < ranker.MinExamples:
+			ui.Warning(fmt.Sprintf("Only %d usable commits in the last %d (need %d); kept the current ranker.", n, historyCommits, ranker.MinExamples))
+		case !adopted:
+			ui.Info(fmt.Sprintf("Trained on %d commits, but the result didn't rank held-out commits better; kept the current ranker (version %d).", n, current.Version))
+		default:
+			ui.Success(fmt.Sprintf("Trained on %d commits and saved as version %d. Held-out commits: MRR %.2f (starting weights %.2f).",
+				n, trained.Version, trained.HoldoutMRR, trained.BaselineMRR))
+			fmt.Println("  Note: `codive bench` scores on these same commits now look better than they are; use CODIVE_LEARNING=off codive bench for the starting weights.")
+		}
+		return nil
 	case "", "status":
 	default:
-		return fmt.Errorf("unknown ranker action %q (use status or reset)", action)
+		return fmt.Errorf("unknown ranker action %q (use status, history, or reset)", action)
 	}
 
 	stats, err := db.GetLearningStats(ctx, database)
