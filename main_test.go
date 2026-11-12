@@ -3,8 +3,25 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// Releases are published automatically when main.go's Version has no release
+// yet, and the notes come from CHANGELOG.md. Fail here, on the PR, if the
+// version has no changelog section instead of failing after the merge.
+func TestVersionHasChangelogEntry(t *testing.T) {
+	data, err := os.ReadFile("CHANGELOG.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(Version, "v") {
+		t.Fatalf("Version %q must start with v", Version)
+	}
+	if !strings.Contains(string(data), "## ["+Version+"]") {
+		t.Errorf("CHANGELOG.md has no '## [%s]' section; add release notes for this version", Version)
+	}
+}
 
 func TestLogDirFor(t *testing.T) {
 	tempDir := t.TempDir()

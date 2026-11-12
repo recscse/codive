@@ -1,18 +1,63 @@
 name: Release codive Binaries
 
+# Releases are automatic. Merging to main publishes a release whenever the
+# Version in main.go has no release yet. Pushing a v* tag by hand still works.
+# Release notes come from the matching CHANGELOG.md section, followed by the
+# auto-generated list of merged PRs and commits.
 on:
   push:
+    branches: [ main ]
     tags:
       - 'v*'
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  # Decides whether this push is a release and which tag it is.
+  prepare:
+    name: Decide release
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.decide.outputs.release }}
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: decide
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG=${GITHUB_REF#refs/tags/}
+          else
+            TAG=$(sed -n 's/^[[:space:]]*Version[[:space:]]*=[[:space:]]*"\(v[0-9][^"]*\)".*/\1/p' main.go | head -1)
+          fi
+          if [ -z "$TAG" ]; then echo "could not determine version"; exit 1; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" != refs/tags/* ]] && gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to publish."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Never publish a release that has no written changelog entry.
+          if ! grep -qE "^## \[v?${TAG#v}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [$TAG]' section. Add release notes before releasing."
+            exit 1
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   # Nothing is built or published unless the full suite (including the upgrade
   # integration tests) passes on every OS we ship for.
   test:
     name: Pre-release tests (${{ matrix.os }})
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
@@ -29,8 +74,10 @@ jobs:
 
   build:
     name: Build Binaries
-    needs: test
+    needs: [ prepare, test ]
     runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ needs.prepare.outputs.tag }}
     strategy:
       matrix:
         include:
@@ -71,7 +118,6 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
           OUTPUT_NAME="codive${{ matrix.ext }}"
           mkdir -p dist
           go build -ldflags="-s -w -X main.Version=${TAG_NAME} -X main.GitCommit=${{ github.sha }} -X main.BuildDate=$(date -u +%Y-%m-%d)" -o dist/${OUTPUT_NAME} .
@@ -86,7 +132,6 @@ jobs:
       - name: Package Binary (Windows Zip)
         if: matrix.archive == 'zip'
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
           cd dist
           ARCHIVE_NAME="codive_${TAG_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}.zip"
           zip -j "$ARCHIVE_NAME" codive.exe
@@ -96,7 +141,6 @@ jobs:
       - name: Package Binary (Unix Tar.gz)
         if: matrix.archive == 'tar.gz'
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
           cd dist
           ARCHIVE_NAME="codive_${TAG_NAME}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz"
           tar -czvf "$ARCHIVE_NAME" codive
@@ -115,8 +159,10 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: build
+    needs: [ prepare, build ]
     runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ needs.prepare.outputs.tag }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -138,7 +184,6 @@ jobs:
 
       - name: Extract Release Notes from CHANGELOG.md
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
           python3 -c "
           import sys, re
           tag = sys.argv[1].lstrip('v')
@@ -152,19 +197,23 @@ jobs:
                   notes = m.group(1).strip()
           except Exception as e:
               print(f'Error reading CHANGELOG: {e}', file=sys.stderr)
-          
+
           if not notes:
               notes = f'Release {tag} of codive.'
-          
+
           with open('RELEASE_NOTES.md', 'w', encoding='utf-8') as out:
               out.write(notes + '\n\n')
           print(f'Successfully prepared release notes for {tag}')
           " "$TAG_NAME"
 
+      # tag_name + target_commitish create the tag on this commit when the
+      # release was triggered by a merge to main instead of a pushed tag.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ needs.prepare.outputs.tag }}
           body_path: RELEASE_NOTES.md
           generate_release_notes: true
           files: |
@@ -179,8 +228,10 @@ jobs:
   # do (versioned asset name + .sha256), verify, extract, and run it on each OS.
   verify:
     name: Verify published release (${{ matrix.os }})
-    needs: publish
+    needs: [ prepare, publish ]
     runs-on: ${{ matrix.os }}
+    env:
+      TAG_NAME: ${{ needs.prepare.outputs.tag }}
     strategy:
       matrix:
         include:
@@ -196,7 +247,7 @@ jobs:
     steps:
       - name: Download, checksum, extract, run
         run: |
-          TAG=${GITHUB_REF#refs/tags/}
+          TAG=$TAG_NAME
           NAME="codive_${TAG}_${{ matrix.asset }}"
           URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${NAME}"
           mkdir verify && cd verify

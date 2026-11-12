@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.3.3] - 2026-11-12
+
+### Fixed
+- **`codive upgrade` no longer fails on slower networks or hides why it failed.** A single 10-second timeout covered the whole download, so the 6.5 MB release archive could time out, and every failure was reported as "asset not found" with advice to run `go install`. The version check (15 s) and the download (5 min) now have separate timeouts, transient errors and 5xx responses are retried 3 times, the real cause (for example `HTTP 404` or a timeout) is printed, and the command exits non-zero on failure. The fallback hint now points to the installer (`irm https://recscse.github.io/codive/install.ps1 | iex` or `curl -fsSL https://recscse.github.io/codive/install.sh | sh`) and the releases page, so users no longer need Go installed. If you are on v1.2.0, run the installer once to get this fix.
+
+### Changed
+- **Releases are automatic.** Merging to `main` with a new `Version` in `main.go` runs the tests on Linux, macOS and Windows, builds all five platform archives with SHA-256 files, publishes the GitHub release with these notes plus the generated list of merged changes, and then downloads the published archives on each OS to check the checksum and that the binary runs. A version without a changelog section stops the release, and a test catches it on the PR.
+- CI now runs on every push, not just on `main`.
+
 ### Added
 - **`codive bench` measures intent search on the repository's own history.** Each recent commit becomes a question: the subject (minus prefixes such as `fix(mcp):`) is the query, and the definitions the commit changed, if they still exist, are the right answers. Docs, chore, merge and broad-refactor commits are skipped. The report shows how often the right function and the right file rank 1st, in the top 3 and in the top 10, next to a grep-style baseline that ranks files by how often the query's words appear. It logs nothing, so it never feeds the ranker. Measured with the starting weights:
   - go-chi/chi, 306 questions: the right function ranked first 35% of the time and in the top 3 53%. The right file ranked first 51% of the time, against 17% for the grep-style baseline.
