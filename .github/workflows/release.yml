@@ -9,8 +9,27 @@ permissions:
   contents: write
 
 jobs:
+  # Nothing is built or published unless the full suite (including the upgrade
+  # integration tests) passes on every OS we ship for.
+  test:
+    name: Pre-release tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          check-latest: true
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+
   build:
     name: Build Binaries
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -155,3 +174,41 @@ jobs:
             dist/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Post-publish check: download the release exactly as users and `codive upgrade`
+  # do (versioned asset name + .sha256), verify, extract, and run it on each OS.
+  verify:
+    name: Verify published release (${{ matrix.os }})
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: linux_amd64.tar.gz
+          - os: macos-latest
+            asset: darwin_arm64.tar.gz
+          - os: windows-latest
+            asset: windows_amd64.zip
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download, checksum, extract, run
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          NAME="codive_${TAG}_${{ matrix.asset }}"
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${NAME}"
+          mkdir verify && cd verify
+          curl -fsSL --retry 5 --retry-delay 5 -o "$NAME" "$URL"
+          curl -fsSL --retry 5 --retry-delay 5 -o "$NAME.sha256" "$URL.sha256"
+          EXPECTED=$(cut -d' ' -f1 "$NAME.sha256")
+          ACTUAL=$(openssl dgst -sha256 "$NAME" | awk '{print $NF}')
+          [ "$EXPECTED" = "$ACTUAL" ] || { echo "checksum mismatch"; exit 1; }
+          case "$NAME" in
+            *.zip) unzip -o "$NAME"; BIN=./codive.exe ;;
+            *)     tar -xzf "$NAME"; BIN=./codive ;;
+          esac
+          OUT=$("$BIN" version --no-color)
+          echo "$OUT"
+          echo "$OUT" | grep -q "${TAG#v}" || { echo "binary does not report ${TAG}"; exit 1; }

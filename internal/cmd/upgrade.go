@@ -29,31 +29,85 @@ type githubRelease struct {
 	HTMLURL string `json:"html_url"`
 }
 
+const (
+	releasesPage     = "https://github.com/recscse/codive/releases/latest"
+	downloadAttempts = 3
+)
+
+// upgrader holds everything RunUpgrade touches outside the process so the whole
+// flow can be exercised against a fake release server in tests.
+type upgrader struct {
+	apiURL       string // latest-release JSON endpoint
+	downloadBase string // releases/download base; "<base>/<tag>/<asset>"
+	apiClient    *http.Client
+	dlClient     *http.Client // long timeout: a release archive is several MB
+	exePath      string
+	goos, goarch string
+	smoke        func(path string) error
+	retryDelay   time.Duration
+}
+
+func defaultUpgrader() (*upgrader, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("failed to locate current executable: %w", err)
+	}
+	exePath, _ = filepath.Abs(exePath)
+	return &upgrader{
+		apiURL:       "https://api.github.com/repos/recscse/codive/releases/latest",
+		downloadBase: "https://github.com/recscse/codive/releases/download",
+		apiClient:    &http.Client{Timeout: 15 * time.Second},
+		dlClient:     &http.Client{Timeout: 5 * time.Minute},
+		exePath:      exePath,
+		goos:         runtime.GOOS,
+		goarch:       runtime.GOARCH,
+		smoke:        smokeTestBinary,
+		retryDelay:   2 * time.Second,
+	}, nil
+}
+
 // RunUpgrade checks GitHub for the latest release and self-updates the binary in-place.
 func RunUpgrade(currentVersion string) error {
+	u, err := defaultUpgrader()
+	if err != nil {
+		return err
+	}
+	return u.run(currentVersion)
+}
+
+// manualInstallHelp tells the user how to upgrade without a Go toolchain.
+func manualInstallHelp() {
+	fmt.Println("  Upgrade manually (no Go needed) by re-running the installer:")
+	fmt.Println("    Windows PowerShell: irm https://recscse.github.io/codive/install.ps1 | iex")
+	fmt.Println("    macOS / Linux:      curl -fsSL https://recscse.github.io/codive/install.sh | sh")
+	fmt.Println("  or download the archive for your platform from " + releasesPage)
+}
+
+func (u *upgrader) run(currentVersion string) error {
 	ui.Header("codive — Self-Update & Version Check")
 	ui.Divider()
 	ui.KeyValue("Current Version", currentVersion)
-	ui.KeyValue("Platform", fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH))
+	ui.KeyValue("Platform", fmt.Sprintf("%s/%s", u.goos, u.goarch))
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest("GET", "https://api.github.com/repos/recscse/codive/releases/latest", nil)
+	req, err := http.NewRequest("GET", u.apiURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create update request: %w", err)
 	}
 	req.Header.Set("User-Agent", "codive-cli")
+	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := client.Do(req)
+	resp, err := u.apiClient.Do(req)
 	if err != nil {
-		ui.Warning(fmt.Sprintf("Could not connect to GitHub API: %v", err))
-		fmt.Println("  You can upgrade manually by running: go install github.com/recscse/codive@latest")
-		return nil
+		ui.Warning(fmt.Sprintf("Could not reach GitHub to check for updates: %v", err))
+		manualInstallHelp()
+		return fmt.Errorf("update check failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		ui.Info(fmt.Sprintf("GitHub API returned HTTP %d. Already on official release (%s).", resp.StatusCode, currentVersion))
-		return nil
+		ui.Warning(fmt.Sprintf("GitHub returned HTTP %d while checking for updates (rate limit or outage).", resp.StatusCode))
+		manualInstallHelp()
+		return fmt.Errorf("update check failed: HTTP %d", resp.StatusCode)
 	}
 
 	var rel githubRelease
@@ -72,42 +126,27 @@ func RunUpgrade(currentVersion string) error {
 	}
 
 	ui.Info(fmt.Sprintf("New version available: %s -> %s", currentVersion, latestTag))
-	fmt.Println("  Downloading update from GitHub Releases...")
 
-	exePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to locate current executable: %w", err)
-	}
-	exePath, _ = filepath.Abs(exePath)
-
-	// Construct asset download URL
 	var assetName string
-	if runtime.GOOS == "windows" {
-		assetName = fmt.Sprintf("codive_%s_windows_%s.zip", latestTag, runtime.GOARCH)
+	if u.goos == "windows" {
+		assetName = fmt.Sprintf("codive_%s_windows_%s.zip", latestTag, u.goarch)
 	} else {
-		assetName = fmt.Sprintf("codive_%s_%s_%s.tar.gz", latestTag, runtime.GOOS, runtime.GOARCH)
+		assetName = fmt.Sprintf("codive_%s_%s_%s.tar.gz", latestTag, u.goos, u.goarch)
 	}
+	downloadURL := fmt.Sprintf("%s/%s/%s", u.downloadBase, latestTag, assetName)
 
-	downloadURL := fmt.Sprintf("https://github.com/recscse/codive/releases/download/%s/%s", latestTag, assetName)
-
-	dlResp, err := client.Get(downloadURL)
-	if err != nil || dlResp.StatusCode != http.StatusOK {
-		// Fallback to Go install if direct asset download is unavailable
-		ui.Warning(fmt.Sprintf("Binary asset '%s' not found on release. Falling back to Go install...", assetName))
-		fmt.Println("  Run: go install github.com/recscse/codive@latest")
-		return nil
-	}
-	defer dlResp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(dlResp.Body)
+	fmt.Printf("  Downloading %s ...\n", assetName)
+	bodyBytes, err := u.download(downloadURL)
 	if err != nil {
-		return fmt.Errorf("failed to read downloaded binary: %w", err)
+		ui.Warning(fmt.Sprintf("Could not download %s: %v", assetName, err))
+		manualInstallHelp()
+		return fmt.Errorf("download failed: %w", err)
 	}
 
 	// Integrity check against the release's published checksum. This catches
 	// corrupted or truncated downloads; it can't prove authenticity, since
 	// the checksum comes from the same release.
-	switch expected, err := fetchChecksum(client, downloadURL+".sha256"); {
+	switch expected, err := fetchChecksum(u.dlClient, downloadURL+".sha256"); {
 	case err != nil:
 		ui.Warning(fmt.Sprintf("No checksum published for %s (%v); the download could not be verified.", assetName, err))
 	case !checksumMatches(bodyBytes, expected):
@@ -116,56 +155,20 @@ func RunUpgrade(currentVersion string) error {
 		ui.Info("Checksum verified (SHA-256).")
 	}
 
-	var newBinaryBytes []byte
-	if runtime.GOOS == "windows" {
-		zipReader, err := zip.NewReader(bytes.NewReader(bodyBytes), int64(len(bodyBytes)))
-		if err != nil {
-			return fmt.Errorf("failed to parse zip archive: %w", err)
-		}
-		for _, f := range zipReader.File {
-			if strings.HasSuffix(f.Name, "codive.exe") || f.Name == "codive.exe" {
-				rc, err := f.Open()
-				if err != nil {
-					return err
-				}
-				newBinaryBytes, err = io.ReadAll(rc)
-				rc.Close()
-				break
-			}
-		}
-	} else {
-		gzReader, err := gzip.NewReader(bytes.NewReader(bodyBytes))
-		if err != nil {
-			return fmt.Errorf("failed to parse tar.gz archive: %w", err)
-		}
-		tarReader := tar.NewReader(gzReader)
-		for {
-			hdr, err := tarReader.Next()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return err
-			}
-			if strings.HasSuffix(hdr.Name, "codive") {
-				newBinaryBytes, err = io.ReadAll(tarReader)
-				break
-			}
-		}
-	}
-
-	if len(newBinaryBytes) == 0 {
-		return fmt.Errorf("could not extract codive executable from download archive")
+	newBinaryBytes, err := extractBinary(bodyBytes, u.goos)
+	if err != nil {
+		return err
 	}
 
 	// Stage the new binary and make sure it actually runs on this machine
 	// before replacing the working one, so a bad download can't leave the
 	// user without a usable codive.
+	exePath := u.exePath
 	newExePath := exePath + ".new"
 	if err := os.WriteFile(newExePath, newBinaryBytes, 0755); err != nil {
 		return fmt.Errorf("failed to stage updated binary: %w", err)
 	}
-	if err := smokeTestBinary(newExePath); err != nil {
+	if err := u.smoke(newExePath); err != nil {
 		_ = os.Remove(newExePath)
 		return fmt.Errorf("downloaded binary failed to run (%v); nothing was changed", err)
 	}
@@ -188,6 +191,89 @@ func RunUpgrade(currentVersion string) error {
 
 	ui.Success(fmt.Sprintf("Successfully upgraded codive to %s at %s!", latestTag, exePath))
 	return nil
+}
+
+// download fetches url, retrying transient failures (network errors, 5xx).
+// A 4xx is final. The returned error says what actually went wrong.
+func (u *upgrader) download(url string) ([]byte, error) {
+	var lastErr error
+	for attempt := 1; attempt <= downloadAttempts; attempt++ {
+		if attempt > 1 {
+			time.Sleep(u.retryDelay)
+		}
+		resp, err := u.dlClient.Get(url)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+			if resp.StatusCode < 500 {
+				return nil, lastErr
+			}
+			continue
+		}
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("download interrupted: %w", err)
+			continue
+		}
+		return data, nil
+	}
+	return nil, lastErr
+}
+
+// extractBinary pulls the codive executable out of a release archive.
+func extractBinary(archive []byte, goos string) ([]byte, error) {
+	var out []byte
+	if goos == "windows" {
+		zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse zip archive: %w", err)
+		}
+		for _, f := range zr.File {
+			if f.Name == "codive.exe" || strings.HasSuffix(f.Name, "/codive.exe") {
+				rc, err := f.Open()
+				if err != nil {
+					return nil, err
+				}
+				out, err = io.ReadAll(rc)
+				rc.Close()
+				if err != nil {
+					return nil, fmt.Errorf("failed to read codive.exe from archive: %w", err)
+				}
+				break
+			}
+		}
+	} else {
+		gz, err := gzip.NewReader(bytes.NewReader(archive))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse tar.gz archive: %w", err)
+		}
+		tr := tar.NewReader(gz)
+		for {
+			hdr, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+			if hdr.Name == "codive" || strings.HasSuffix(hdr.Name, "/codive") {
+				out, err = io.ReadAll(tr)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read codive from archive: %w", err)
+				}
+				break
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("could not extract codive executable from download archive")
+	}
+	return out, nil
 }
 
 // fetchChecksum downloads a "<hex digest>  <file name>" checksum file (the
