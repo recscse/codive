@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/recscse/codive/internal/symbols"
 )
 
 type BenchmarkCase struct {
@@ -200,24 +202,31 @@ func main() {
 	})
 
 	// -------------------------------------------------------------------------
-	// Test 5: Structural File Exploration (1,800-line server.go)
+	// Test 5: Structural File Outline (internal/mcp/server.go)
 	// -------------------------------------------------------------------------
 	fmt.Println("▶ Running Test 5: File Outline & Context Extraction (server.go)...")
 	serverPath := filepath.Join(repoDir, "internal", "mcp", "server.go")
 	serverContent, _ := os.ReadFile(serverPath)
 	stdTok5 := estimateTokens(string(serverContent))
-	cdvOut5, cdvLat5, _ := runCmd(codiveBin, "pack", "server", repoDir)
+	// The outline is what get_file_skeleton returns, produced by the same
+	// generator (the MCP tool adds a one-line size footer). There is no CLI
+	// command for it, so it is called directly and its time is the in-process
+	// generation time, not a process start.
+	outlineStart := time.Now()
+	cdvOut5 := symbols.GenerateSkeleton("internal/mcp/server.go", "Go", serverContent, nil)
+	cdvLat5 := float64(time.Since(outlineStart).Microseconds()) / 1000.0
 	cdvTok5 := estimateTokens(cdvOut5)
+	serverLines := symbols.CountLines(serverContent)
 	sav5 := 0.0
 	if stdTok5 > 0 {
 		sav5 = (1.0 - float64(cdvTok5)/float64(stdTok5)) * 100.0
 	}
 	cases = append(cases, BenchmarkCase{
-		Name:            "Structural File Skeletons (1,806 lines)",
+		Name:            fmt.Sprintf("File Outline (%d lines)", serverLines),
 		Category:        "Context Compression",
 		StandardTool:    "cat / read_file",
 		StandardCommand: "read_file('internal/mcp/server.go')",
-		CodiveCommand:   "codive pack server",
+		CodiveCommand:   "get_file_skeleton('internal/mcp/server.go')",
 		StandardLatency: 15.0, // fast disk read
 		CodiveLatency:   cdvLat5,
 		StandardChars:   len(serverContent),

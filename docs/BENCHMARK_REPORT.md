@@ -14,39 +14,42 @@ This report evaluates **`codive`** against standard developer tools (`git grep`,
 
 ### Key Takeaways
 - **Limits of this benchmark:** it measures one repo (codive), estimates tokens as characters / 4, and compares CLI output size. It does not measure whether an agent finishes real tasks with fewer tokens.
-- **Aggregate:** 89.2% smaller output across these five commands. Two large cases dominate this total, and the other three favor `git grep`, so do not read it as typical savings.
-- **Git Changes / PR Review:** **98.3% token reduction** (14,122 tokens down to 235 tokens) by summarizing uncommitted diffs to their enclosing AST functions rather than raw patch text.
-- **Large File Skeletons:** **86.3% token reduction** on an 1,806-line file (`internal/mcp/server.go`) by substituting method bodies with line boundaries.
+- **Aggregate:** 92.4% smaller output across these five cases (55,804 tokens down to 4,257). Two large cases dominate this total, and the references case is larger than `git grep`, so do not read it as typical savings.
+- **Git Changes / PR Review:** **94.8% token reduction** (36,661 tokens down to 1,906 tokens) by summarizing uncommitted diffs to their enclosing AST functions rather than raw patch text. The diff here is the 38 files of two commits, a large change; a small diff will show a smaller saving.
+- **File outline:** **95.5% token reduction** on a 2,088-line file (`internal/mcp/server.go`): 16,956 tokens to 755, by replacing method bodies with line ranges. This measures the outline generator behind `get_file_skeleton`; the MCP tool adds a one-line size footer.
 - **Where Grep is Better:** For simple, single-line regex matches, raw `git grep` emits fewer tokens than `codive`'s human-oriented CLI decorative headers (though `codive`'s MCP JSON API eliminates that overhead).
 
 ---
 
 ## 📈 Empirical Benchmark Matrix
 
-*Measurements taken on an Intel/AMD workstation with warm filesystem cache. Each benchmark ran 2 iterations (1 warm-up, 1 timed).*
+*Measured on a Windows workstation with a warm filesystem cache, by `go run ./scripts`. Each command ran twice (1 warm-up, 1 timed). Raw results: `docs/benchmark_results.json`.*
 
 | Benchmark Scenario | Standard Tool | Standard Cost (Tokens) | `codive` Tool | `codive` Cost (Tokens) | Token Savings (%) | Measured Latency |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1. Uncommitted Git Changes** | `git diff` | **14,122 tokens** | `codive diff` | **235 tokens** | **+98.3%** | 2,173 ms |
-| **2. Large File Outline (1,806 lines)** | Full `read_file` | **15,375 tokens** | `codive pack` | **2,112 tokens** | **+86.3%** | 494 ms |
-| **3. Cross-File Reference Search** | `git grep -n` | 201 tokens | `codive refs` | 241 tokens | -19.9% | 441 ms |
-| **4. Full-Text Snippet Search** | `git grep` | 596 tokens | `codive search` | 597 tokens | -0.2% | 746 ms |
-| **5. Exact Function Definition** | `git grep -n` | 32 tokens | `codive symbol` | 101 tokens | -215.6% | 648 ms |
-| **Total Turn Tokens** | — | **30,326 tokens** | — | **3,286 tokens** | **89.2% SAVED** | — |
+| **1. Uncommitted Git Changes** | `git diff` | **36,661 tokens** | `codive diff` | **1,906 tokens** | **94.8%** | 3,077 ms |
+| **2. File Outline (2,088 lines)** | Full `read_file` | **16,956 tokens** | `get_file_skeleton` | **755 tokens** | **95.5%** | 4.9 ms (in-process) |
+| **3. Cross-File Reference Search** | `git grep -n` | 370 tokens | `codive refs` | 521 tokens | -40.8% | 568 ms |
+| **4. Full-Text Snippet Search** | `git grep` | 1,715 tokens | `codive search` | 974 tokens | 43.2% | 700 ms |
+| **5. Exact Function Definition** | `git grep -n` | 102 tokens | `codive symbol` | 101 tokens | 1.0% | 499 ms |
+| **Total Turn Tokens** | — | **55,804 tokens** | — | **4,257 tokens** | **92.4%** | — |
+
+*Single run, one repository, tokens estimated as characters / 4. Latency for the CLI rows includes starting the process; the outline row is the generator's time inside one process.*
 
 ---
 
 ## 🔬 Honest Breakdown: What the Data Actually Tells Us
 
 ### 1. Where `codive` Output Was Much Smaller
-* **Large Files & Monorepos:** Reading whole files to inspect an interface burns tens of thousands of tokens. `get_file_skeleton` and `pack` was 86.3% smaller in this run.
-* **Diffs & PR Summaries:** Raw unified diffs are bloated with context headers (`@@ ... @@`) and line shifts. `codive diff` converts 1,688 lines of diff into a 23-line summary of affected functions.
+* **Large Files & Monorepos:** Reading whole files to inspect an interface burns tens of thousands of tokens. `get_file_skeleton` was 95.5% smaller in this run.
+* **Diffs & PR Summaries:** Raw unified diffs are bloated with context headers (`@@ ... @@`) and line shifts. `codive diff` turns the raw diff of 38 files into a summary of the affected functions (94.8% smaller in this run).
 * **Blast Radius & Refactoring Impact:** For Go, `codive blast` provides an upstream caller tree and affected test suites in one call; other languages have no caller data yet. This was not measured against `grep` here.
 
 ### 2. The Un-Sugarcoated Truth: Where `codive` is NOT Faster or Smaller
-* **Single Line CLI Symbol Output:** In the terminal, `codive symbol` prints an ASCII title box, file path, and signature line (101 tokens), while `git grep -n` prints a single 100-character line (32 tokens). *Note: Inside MCP mode, this formatting overhead is eliminated.*
-* **Full-Text Searches:** If an agent searches for a string literal like `"database is locked"`, both `git grep` and `codive search` return matching lines and snippets. The token footprint is identical.
-* **CLI Startup Overhead:** Spawning `codive.exe` from PowerShell takes ~350–500ms on Windows due to Go runtime initialization. Inside Claude Code or Antigravity, this overhead is zero because `codive serve` runs as a persistent in-memory daemon.
+* **Single Line CLI Symbol Output:** In the terminal, `codive symbol` prints a title box, file path and signature (101 tokens) and `git grep -n` prints one matching line (102 tokens here, because this repository has a long definition line), so the two are about the same. For a short definition `git grep -n` is smaller.
+* **Cross-file references:** `codive refs` returned more text than `git grep -n` (521 tokens against 370, 40.8% more), because it adds a file header and role label per result.
+* **Full-Text Searches:** For a string literal like `"database is locked"`, `codive search` was 43.2% smaller than `git grep` in this run, but it returns excerpts, not every matching line. The MCP tool `search_code` lists every matching line with its line number and is not what this row measures.
+* **CLI Startup Overhead:** Spawning `codive.exe` from PowerShell takes ~350–500ms on Windows due to Go runtime initialization. Inside an AI client the server process starts once and stays running, so this cost is paid once per session, not per query.
 
 ---
 

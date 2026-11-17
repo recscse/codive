@@ -49,7 +49,7 @@ We'd love your feedback on the architecture, index format, and multi-language pa
 >
 > We built **codive** — an open-source MCP engine that indexes AST symbols in SQLite and answers with just the part that matters.
 >
-> ⚡ 98% smaller output on git diffs, 87% on big-file outlines (our benchmark, one repo)  
+> ⚡ 95% smaller output on git diffs and on big-file outlines (our benchmark, one repo)  
 > ⏱️ Simple lookups: about the same as grep  
 > 🔒 100% local (zero telemetry)
 >
@@ -97,7 +97,7 @@ We'd love your feedback on the architecture, index format, and multi-language pa
 > We built `codive` (Go + SQLite + MCP) to act as a structured AST layer:
 > - Instead of grep, Claude calls `find_symbol` or `pack_feature_context`.
 > - Instead of dumping 2,000 lines of code, Claude calls `get_file_skeleton` to read the signatures and target only lines 45–90.
-> - Measured: git diff 10,229 to 170 tokens; 1,806-line file outline 17,026 to 2,109 tokens.
+> - Measured: git diff 36,661 to 1,906 tokens; 2,088-line file outline 16,956 to 755 tokens.
 > 
 > It's open source and installs with `codive setup`. Detailed benchmarks and architecture: [GitHub link]
 

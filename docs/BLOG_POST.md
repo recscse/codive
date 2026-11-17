@@ -20,11 +20,11 @@ Measured on this repository (output size only; tokens estimated as characters / 
 
 | Task | Standard tool | codive | Change |
 | :--- | :--- | :--- | :--- |
-| Uncommitted changes | `git diff`: 10,229 tokens | 170 tokens | 98.3% smaller |
-| Outline of a 1,806-line file | full file: 17,026 tokens | 2,109 tokens | 87.6% smaller |
-| Full-text search | `git grep`: 1,715 tokens | 756 tokens | 55.9% smaller |
+| Uncommitted changes | `git diff`: 36,661 tokens | 1,906 tokens | 94.8% smaller |
+| Outline of a 2,088-line file | full file: 16,956 tokens | 755 tokens | 95.5% smaller |
+| Full-text search | `git grep`: 1,715 tokens | 974 tokens | 43.2% smaller |
 | Find a function definition | `git grep -n`: 102 tokens | 101 tokens | about the same |
-| Cross-file references | `git grep -n`: 385 tokens | 455 tokens | 18.2% larger |
+| Cross-file references | `git grep -n`: 370 tokens | 521 tokens | 40.8% larger |
 
 These are single runs on one repository. They compare the size of one command's output; they do not measure whether an agent finishes a task in fewer turns or tokens.
 
