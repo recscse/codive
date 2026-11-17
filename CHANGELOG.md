@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **One shared background process for all AI clients.** Every client used to start its own `codive serve`, so a machine with several editors open ran a dozen processes syncing and writing the same index, which caused the "database is locked" failures. `codive serve` is now a thin forwarder: the first one starts a single per-user daemon (detached, loopback only, guarded by a random token), and every client talks to it. The daemon is the only writer of each index, keeps a repository open while clients use it and for 5 minutes after, and exits after 10 minutes with no clients. If a codive upgrade changes the version, the next client replaces the old daemon. If the daemon restarts or crashes, the forwarder reconnects and replays the client's handshake; only requests in flight are answered with an error. Set `CODIVE_STANDALONE=1`, or run where the daemon can't start, to serve from the client's own process as before. New command: `codive daemon [start|stop|status]`.
+- **`codive doctor` checks the index for the problems that made large repositories slow or wrong**: a second index nested inside a repository, an index over 1 GB, an index built by an older symbol extractor, recent index sync failures in the logs, and a daemon of a different version.
+
+### Fixed
+- **One repository, one index.** The index used for a client is now the nearest existing one above the directory it started in, otherwise the root of the git repository, not whatever folder the client happened to start in. Starting from a subfolder no longer builds a second index.
+- **The first reply on a new repository no longer waits for the code graph.** The automatic first index used to build the code graph too, which took about 30 seconds even for a one-file Go repository, longer than some clients wait. The graph is now built in the background and the graph tools use it once it is ready.
+- `codive serve` no longer creates a `.codive` folder in whatever directory the client started it in.
+
 ## [v1.3.4] - 2026-11-17
 
 ### Fixed

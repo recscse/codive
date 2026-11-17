@@ -80,6 +80,7 @@ func printUsage() {
 			[][]string{
 				{"web           ", "[path]  ", "Launch interactive architecture network graph"},
 				{"serve         ", "[path]  ", "Run the MCP (Model Context Protocol) server"},
+				{"daemon        ", "[start|stop|status]", "The shared background process behind `serve`"},
 				{"upgrade       ", "        ", "Self-update codive to the latest release"},
 				{"version       ", "        ", "Show version and build info"},
 				{"about         ", "        ", "Project background, author, and license"},
@@ -161,7 +162,11 @@ func main() {
 	command := strings.ToLower(args[0])
 
 	// Initialize structured logging
-	if command != "help" && command != "--help" && command != "-h" && command != "version" && command != "--version" && command != "-v" {
+	// serve and daemon choose their own log: a shim has no repository log to
+	// write (and must not create a .codive folder wherever a client started
+	// it), and the daemon logs for many repositories at once.
+	if command != "help" && command != "--help" && command != "-h" && command != "version" && command != "--version" && command != "-v" &&
+		command != "serve" && command != "daemon" {
 		_ = logger.InitLogger(logDirFor(args), verbose)
 		defer logger.Close()
 	}
@@ -226,7 +231,7 @@ func main() {
 		if len(args) >= 2 {
 			targetDir = args[1]
 		}
-		if err := cmd.RunDoctor(targetDir); err != nil {
+		if err := cmd.RunDoctor(targetDir, Version); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}
@@ -423,6 +428,12 @@ func main() {
 			targetDir = args[1]
 		}
 		if err := cmd.RunLogs(targetDir, 50); err != nil {
+			ui.Error(err.Error())
+			os.Exit(1)
+		}
+
+	case "daemon":
+		if err := cmd.RunDaemonCommand(args[1:], Version); err != nil {
 			ui.Error(err.Error())
 			os.Exit(1)
 		}

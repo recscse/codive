@@ -47,6 +47,21 @@ func InitLogger(targetDir string, verbose bool) error {
 	return nil
 }
 
+// InitAt sets up structured logging to the file at logPath.
+func InitAt(logPath string, verbose bool) error {
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file %s: %w", logPath, err)
+	}
+	LogFileHandle = file
+	level := slog.LevelInfo
+	if verbose {
+		level = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(file, &slog.HandlerOptions{Level: level})))
+	return nil
+}
+
 // Close closes the underlying log file handle.
 func Close() {
 	if LogFileHandle != nil {

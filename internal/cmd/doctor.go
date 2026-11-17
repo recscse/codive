@@ -14,7 +14,7 @@ import (
 )
 
 // RunDoctor performs diagnostic checks on the repository, index, and AI agent configurations.
-func RunDoctor(targetDir string) error {
+func RunDoctor(targetDir, version string) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
 		return fmt.Errorf("invalid directory path: %w", err)
@@ -72,6 +72,9 @@ func RunDoctor(targetDir string) error {
 			}
 		}
 	}
+
+	// 3b. Index scope, freshness, size and the shared daemon
+	doctorIndexChecks(absDir, version)
 
 	// 4. Git hooks
 	for _, hook := range []string{"post-commit", "post-checkout"} {
