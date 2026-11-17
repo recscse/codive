@@ -178,7 +178,7 @@ func (s *Server) readSymbol(ctx context.Context, targetDB *sql.DB, targetDir str
 	}
 
 	text := sb.String()
-	db.RecordTelemetry(ctx, targetDB, "read_symbol", estimateTokens(text), rawTokens, 3)
+	db.RecordTelemetry(ctx, targetDB, "read_symbol", estimateTokens(text), rawTokens)
 	return &ToolCallResult{Content: []ContentItem{{Type: "text", Text: text}}}, nil
 }
 
@@ -281,7 +281,7 @@ func (s *Server) readIntent(ctx context.Context, targetDB *sql.DB, targetDir, in
 	}
 
 	text := sb.String()
-	db.RecordTelemetry(ctx, targetDB, "read_symbol", estimateTokens(text), rawTokens, 3)
+	db.RecordTelemetry(ctx, targetDB, "read_symbol", estimateTokens(text), rawTokens)
 	if ranker.Enabled() {
 		s.logIntent(ctx, targetDB, targetDir, intent, matches, len(shown)+len(others), files)
 	}

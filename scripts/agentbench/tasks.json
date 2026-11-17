@@ -1,0 +1,21 @@
+{
+  "repo": ".",
+  "model": "",
+  "tasks": [
+    {
+      "id": "locate-callers",
+      "kind": "locate",
+      "base_commit": "f78f145c9abf89b95f9336f77ba8eb8f22e06e05",
+      "prompt": "Which Go source files call db.RecordTelemetry, not counting the file that defines it and not counting tests? Reply with just the file names, one per line.",
+      "expect": ["read_symbol.go", "server.go"]
+    },
+    {
+      "id": "review-uncommitted",
+      "kind": "review",
+      "base_commit": "f78f145c9abf89b95f9336f77ba8eb8f22e06e05",
+      "setup": "sed -i 's/return fmt.Sprintf(\"%d B\", b)/return fmt.Sprintf(\"%d bytes\", b)/' internal/cmd/init.go && git diff --quiet && exit 1 || true",
+      "prompt": "This repository has uncommitted changes. Which function did they modify, and in which file? Answer in one line.",
+      "expect": ["formatBytes", "init.go"]
+    }
+  ]
+}

@@ -66,7 +66,7 @@ func printUsage() {
 			[][]string{
 				{"status        ", "[path]  ", "Display index status and language breakdown"},
 				{"doctor        ", "[path]  ", "Diagnose index health and agent configurations"},
-				{"stats         ", "[path]  ", "Token savings and efficiency metrics"},
+				{"stats         ", "[path]  ", "Queries served and measured token counts"},
 				{"ranker        ", "[history|reset]", "What intent ranking has learned; learn from git history; forget it"},
 				{"bench         ", "[path] [commits] [misses]", "Measure intent search using the repo's own git history"},
 				{"decisions     ", "[topic] ", "View recorded architectural decisions"},

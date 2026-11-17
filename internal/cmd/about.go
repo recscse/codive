@@ -31,13 +31,13 @@ func RunAbout(version, buildDate, gitCommit string) error {
 		"codive indexes Abstract Syntax Trees (AST) into an embedded SQLite WAL",
 	)
 	fmt.Printf("  %s\n",
-		"database and exposes 14 MCP tools for AI coding agents. Symbol lookups,",
+		"database and exposes 18 MCP tools for AI coding agents. Symbol lookups,",
 	)
 	fmt.Printf("  %s\n\n",
 		"full-text search, blast radius analysis, and feature context packs run in",
 	)
 	fmt.Printf("  %s\n\n",
-		"< 2ms with no cloud dependencies.",
+		"with no cloud dependencies.",
 	)
 	ui.Success("100% local-first · zero telemetry · MIT licensed")
 	fmt.Println()

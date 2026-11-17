@@ -127,8 +127,12 @@ func goExtents(content []byte) map[int][2]int {
 // line decl: the last non-blank line indented deeper than the header.
 func indentExtent(lines []string, decl int) int {
 	base := indentOf(lines[decl-1])
-	end := decl
-	for i := decl; i < len(lines); i++ {
+	// A header may span several lines (`def f(` … `) -> int:`). Its closing
+	// line sits at the header's own indentation, so the block is only
+	// measured from the line after the header ends.
+	_, headerLines := pyLex.joinDeclaration(lines, decl-1)
+	end := decl + headerLines - 1
+	for i := end; i < len(lines); i++ {
 		l := lines[i]
 		trimmed := strings.TrimSpace(l)
 		if trimmed == "" {

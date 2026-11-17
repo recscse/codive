@@ -16,23 +16,17 @@ When an AI coding agent explores your repository, its default fallback is raw `g
 - **Compound Transcript Re-Sending**: Because LLM API calls are stateless, that 3,800-token payload is re-sent on Turn 2, Turn 3, ... Turn 15, costing **over 60,000 tokens** for a simple refactor.
 - **Context Window Degradation**: Dumping entire 2,000-line files causes the model's attention to drift, leading to hallucinated method signatures.
 
-```text
-┌───────────────────────────────────────────────────┐     ┌───────────────────────────────────────────────────┐
-│  ❌ TRADITIONAL BRUTE-FORCE GREP FLOW              │     │  ⚡ CODIVE LOCAL AST CONTEXT ENGINE FLOW          │
-├───────────────────────────────────────────────────┤     ├───────────────────────────────────────────────────┤
-│  Turn 1: grep -rn "GenerateToken" .               │     │  Turn 1: codive:pack_feature_context("auth")      │
-│  └── 380 lines across mocks (4,200 tokens)        │     │  └── Bundled models, handlers & tests (240 tokens)│
-│                                                   │     │                                                   │
-│  Turn 2: view_file auth_service.go                │     │  Turn 1 (cont): codive:find_callers(...)          │
-│  └── 2,100-line full file dump (5,200 tokens)     │     │  └── Pinpointed all 3 callers in 2ms (18 tokens)  │
-│                                                   │     │                                                   │
-│  Turn 3–6: Guess edit ➔ 3 callers broke on import! │     │  Turn 2: Targeted edit applied & verified         │
-│  └── Retry loops & hallucinated signatures        │     │  └── 100% test pass on first attempt              │
-├───────────────────────────────────────────────────┤     ├───────────────────────────────────────────────────┤
-│  TOTAL: 15 turns | ~64,000 tokens | 62s ($0.19)   │     │  TOTAL: 2 turns | ~2,100 tokens | 4s ($0.006)     │
-└───────────────────────────────────────────────────┘     └───────────────────────────────────────────────────┘
-                                                           🚀 96% Token Savings • 5x Faster Turnaround
-```
+Measured on this repository (output size only; tokens estimated as characters / 4):
+
+| Task | Standard tool | codive | Change |
+| :--- | :--- | :--- | :--- |
+| Uncommitted changes | `git diff`: 36,661 tokens | 1,906 tokens | 94.8% smaller |
+| Outline of a 2,088-line file | full file: 16,956 tokens | 755 tokens | 95.5% smaller |
+| Full-text search | `git grep`: 1,715 tokens | 974 tokens | 43.2% smaller |
+| Find a function definition | `git grep -n`: 102 tokens | 101 tokens | about the same |
+| Cross-file references | `git grep -n`: 370 tokens | 521 tokens | 40.8% larger |
+
+These are single runs on one repository. They compare the size of one command's output; they do not measure whether an agent finishes a task in fewer turns or tokens.
 
 ---
 
@@ -112,25 +106,19 @@ Before modifying a shared function, `blast_radius` analyzes all upstream callers
 ```
 
 ### 4. Automatic On-The-Fly Line Drift Protection
-When you or your AI agent edits code in the editor, you never need to manually re-index. Whenever an MCP tool is called, `codive` inspects the file's disk `ModTime`. If dirty, it micro-parses that single file in **`< 1ms`** before answering the agent.
+When you or your AI agent edits code in the editor, you never need to manually re-index. Whenever an MCP tool is called, `codive` inspects the file's disk `ModTime`. If dirty, it re-parses that single file before answering the agent.
 
 ---
 
 ## 4. Empirical Benchmark Comparison
 
-| Metric | Traditional Grep Flow | codive AST Flow |
-| :--- | :--- | :--- |
-| **Tool Latency** | 50ms – 400ms (Disk regex) | **`< 1.5ms` (SQLite B-Tree)** |
-| **Token Cost (Refactor)** | 40,000 – 70,000 tokens | **1,800 – 3,200 tokens (95% Savings)** |
-| **Conversation Turns** | 8 – 15 iterative turns | **1 – 2 targeted turns** |
-| **Broken Callers** | Common (No caller graph) | **Zero (Blast radius verified)** |
-| **Cloud Privacy** | Depends on editor | **100% Local SQLite** |
+The table in section 1 is the evidence we have. We have not measured turns, cost or latency inside a real agent session, so this post makes no claim about them. Everything runs locally in SQLite; nothing is sent to a cloud service.
 
 ---
 
 ## Conclusion & Installation
 
-By moving from brute-force substring searches to structured, local-first AST database queries, developers cut token costs by **80% to 95%** while making their AI coding assistants significantly more reliable.
+By moving from brute-force substring searches to structured, local-first AST database queries, codive returns much smaller answers for diffs and large-file outlines, and about the same size for simple lookups. Whether that lowers an agent's total cost on real tasks still needs measuring.
 
 `codive` is open-source under the MIT license. You can install it on macOS, Linux, and Windows with a single command:
 

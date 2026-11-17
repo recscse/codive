@@ -170,8 +170,8 @@ When running as an MCP server (`codive serve`), your AI coding agent has access 
 | **`find_tests_for`** | `target` *(string)*, `workspace_path` *(opt)* | Resolves the corresponding unit test suite (`*_test.go`, `test_*.py`, `*.spec.ts`). |
 | **`get_repo_map`** | `workspace_path`, `max_depth`, `directory_filter`, `include_symbols`, `token_budget` *(all opt)* | Emits a token-budgeted structural architecture map with declared symbols. |
 | **`get_git_changes`** | `workspace_path` *(opt)* | Summarizes uncommitted git diffs mapped to enclosing AST functions. |
-| **`search_code`** | `query` *(string)*, `limit` *(opt)*, `workspace_path` *(opt)* | FTS5 full-text search across all indexed files. |
-| **`read_symbol`** | `symbol` *(string: `Name`, `Type.Method`, or `path:Name`)*, `path` *(opt)*, `limit` *(opt)* | Returns just one definition — doc comment, signature, and full body — instead of the whole file. Typically 10–80× fewer tokens than reading the file. |
+| **`search_code`** | `query` *(string; wrap in double quotes for an exact phrase)*, `limit` *(opt)*, `max_lines_per_file` *(opt)*, `workspace_path` *(opt)* | Full-text search across all indexed files. Lists every matching line with its line number, grouped by file. |
+| **`read_symbol`** | `symbol` *(string: `Name`, `Type.Method`, or `path:Name`)*, `path` *(opt)*, `limit` *(opt)* | Returns just one definition — doc comment, signature, and full body — instead of the whole file. |
 | **`read_file_context`** | `path` *(string)*, `start_line`/`end_line` *(opt)*, `workspace_path` *(opt)* | Reads a file (up to 1,000 lines per call) plus its declared symbol outline, with automatic line-drift verification. |
 | **`save_decision`** | `topic` *(string)*, `summary` *(string)*, `workspace_path` *(opt)* | Stores persistent architectural invariants and decisions in SQLite. |
 | **`get_decisions`** | `topic` *(opt)*, `workspace_path` *(opt)* | Retrieves architectural memory and past decisions matching a topic. |
@@ -204,7 +204,7 @@ codive init-rules [path]     # Auto-generate AI agent architecture rules files
 # Diagnostics & Info
 codive status [path]         # Display file counts, language breakdown, and index health
 codive doctor [path]         # Verify SQLite schema, git status, and client configurations
-codive stats [path]          # Token savings and efficiency metrics
+codive stats [path]          # Queries served and measured token counts
 codive decisions [topic]     # View recorded architectural invariants & decisions
 codive logs [path]           # Tail recent log entries
 

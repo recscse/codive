@@ -2,6 +2,7 @@
 package symbols
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -9,6 +10,20 @@ import (
 
 	"github.com/recscse/codive/internal/db"
 )
+
+// CountLines returns the number of lines in content the way editors and
+// `wc -l` count them: a final newline ends the last line instead of starting
+// an empty one.
+func CountLines(content []byte) int {
+	if len(content) == 0 {
+		return 0
+	}
+	n := bytes.Count(content, []byte{'\n'})
+	if content[len(content)-1] != '\n' {
+		n++
+	}
+	return n
+}
 
 // GenerateSkeleton returns a token-efficient structural outline of a source file.
 // It collapses function bodies to line-range markers so an AI agent can read the
@@ -31,14 +46,13 @@ func GenerateSkeleton(relPath string, language string, content []byte, syms []db
 		syms, err = ExtractSymbols(relPath, language, content)
 		if err != nil || len(syms) == 0 {
 			// No AST info — return a line-counted fallback
-			lines := strings.Split(string(content), "\n")
 			return fmt.Sprintf("// File: %s (Total: %d lines, Language: %s)\n// [No AST symbols — file content not available as skeleton]\n",
-				filepath.ToSlash(relPath), len(lines), language)
+				filepath.ToSlash(relPath), CountLines(content), language)
 		}
 	}
 
 	lines := strings.Split(string(content), "\n")
-	totalLines := len(lines)
+	totalLines := CountLines(content)
 
 	// Sort symbols by line number
 	sort.Slice(syms, func(i, j int) bool {

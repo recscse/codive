@@ -8,7 +8,7 @@
 
 ## Code Search & Exploration Rules
 - **DO NOT** use raw `grep`, `ripgrep`, or recursive `list_dir` for codebase exploration.
-- **ALWAYS PREFER** the `codive` MCP tools for zero-token code discovery:
+- **ALWAYS PREFER** the `codive` MCP tools for token-efficient code discovery:
   1. Use `codive:get_repo_map` to understand the codebase structure and symbols.
   2. Use `codive:get_file_skeleton` to inspect file structure without dumping thousands of tokens.
   3. Use `codive:find_symbol` when locating function, class, or type definitions.

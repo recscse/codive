@@ -67,10 +67,16 @@ func indexRepositoryWithHooks(absDir string, hooks indexer.RebuildHooks) (*Index
 	if err != nil {
 		return nil, fmt.Errorf("indexing failed: %w", err)
 	}
+	indexDone := time.Now()
+	slog.Info("Index written", "elapsed", indexDone.Sub(startTime).Round(time.Millisecond))
+	if hooks.OnGraphStart != nil {
+		hooks.OnGraphStart()
+	}
 	// Populate unified codebase graph
 	if _, err := graph.BuildGraph(context.Background(), database, absDir); err != nil {
 		ui.Warning(fmt.Sprintf("Code graph build failed: %v", err))
 	}
+	slog.Info("Code graph built", "elapsed", time.Since(indexDone).Round(time.Millisecond))
 	for _, w := range graph.Warnings(context.Background(), database) {
 		ui.Warning(w)
 	}
@@ -147,6 +153,9 @@ func RunInit(targetDir string) error {
 				bar.Finish("Symbols & AST extracted")
 			}
 			ui.Info(fmt.Sprintf("Writing %s to SQLite database (WAL mode)...", ui.Count(totalSymbols, "symbol", "symbols")))
+		},
+		OnGraphStart: func() {
+			ui.Info("Building code graph (routes, calls, tables)...")
 		},
 	})
 	if err != nil {
