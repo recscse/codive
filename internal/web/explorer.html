@@ -93,6 +93,21 @@ h2 small { color: var(--dim); font-weight: 400; }
 #map.hovering path { opacity: .06; }
 #map.hovering path.on { opacity: .95; stroke: var(--accent); }
 #map.hovering .box:not(.on) { opacity: .35; }
+.notice-inline { margin-top: 14px; padding: 9px 12px; color: var(--medium); background: var(--raised); border-left: 3px solid var(--medium); border-radius: 4px; font-size: 13px; }
+.lead { margin-top: 10px; max-width: 760px; font-size: 17px; color: var(--text); }
+.hint { margin-top: 4px; max-width: 760px; color: var(--dim); font-size: 13px; }
+.areas { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 10px; }
+.area { display: block; padding: 10px 12px; color: inherit; text-decoration: none; background: var(--raised); border: 1px solid var(--line); border-radius: 7px; }
+.area:hover { border-color: var(--accent); }
+.area b { display: block; color: var(--bright); font: 500 13px var(--mono); overflow-wrap: anywhere; }
+.area span { color: var(--dim); font-size: 12px; }
+.bar { height: 4px; margin-top: 7px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+details.glossary { margin-top: 28px; }
+details.glossary summary { cursor: pointer; color: var(--bright); font-weight: 500; }
+details.glossary dl { margin-top: 8px; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13px; }
+details.glossary dt { color: var(--bright); font-weight: 500; }
+.what { margin-top: 6px; max-width: 720px; color: var(--dim); font-size: 13px; }
 @media (max-width: 800px) { aside { display: none; } #content { padding: 20px 16px; } }
 </style>
 </head>
@@ -116,6 +131,7 @@ const MIN_CONFIDENCE = 0.5;
 const CALL_KINDS = new Set(["CALLS", "REFERENCES", "ROUTES_TO", "READS_FROM", "WRITES_TO"]);
 const SYMBOL_KINDS = new Set(["function", "method", "struct", "class", "interface", "test", "endpoint", "database", "broker", "scheduler"]);
 const MAP_ROUTE = "@map";
+const AREA_PREFIX = "@area:";
 const MAX_GROUP_ROWS = 300;
 const MAX_MAP_PACKAGES = 120;
 const $ = id => document.getElementById(id);
@@ -137,7 +153,64 @@ const svg = (tag, attrs, ...children) => {
   return node;
 };
 
-const state = { nodes: [], byId: new Map(), out: new Map(), in: new Map(), symbolCounts: new Map() };
+const state = { nodes: [], byId: new Map(), out: new Map(), in: new Map(), symbolCounts: new Map(), edgeIds: new Set(), hood: new Set(), truncated: false, overview: null, callLangs: null };
+
+// Plain-English names and explanations, for people who don't read code.
+const KIND_NAME = {
+  endpoint: "Entry point", database: "Database table", broker: "Message topic", scheduler: "Background job",
+  function: "Function", method: "Method", class: "Class", interface: "Interface", struct: "Data type",
+  test: "Automated test", file: "Source file", package: "Folder",
+};
+const KIND_HELP = {
+  endpoint: "A door into the application: a web address or command that something outside calls to make it do work.",
+  database: "A table in the database that this code reads from or writes to.",
+  broker: "A message channel (such as a Kafka topic) the application sends to or listens on.",
+  scheduler: "Code that runs on a timer in the background, without anyone clicking anything.",
+  function: "A named piece of logic that does one job.",
+  method: "A function that belongs to a class.",
+  class: "A blueprint that groups related data and behaviour.",
+  interface: "A contract describing what something must be able to do.",
+  struct: "A group of related data fields.",
+  test: "An automated check that some code still works.",
+  file: "One source file.",
+  package: "A folder of related code.",
+};
+
+function mergeGraph(g) {
+  for (const n of g.nodes || []) {
+    if (state.byId.has(n.id)) continue;
+    state.nodes.push(n);
+    state.byId.set(n.id, n);
+  }
+  for (const e of g.edges || []) {
+    if (e.id) { if (state.edgeIds.has(e.id)) continue; state.edgeIds.add(e.id); }
+    if (!state.out.has(e.source_id)) state.out.set(e.source_id, []);
+    if (!state.in.has(e.target_id)) state.in.set(e.target_id, []);
+    state.out.get(e.source_id).push(e);
+    state.in.get(e.target_id).push(e);
+  }
+}
+
+// In a large repo the page holds only part of the graph, so a node's page asks
+// the server for its own links instead of trusting what happens to be loaded.
+async function loadNeighborhood(id) {
+  if (state.hood.has(id)) return state.byId.has(id);
+  try {
+    mergeGraph(await fetchJSON("/api/explorer/node?id=" + encodeURIComponent(id)));
+  } catch (err) { /* not found: the caller shows that */ }
+  state.hood.add(id); // asked once, so a failure can't cause a retry loop
+  return state.byId.has(id);
+}
+
+// callTracingMissing reports that call links are not tracked for this node's language.
+function callTracingMissing(n) {
+  if (!state.callLangs || ["endpoint", "database", "broker", "scheduler", "package", "file"].includes(n.kind)) return false;
+  const file = state.byId.get("file:" + n.file_path);
+  const lang = n.language || (file && file.language) || "";
+  return lang && !state.callLangs.has(lang) ? lang : false;
+}
+const callTracingNote = lang => h("div", { class: "notice-inline" },
+  "Call tracing isn't available for " + lang + " yet, so an empty list here does not mean nothing uses this code. Treat Called by, Calls, flow and blast radius as unknown.");
 
 const nodeDir = n => n.kind === "package" ? n.label : (n.file_path.includes("/") ? n.file_path.slice(0, n.file_path.lastIndexOf("/")) : "(root)");
 const isTestNode = n => n.kind === "test" || /(_test\.go|\.test\.|\.spec\.|(^|\/)test_)/.test(n.file_path);
@@ -202,9 +275,29 @@ function render() {
   const node = state.byId.get(id);
   if (!id) renderHome(content);
   else if (id === MAP_ROUTE) renderMap(content);
-  else if (!node) content.append(h("h1", null, "Not found"), h("p", { class: "muted" }, "This symbol is no longer in the graph. It may have been renamed or moved."));
-  else renderNode(content, node, tab);
+  else if (id.startsWith(AREA_PREFIX)) renderArea(content, id.slice(AREA_PREFIX.length));
+  else if (node && (!state.truncated || state.hood.has(id))) renderNode(content, node, tab);
+  else {
+    content.append(h("p", { class: "muted" }, "Loading…"));
+    loadNeighborhood(id).then(found => {
+      if (currentRoute().id !== id) return;
+      if (found) render();
+      else content.replaceChildren(h("h1", null, "Not found"), h("p", { class: "muted" }, "This item is no longer in the project map. It may have been renamed or moved."));
+    });
+  }
   content.scrollTop = 0;
+}
+
+/* ---------- area page ---------- */
+async function renderArea(root, dir) {
+  root.append(h("h1", null, dir), h("p", { class: "lead" }, "Part of the project. Here is some of what lives in this folder."));
+  const box = h("p", { class: "muted" }, "Loading…");
+  root.append(box);
+  try {
+    const found = (await fetchJSON("/api/explorer/search?q=" + encodeURIComponent(dir + "/"))).nodes || [];
+    if (currentRoute().id !== AREA_PREFIX + dir) return;
+    box.replaceWith(list("Items in this folder", found.map(n => nodeRow(n)), "Nothing indexed here.", "Showing up to 40. Use search to find something specific."));
+  } catch (err) { showError(box, err); }
 }
 
 /* ---------- sidebar ---------- */
@@ -217,15 +310,20 @@ function renderSidebar() {
     : null;
   const endpoints = byKind(["endpoint"]);
   const packages = byKind(["package"]).filter(n => packageSymbolCount(n) > 0);
+  const areas = state.overview ? state.overview.areas || [] : [];
+  const areaGroup = areas.length ? h("details", { class: "group", open: true }, h("summary", null, "Main areas (" + areas.length + ")"),
+    areas.map(a => h("a", { class: "row", href: nodeHash(AREA_PREFIX + a.path), style: "color:inherit;text-decoration:none" },
+      h("span", { class: "name" }, a.path.split("/").slice(-2).join("/"))))) : null;
   $("sidebar").replaceChildren(...[
-    h("a", { class: "nav-link", href: "#" }, "Your changes"),
-    h("a", { class: "nav-link", href: nodeHash(MAP_ROUTE), style: "margin-bottom:12px" }, "Package map"),
-    group("HTTP routes", endpoints.filter(n => !n.label.startsWith("CLI:")), true),
-    group("CLI commands", endpoints.filter(n => n.label.startsWith("CLI:")), true),
+    h("a", { class: "nav-link", href: "#" }, "Overview"),
+    h("a", { class: "nav-link", href: nodeHash(MAP_ROUTE), style: "margin-bottom:12px" }, "Folder map"),
+    group("Web addresses (HTTP routes)", endpoints.filter(n => !n.label.startsWith("CLI:")), true),
+    group("Commands (CLI)", endpoints.filter(n => n.label.startsWith("CLI:")), true),
     group("Database tables", byKind(["database"]), true),
     group("Message topics", byKind(["broker"]), true),
-    group("Schedulers", byKind(["scheduler"]), true),
-    group("Packages", packages, true),
+    group("Background jobs (schedulers)", byKind(["scheduler"]), true),
+    // A truncated graph holds too few symbols to list folders meaningfully, so use the full-repo areas.
+    state.truncated && areaGroup ? areaGroup : group("Folders (packages)", packages, true),
   ].filter(Boolean));
 }
 
@@ -236,26 +334,82 @@ function packageSymbolCount(pkg) {
 /* ---------- home ---------- */
 function renderHome(root) {
   const results = h("div", { class: "hero-results", hidden: true });
-  const input = h("input", { type: "search", placeholder: "Function, file, route or table", "aria-label": "Search for what you are about to change", autocomplete: "off" });
-  input.addEventListener("input", () => {
+  const input = h("input", { type: "search", placeholder: "A name, file, web address or table, e.g. “payment”", "aria-label": "Search the project", autocomplete: "off" });
+  input.addEventListener("input", async () => {
     const q = input.value;
-    const found = searchNodes(q);
-    results.replaceChildren(...(found.length ? found.map(n => nodeRow(n)) : [h("div", { class: "empty" }, "No matches for “" + q + "”.")]));
     results.hidden = !q.trim();
+    const found = await findNodes(q);
+    if (input.value !== q) return; // a newer keystroke is already being searched
+    results.replaceChildren(...(found.length ? found.map(n => nodeRow(n)) : [h("div", { class: "empty" }, "No matches for “" + q + "”.")]));
   });
   input.addEventListener("keydown", e => {
     const first = results.querySelector("a");
     if (e.key === "Enter" && first) location.hash = first.getAttribute("href");
   });
+  const about = h("div", null, h("p", { class: "muted" }, "Reading the project…"));
   const changes = h("div", null, h("p", { class: "muted", style: "" }, "Checking your uncommitted changes…"));
   root.append(
     h("div", { class: "hero" },
-      h("h1", null, "What are you about to change?"),
-      h("p", null, "See what calls it, what it affects, and which tests to run."),
+      h("h1", null, "Explore this project"),
+      h("p", null, "Find anything by name, see what it connects to, and what could break if it changes."),
       h("div", { class: "hero-search" }, input, results)),
+    about,
+    h("h2", { style: "margin-top:44px" }, "If you are changing code"),
     changes);
   input.focus();
+  renderAbout(about);
   renderChanges(changes);
+}
+
+/* ---------- plain-language project summary ---------- */
+const n0 = v => Number(v || 0).toLocaleString();
+
+async function renderAbout(box) {
+  let ov;
+  try {
+    ov = state.overview || await fetchJSON("/api/explorer/overview");
+  } catch (err) {
+    box.replaceChildren(h("p", { class: "muted" }, "Couldn't summarise the project: " + err.message));
+    return;
+  }
+  state.overview = ov;
+  if (currentRoute().id) return;
+  const c = ov.counts || {};
+  const cli = (state.nodes.filter(n => n.kind === "endpoint" && n.label.startsWith("CLI:"))).length;
+  const entries = Math.max(0, (c.endpoint || 0) - cli);
+  const langs = (ov.languages || []).filter(l => l.name);
+  const main = langs[0];
+  const maxFiles = Math.max(1, ...(ov.areas || []).map(a => a.files));
+
+  const facts = [
+    [ov.files, "files", "Source files that were read."],
+    [ov.symbols, "named pieces of code", "Functions, classes and similar items, each of which you can open."],
+    [entries, "web addresses", "Doors other systems use to call the application."],
+    [c.database, "database tables", "Tables this code reads from or writes to."],
+    [c.broker, "message topics", "Channels the application sends or listens on."],
+    [c.scheduler, "background jobs", "Code that runs on a timer."],
+  ].filter(([v], i) => i < 2 || v > 0);
+
+  const where = (ov.areas || []).length ? h("section", { class: "card" },
+    h("h2", null, "Where the code lives"),
+    h("p", { class: "hint" }, "The main folders, biggest first. Open one to see what is inside."),
+    h("div", { class: "areas" }, ov.areas.map(a => h("a", { class: "area", href: nodeHash(AREA_PREFIX + a.path) },
+      h("b", null, a.path), h("span", null, n0(a.files) + " files · " + n0(a.symbols) + " named pieces of code"),
+      h("div", { class: "bar" }, h("i", { style: "width:" + Math.max(2, Math.round(100 * a.files / maxFiles)) + "%" })))))) : null;
+
+  const entryList = (ov.entry_points || []).filter(n => !n.label.startsWith("CLI:"));
+  box.replaceChildren(...[
+    h("p", { class: "lead" }, n0(ov.files) + " files" + (main ? ", mostly " + main.name : "") + ", containing " + n0(ov.symbols) + " named pieces of code."
+      + (langs.length > 1 ? " Also: " + langs.slice(1, 5).map(l => l.name).join(", ") + "." : "")),
+    ov.status === "building" ? h("div", { class: "notice-inline" }, "The relationship map is still being built for this large project. Counts and search work now; connections appear when it finishes (this page refreshes by itself).") : null,
+    h("div", { class: "metrics" }, facts.map(([v, label, help]) => h("div", { class: "metric", title: help }, h("b", null, n0(v)), h("span", null, label)))),
+    where,
+    entryList.length ? list("Ways into the application", entryList.map(n => nodeRow(n)), "", "Each is a web address that triggers some work. Open one to see what handles it.") : null,
+    (ov.tables || []).length ? list("Database tables it touches", ov.tables.map(n => nodeRow(n)), "", "Open one to see which code uses it.") : null,
+    ov.call_tracing_languages && ov.call_tracing_languages.length === 0 && langs.length ? h("div", { class: "notice-inline" }, "Who-calls-what is not available for this project's languages yet, so the Called by, flow and blast-radius views will be empty. Search, structure and entry points still work.") : null,
+    h("details", { class: "glossary" }, h("summary", null, "What do these words mean?"),
+      h("dl", null, ["endpoint", "database", "broker", "scheduler", "function", "class", "test"].flatMap(k => [h("dt", null, KIND_NAME[k]), h("dd", null, KIND_HELP[k])]))),
+  ].filter(Boolean));
 }
 
 const SYMBOL_TEXT = /^\[[^\]]+\] (.+) \(L(\d+)\)$/;
@@ -321,9 +475,11 @@ async function renderChanges(box) {
 function renderNode(root, n, tab) {
   const tabs = n.kind === "package" ? [] : [["overview", "Overview"], ["flow", "Execution flow"], ["impact", "Blast radius"]];
   root.append(...[
-    h("div", { class: "kind" }, n.kind),
+    h("div", { class: "kind" }, KIND_NAME[n.kind] || n.kind),
     h("h1", null, n.label),
     h("div", { class: "location" }, loc(n)),
+    KIND_HELP[n.kind] ? h("p", { class: "what" }, KIND_HELP[n.kind]) : null,
+    callTracingMissing(n) && tab !== "overview" ? callTracingNote(callTracingMissing(n)) : null,
     n.signature ? h("div", { class: "signature" }, n.signature) : null,
     h("div", { class: "actions" },
       h("button", { class: "chip", on: { click: e => copy(n.file_path, e.target) } }, "Copy path"),
@@ -348,11 +504,14 @@ function renderOverview(body, n) {
   const outgoing = (state.out.get(n.id) || []).filter(e => CALL_KINDS.has(e.kind));
   const contains = (state.out.get(n.id) || []).filter(e => e.kind === "CONTAINS");
   const staticNote = "From static analysis: calls through standard library interfaces such as http.ResponseWriter, or through reflection, may be missing. Inferred links are possible interface targets.";
+  const untraced = callTracingMissing(n);
+  const unknown = "Unknown: call tracing isn't available for " + untraced + " yet.";
+  if (untraced) body.append(callTracingNote(untraced));
   body.append(h("div", { class: "columns" },
-    list(n.kind === "database" ? "Used by" : "Called by", edgeRows(incoming, "source_id"), n.kind === "endpoint" ? "Entry point: nothing in the repo calls it." : "No callers found.", staticNote),
+    list(n.kind === "database" ? "Used by" : "Called by", edgeRows(incoming, "source_id"), untraced ? unknown : n.kind === "endpoint" ? "Entry point: nothing in the repo calls it." : "No callers found.", untraced ? null : staticNote),
     n.kind === "file"
       ? list("Declares", edgeRows(contains, "target_id"), "No symbols found in this file.")
-      : list(n.kind === "endpoint" ? "Handled by" : "Calls", edgeRows(outgoing, "target_id"), "No calls to other repo code found.")));
+      : list(n.kind === "endpoint" ? "Handled by" : "Calls", edgeRows(outgoing, "target_id"), untraced ? unknown : "No calls to other repo code found.")));
   if (testCallers.length) body.append(list("Called from tests", edgeRows(testCallers, "source_id"), ""));
   renderSource(body, n);
 }
@@ -553,12 +712,31 @@ function searchNodes(query) {
 }
 
 function closeResults() { $("results").hidden = true; }
-function updateResults() {
+// findNodes searches what is loaded, and in a large repo also asks the server,
+// because most of the repository is not in the page.
+let searchTimer = null;
+async function findNodes(query) {
+  const local = searchNodes(query);
+  if (!state.truncated || query.trim().length < 2) return local;
+  // Wait for a pause in typing: each server search scans the whole name index.
+  await new Promise(resolve => { clearTimeout(searchTimer); searchTimer = setTimeout(resolve, 250); });
+  try {
+    const remote = (await fetchJSON("/api/explorer/search?q=" + encodeURIComponent(query.trim()))).nodes || [];
+    const seen = new Set(), out = [];
+    for (const n of [...remote, ...local]) if (!seen.has(n.id)) { seen.add(n.id); out.push(n); }
+    return out.slice(0, 40);
+  } catch (err) {
+    return local;
+  }
+}
+
+async function updateResults() {
   const q = $("search").value;
-  const found = searchNodes(q);
   const box = $("results");
-  box.replaceChildren(...(found.length ? found.map(n => nodeRow(n)) : [h("div", { class: "empty" }, "No matches for “" + q + "”.")]));
   box.hidden = !q.trim();
+  const found = await findNodes(q);
+  if ($("search").value !== q) return; // a newer keystroke is already being searched
+  box.replaceChildren(...(found.length ? found.map(n => nodeRow(n)) : [h("div", { class: "empty" }, "No matches for “" + q + "”.")]));
 }
 $("search").addEventListener("input", updateResults);
 $("search").addEventListener("keydown", e => {
@@ -597,35 +775,43 @@ function copy(text, button) {
   navigator.clipboard.writeText(text).then(() => done("Copied"), () => done("Copy failed"));
 }
 
+let listening = false, pollTimer = null, lastStatus = null;
+
+function resetState() {
+  Object.assign(state, { nodes: [], byId: new Map(), out: new Map(), in: new Map(), symbolCounts: new Map(), edgeIds: new Set(), hood: new Set(), overview: null });
+}
+
 async function start() {
+  clearTimeout(pollTimer);
   try {
-    const graph = await fetchJSON("/api/explorer/graph?limit=200000");
-    state.nodes = graph.nodes || [];
-    for (const n of state.nodes) state.byId.set(n.id, n);
-    for (const e of graph.edges || []) {
-      if (!state.out.has(e.source_id)) state.out.set(e.source_id, []);
-      if (!state.in.has(e.target_id)) state.in.set(e.target_id, []);
-      state.out.get(e.source_id).push(e);
-      state.in.get(e.target_id).push(e);
-    }
+    const graph = await fetchJSON("/api/explorer/graph");
+    resetState();
+    mergeGraph(graph);
+    state.truncated = !!graph.truncated;
     for (const n of state.nodes) {
       if (SYMBOL_KINDS.has(n.kind) && n.file_path) state.symbolCounts.set(nodeDir(n), (state.symbolCounts.get(nodeDir(n)) || 0) + 1);
     }
-    const count = kind => state.nodes.filter(n => n.kind === kind).length;
-    $("stats").textContent = count("file") + " files · " + (state.nodes.filter(n => SYMBOL_KINDS.has(n.kind)).length) + " symbols";
+    // The summary covers the whole repository, not just what was loaded.
+    try {
+      state.overview = await fetchJSON("/api/explorer/overview");
+      state.callLangs = new Set(state.overview.call_tracing_languages || []);
+      $("stats").textContent = n0(state.overview.files) + " files · " + n0(state.overview.symbols) + " named pieces of code";
+    } catch (err) {
+      const count = kind => state.nodes.filter(n => n.kind === kind).length;
+      $("stats").textContent = count("file") + " files · " + (state.nodes.filter(n => SYMBOL_KINDS.has(n.kind)).length) + " symbols";
+    }
     const notices = [...(graph.warnings || [])];
-    if (graph.truncated) notices.push("Large repo: showing " + state.nodes.length + " of " + graph.total_nodes + " graph nodes. Some symbols and links are not listed here.");
-    if (notices.length) {
-      $("notice").textContent = notices.join(" ");
-      $("notice").hidden = false;
-    }
-    if (false) {
-      $("notice").textContent = "Large repo: showing " + state.nodes.length + " of " + graph.total_nodes + " graph nodes. Some symbols and links are not listed here.";
-      $("notice").hidden = false;
-    }
+    if (graph.status === "updating") notices.push("The code changed since the project map was built. It is updating in the background, so connections may be slightly out of date.");
+    if (graph.status === "building") notices.push("Building the project map for the first time. On a large project this can take several minutes; this page refreshes by itself.");
+    if (graph.truncated) notices.push("Large project: " + n0(state.nodes.length) + " of " + n0(graph.total_nodes) + " items are loaded here. Use search to reach any of them.");
+    $("notice").textContent = notices.join(" ");
+    $("notice").hidden = !notices.length;
     $("search").disabled = false;
-    window.addEventListener("hashchange", render);
-    render();
+    if (!listening) { window.addEventListener("hashchange", render); listening = true; }
+    // Re-render only on first load or a status change, so polling never yanks the page you are reading.
+    if (lastStatus === null || lastStatus !== graph.status) render();
+    lastStatus = graph.status;
+    if (graph.status !== "ready") pollTimer = setTimeout(start, graph.status === "building" ? 5000 : 10000);
   } catch (err) {
     $("stats").textContent = "";
     $("content").replaceChildren(h("h1", null, "Could not load the code graph"), h("p", { class: "muted" }, err.message), h("p", { class: "muted" }, "Check that codive web is still running, then reload this page."));

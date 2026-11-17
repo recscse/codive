@@ -9,7 +9,7 @@ This playbook contains ready-to-publish copy, video storyboards, benchmarks, and
 ## 📍 Phase 1: Hacker News ("Show HN")
 
 **Title**: 
-`Show HN: codive – Local SQLite + AST context engine for AI agents (cuts token costs by 80%)`
+`Show HN: codive – Local SQLite + AST context engine for AI agents (much smaller output for diffs and large-file outlines)`
 
 **URL**: `https://github.com/recscse/codive`
 
@@ -45,12 +45,12 @@ We'd love your feedback on the architecture, index format, and multi-language pa
 ## 🐦 Phase 2: Twitter / X Launch Thread & 15-Second Split Screen
 
 ### Tweet 1 (The Hook):
-> AI coding assistants waste 60–80% of your tokens just searching for files with raw grep. 💸
+> AI coding assistants read whole files and raw diffs just to find one function. 💸
 >
-> We built **codive** — an open-source MCP engine that indexes AST symbols in SQLite and cuts latency to 1 turn.
+> We built **codive** — an open-source MCP engine that indexes AST symbols in SQLite and answers with just the part that matters.
 >
-> ⚡ 95% fewer tokens  
-> ⏱️ 5x faster turns  
+> ⚡ 98% smaller output on git diffs, 87% on big-file outlines (our benchmark, one repo)  
+> ⏱️ Simple lookups: about the same as grep  
 > 🔒 100% local (zero telemetry)
 >
 > 👇 Demo & install in thread
@@ -89,15 +89,15 @@ We'd love your feedback on the architecture, index format, and multi-language pa
 ## 💬 Phase 3: Reddit Technical Deep Dives
 
 ### Subreddit: `r/ClaudeAI` & `r/Cursor`
-**Title**: `How we cut our Claude 3.5 Sonnet token bills by 70% using a local AST MCP indexer (codive)`
+**Title**: `A local AST + SQLite MCP indexer for coding agents: what we measured (codive)`
 
 **Post**:
-> We benchmarked Claude 3.5 Sonnet and Cursor on a 45,000-line repository. In standard sessions, ~65% of the total tokens sent to Anthropic were repetitive file trees, large raw grep dumps, and boilerplate import headers.
+> We compared command output sizes on one repository (see docs/BENCHMARK_REPORT.md). We have not yet measured full agent sessions.
 > 
 > We built `codive` (Go + SQLite + MCP) to act as a structured AST layer:
 > - Instead of grep, Claude calls `find_symbol` or `pack_feature_context`.
 > - Instead of dumping 2,000 lines of code, Claude calls `get_file_skeleton` to read the signatures and target only lines 45–90.
-> - A typical 15-turn task went from 60,000 tokens down to 4,500 tokens.
+> - Measured: git diff 10,229 to 170 tokens; 1,806-line file outline 17,026 to 2,109 tokens.
 > 
 > It's open source and installs with `codive setup`. Detailed benchmarks and architecture: [GitHub link]
 
@@ -116,6 +116,6 @@ We'd love your feedback on the architecture, index format, and multi-language pa
 ### 1. Anthropic Official MCP Servers & `awesome-mcp-servers`
 - **Name**: `codive`
 - **Category**: Code Search, Indexing & Development Tools
-- **Description**: Fast, local-first AST symbol indexer and Model Context Protocol (MCP) server that cuts AI agent token consumption by 80%.
+- **Description**: Fast, local-first AST symbol indexer and Model Context Protocol (MCP) server that returns much smaller context for diffs and large files.
 - **Repository**: `https://github.com/recscse/codive`
 - **Supported Clients**: Claude Desktop, Cursor, Google Antigravity, VS Code / Continue / Cline, Windsurf.

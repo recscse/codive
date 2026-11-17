@@ -82,6 +82,9 @@ func newHandler(absDir string, database *sql.DB) http.Handler {
 	mux.HandleFunc("/api/explorer/impact", handleExplorerImpact(database))
 	mux.HandleFunc("/api/explorer/graph", handleExplorerGraph(database, absDir))
 	mux.HandleFunc("/api/explorer/changes", handleExplorerChanges(database, absDir))
+	mux.HandleFunc("/api/explorer/overview", handleExplorerOverview(database, absDir))
+	mux.HandleFunc("/api/explorer/search", handleExplorerSearch(database))
+	mux.HandleFunc("/api/explorer/node", handleExplorerNode(database))
 	return secureLocal(mux)
 }
 

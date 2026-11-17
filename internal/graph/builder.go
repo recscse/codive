@@ -138,6 +138,8 @@ func BuildGraph(ctx context.Context, database *sql.DB, rootDir string) (*GraphSn
 	nodeMap := make(map[string]bool)
 	symByName := make(map[string][]string) // name -> list of node IDs
 	funcsByFile := make(map[string][]fileFunc)
+	// Route handlers are looked up among the route's own file's symbols only.
+	symNamesByFile := make(map[string][]string)
 
 	// 1. Files & Packages
 	pkgDirs := make(map[string]bool)
@@ -213,6 +215,7 @@ func BuildGraph(ctx context.Context, database *sql.DB, rootDir string) (*GraphSn
 			})
 			nodeMap[symID] = true
 			symByName[sym.Name] = append(symByName[sym.Name], symID)
+			symNamesByFile[cleanPath] = append(symNamesByFile[cleanPath], sym.Name)
 			if kind == KindFunction || kind == KindMethod {
 				funcsByFile[cleanPath] = append(funcsByFile[cleanPath], fileFunc{id: symID, line: sym.LineNumber})
 			}
@@ -292,7 +295,8 @@ func BuildGraph(ctx context.Context, database *sql.DB, rootDir string) (*GraphSn
 					// Find handler: look in adjacent lines for a function defined in this file
 					for lookAhead := 1; lookAhead <= 6 && (lineIdx+lookAhead) < len(lines); lookAhead++ {
 						aheadLine := lines[lineIdx+lookAhead]
-						for name, ids := range symByName {
+						for _, name := range symNamesByFile[cleanPath] {
+								ids := symByName[name]
 							if strings.Contains(aheadLine, name) {
 								for _, id := range ids {
 									if strings.HasPrefix(id, "sym:"+cleanPath+":") {
@@ -495,16 +499,9 @@ func filesFingerprint(allFiles map[string]db.FileRecord) string {
 
 // EnsureFresh rebuilds the graph if the file index changed since it was last built.
 func EnsureFresh(ctx context.Context, database *sql.DB, rootDir string) error {
-	allFiles, err := db.GetAllFiles(ctx, database)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve files: %w", err)
-	}
-	stored, err := db.GetMeta(ctx, database, graphFingerprintKey)
-	if err != nil {
+	stale, err := IsStale(ctx, database)
+	if err != nil || !stale {
 		return err
-	}
-	if stored == filesFingerprint(allFiles) {
-		return nil
 	}
 	_, err = BuildGraph(ctx, database, rootDir)
 	return err
@@ -580,72 +577,66 @@ func saveGraphToDB(ctx context.Context, database *sql.DB, nodes []Node, edges []
 	return tx.Commit()
 }
 
-// LoadGraph loads nodes and edges from SQLite, optionally bounded by node limit.
+// loadPriority is the order nodes are loaded in when the graph is bounded:
+// what a newcomer needs first (entry points, tables), then structure, then code.
+// Large groups are cut by LIMIT alone: ordering a few hundred thousand symbols
+// just to keep some of them costs seconds.
+var loadPriority = []struct {
+	where   string
+	ordered bool
+}{
+	{"kind IN ('endpoint','database','broker','scheduler')", true},
+	{"kind = 'package'", true},
+	{"kind = 'file'", true},
+	{"kind NOT IN ('endpoint','database','broker','scheduler','package','file','test')", false},
+	{"kind = 'test'", false},
+}
+
+// LoadGraph loads nodes and edges from SQLite, bounded by a node limit. Only
+// edges between loaded nodes are returned, and they are selected in SQL so a
+// huge edge table is never read in full.
 func LoadGraph(ctx context.Context, database *sql.DB, limit int) (*GraphSnapshot, error) {
 	if limit <= 0 {
 		limit = 3500
 	}
 
-	nodeRows, err := database.QueryContext(ctx, `
-		SELECT id, kind, label, file_path, line_number, end_line_number, language, signature, metadata_json
-		FROM graph_nodes
-		ORDER BY CASE kind
-			WHEN 'endpoint' THEN 0 WHEN 'database' THEN 0 WHEN 'broker' THEN 0 WHEN 'scheduler' THEN 0
-			WHEN 'package' THEN 1 WHEN 'file' THEN 2 WHEN 'test' THEN 4 ELSE 3 END, id
-		LIMIT ?;
-	`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer nodeRows.Close()
-
-	var nodes []Node
-	nodeSet := make(map[string]bool)
-	for nodeRows.Next() {
-		var n Node
-		var metaStr string
-		var kindStr string
-		if err := nodeRows.Scan(&n.ID, &kindStr, &n.Label, &n.FilePath, &n.LineNumber, &n.EndLineNumber, &n.Language, &n.Signature, &metaStr); err != nil {
-			return nil, err
-		}
-		n.Kind = NodeKind(kindStr)
-		if metaStr != "" {
-			_ = json.Unmarshal([]byte(metaStr), &n.Metadata)
-		}
-		nodes = append(nodes, n)
-		nodeSet[n.ID] = true
-	}
-
-	edgeRows, err := database.QueryContext(ctx, `
-		SELECT id, source_id, target_id, kind, evidence, location_file, location_line, confidence, metadata_json
-		FROM graph_edges;
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer edgeRows.Close()
-
-	var edges []Edge
-	for edgeRows.Next() {
-		var e Edge
-		var kindStr, evidStr, metaStr string
-		if err := edgeRows.Scan(&e.ID, &e.SourceID, &e.TargetID, &kindStr, &evidStr, &e.LocationFile, &e.LocationLine, &e.Confidence, &metaStr); err != nil {
-			return nil, err
-		}
-		e.Kind = EdgeKind(kindStr)
-		e.Evidence = EvidenceType(evidStr)
-		if metaStr != "" {
-			_ = json.Unmarshal([]byte(metaStr), &e.Metadata)
-		}
-		// Only include edges if both source and target nodes are loaded
-		if nodeSet[e.SourceID] && nodeSet[e.TargetID] {
-			edges = append(edges, e)
-		}
-	}
-
 	var totalNodes, totalEdges int
 	_ = database.QueryRowContext(ctx, "SELECT COUNT(*) FROM graph_nodes;").Scan(&totalNodes)
 	_ = database.QueryRowContext(ctx, "SELECT COUNT(*) FROM graph_edges;").Scan(&totalEdges)
+
+	nodes := []Node{}
+	for _, group := range loadPriority {
+		remaining := limit - len(nodes)
+		if remaining <= 0 {
+			break
+		}
+		query := `SELECT id, kind, label, file_path, line_number, end_line_number, language, signature, metadata_json
+			FROM graph_nodes WHERE ` + group.where
+		if group.ordered {
+			query += " ORDER BY id"
+		}
+		rows, err := database.QueryContext(ctx, query+" LIMIT ?;", remaining)
+		if err != nil {
+			return nil, err
+		}
+		got, err := scanNodes(rows)
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, got...)
+	}
+
+	var edges []Edge
+	var err error
+	if len(nodes) >= totalNodes {
+		edges, err = loadEdges(ctx, database, "SELECT "+edgeColumns+" FROM graph_edges e;")
+	} else {
+		edges, err = loadEdgesAmong(ctx, database, nodes)
+	}
+	if err != nil {
+		return nil, err
+	}
 
 	return &GraphSnapshot{
 		Nodes:      nodes,
@@ -655,4 +646,73 @@ func LoadGraph(ctx context.Context, database *sql.DB, limit int) (*GraphSnapshot
 		TotalEdges: totalEdges,
 		Truncated:  totalNodes > len(nodes),
 	}, nil
+}
+
+const edgeColumns = "e.id, e.source_id, e.target_id, e.kind, e.evidence, e.location_file, e.location_line, e.confidence, e.metadata_json"
+
+type edgeQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func loadEdges(ctx context.Context, q edgeQuerier, query string, args ...any) ([]Edge, error) {
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var edges []Edge
+	for rows.Next() {
+		var e Edge
+		var kind, evid, meta string
+		if err := rows.Scan(&e.ID, &e.SourceID, &e.TargetID, &kind, &evid, &e.LocationFile, &e.LocationLine, &e.Confidence, &meta); err != nil {
+			return nil, err
+		}
+		e.Kind, e.Evidence = EdgeKind(kind), EvidenceType(evid)
+		if meta != "" && meta != "{}" && meta != "null" {
+			_ = json.Unmarshal([]byte(meta), &e.Metadata)
+		}
+		edges = append(edges, e)
+	}
+	return edges, rows.Err()
+}
+
+// loadEdgesAmong returns the edges whose two ends are both in nodes, by joining
+// against a temporary table of their ids on one connection.
+func loadEdgesAmong(ctx context.Context, database *sql.DB, nodes []Node) ([]Edge, error) {
+	conn, err := database.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "CREATE TEMP TABLE IF NOT EXISTS _loaded_ids (id TEXT PRIMARY KEY) WITHOUT ROWID;"); err != nil {
+		return nil, err
+	}
+	defer conn.ExecContext(context.Background(), "DROP TABLE IF EXISTS _loaded_ids;")
+	if _, err := conn.ExecContext(ctx, "DELETE FROM _loaded_ids;"); err != nil {
+		return nil, err
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	stmt, err := tx.PrepareContext(ctx, "INSERT OR IGNORE INTO _loaded_ids (id) VALUES (?);")
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	for _, n := range nodes {
+		if _, err := stmt.ExecContext(ctx, n.ID); err != nil {
+			stmt.Close()
+			tx.Rollback()
+			return nil, err
+		}
+	}
+	stmt.Close()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return loadEdges(ctx, conn, `SELECT `+edgeColumns+`
+		FROM graph_edges e
+		JOIN _loaded_ids s ON s.id = e.source_id
+		JOIN _loaded_ids t ON t.id = e.target_id;`)
 }

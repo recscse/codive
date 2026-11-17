@@ -41,7 +41,7 @@ This report evaluates **`codive`** against standard developer tools (`git grep`,
 ### 1. Where `codive` Output Was Much Smaller
 * **Large Files & Monorepos:** Reading whole files to inspect an interface burns tens of thousands of tokens. `get_file_skeleton` and `pack` was 86.3% smaller in this run.
 * **Diffs & PR Summaries:** Raw unified diffs are bloated with context headers (`@@ ... @@`) and line shifts. `codive diff` converts 1,688 lines of diff into a 23-line summary of affected functions.
-* **Blast Radius & Refactoring Impact:** `codive blast` provides an upstream caller tree and affected test suites in 1 turn. Standard `grep` requires 5+ chained commands and manual reasoning.
+* **Blast Radius & Refactoring Impact:** For Go, `codive blast` provides an upstream caller tree and affected test suites in one call; other languages have no caller data yet. This was not measured against `grep` here.
 
 ### 2. The Un-Sugarcoated Truth: Where `codive` is NOT Faster or Smaller
 * **Single Line CLI Symbol Output:** In the terminal, `codive symbol` prints an ASCII title box, file path, and signature line (101 tokens), while `git grep -n` prints a single 100-character line (32 tokens). *Note: Inside MCP mode, this formatting overhead is eliminated.*
@@ -65,7 +65,7 @@ The following diagram demonstrates how any AI coding agent connects to and utili
                ┌────────────────────────────────────────────────────────┐
                │              `codive serve` MCP Daemon                 │
                │   - Persistent in-memory Go process                    │
-               │   - Zero startup latency (< 2ms query execution)       │
+               │   - No per-call process startup (query speed not benchmarked here)│
                └──────┬───────────────────┬──────────────────────┬──────┘
                       │                   │                      │
          AST Parsing  │      Full-Text    │     Call Graph       │  Git Context
@@ -96,8 +96,8 @@ Based on deep source-code auditing, here are 5 critical engineering improvements
    - *Issue:* Currently, `get_git_changes` only lists the enclosing symbols. If an agent actually needs to see the exact line changes inside that function, it has to run a second command.
    - *Fix:* Add an optional `include_hunks: true` parameter returning only the diff hunks within the enclosing function scope.
 3. **Dynamic Language Call Graph Resolution:**
-   - *Issue:* AST parsing handles Go, Rust, Java, and TypeScript statically. In Python and Ruby, dynamic calls (`getattr()`, `send()`, runtime dispatch) are missed by caller graphs.
-   - *Fix:* Combine AST caller graphs with heuristic SQLite FTS5 identifier proximity ranking for dynamic languages.
+   - *Issue:* Symbols are extracted for many languages, but call edges (callers, flow, blast radius) exist only for Go today. For Java, Python, TypeScript and the rest, caller lists are empty rather than complete, and the explorer says so. Dynamic calls (`getattr()`, `send()`, runtime dispatch) would be missed even once more languages are added.
+   - *Fix:* Add call resolution for the most-used languages first (Java next), marking inferred edges as such.
 4. **Cache Invalidation & Stale Symbols:**
    - *Issue:* If a developer edits files without running `codive watch` or `install-hooks`, the index slowly drifts out of sync.
    - *Fix:* MCP server should implement file stat / mtime checks before serving `read_symbol` (as partially added in `ensureFreshSymbols`).
