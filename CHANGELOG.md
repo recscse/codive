@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The first reply on a new repository no longer waits for indexing.** `initialize` and `tools/list` are answered at once. A tool call that arrives while the first index is being built waits up to 40 seconds and then says the index is still being built, instead of hanging until the client gives up. The automatic first index also used to build the code graph, which took about 30 seconds even for a one-file Go repository; the graph is now built in the background and the graph tools use it once it is ready. Indexing a very large repository for the first time can still take several minutes.
 - `codive serve` no longer creates a `.codive` folder in whatever directory the client started it in.
 
+### Changed
+- **README corrected and extended.** The language table now lists only what each extractor produces (for example, no imports, C# properties or Rust macros), and says which languages use a real parser (Go) and which use line patterns. The tool list now shows all 18 tools, the skeleton format is the real one, and the unmeasured "saves 3,000–8,000 tokens per turn" claim is gone. New sections: how the shared daemon works, what is indexed and what is never indexed, large repositories, known limits, and the measured benchmark table with its caveats. The uninstall instructions no longer suggest `find / … rm -rf`.
+
 ## [v1.3.4] - 2026-11-17
 
 ### Fixed
