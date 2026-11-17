@@ -1240,7 +1240,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 		if len(syms) == 0 {
 			return &ToolCallResult{
-				Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("No symbols found matching '%s'", query)}},
+				Content: []ContentItem{{Type: "text", Text: s.symbolNotFound(ctx, targetDB, targetDir, query)}},
 			}, nil
 		}
 

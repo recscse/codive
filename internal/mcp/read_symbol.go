@@ -462,7 +462,7 @@ func noSymbolMessage(ctx context.Context, database *sql.DB, sq symbolQuery) stri
 	if len(names) > 0 {
 		msg += " Similar definitions: " + strings.Join(names, ", ") + "."
 	} else {
-		msg += " Use search_code for text that isn't a declared symbol."
+		msg += " Use search_code for text that isn't a declared symbol. A miss is not proof the name doesn't exist: declarations are found by pattern (Go excepted), and some languages have no symbol extractor, so confirm with find_symbol or grep if it matters."
 	}
 	return msg
 }
