@@ -70,6 +70,20 @@ To expose a new MCP tool to AI agents:
    ```
 4. **Open a Pull Request** against the `main` branch. GitHub Actions will automatically run cross-platform CI tests on Linux, macOS, and Windows.
 
+Use a new branch for each change and delete it after the merge. Reusing a merged branch makes the next pull request carry commits that were already reviewed.
+
+---
+
+## 🚀 Releases
+
+Releases are automatic and follow `Version` in `main.go`:
+
+1. A pull request that changes shipped code (Go source other than tests, `go.mod`, `go.sum`) must bump `Version` and move the `## [Unreleased]` notes into a `## [vX.Y.Z]` section of `CHANGELOG.md`. The **Release check** workflow fails the pull request otherwise. Add the `no-release` label to merge a shipped change on purpose without releasing it.
+2. Merging to `main` runs the tests on Linux, macOS and Windows, builds all platforms, publishes the GitHub release with the changelog section as its notes, and then downloads the published files on each OS to check them.
+3. If `Version` already has a release, the run skips publishing and says so: look at the warning and summary on the **Release codive Binaries** run.
+
+Repository settings that make this reliable (they live in GitHub, not in files): protect `main` so it needs a pull request and the checks **Test on ubuntu-latest**, **Test on macos-latest**, **Test on windows-latest** and **Version bump for shipped changes**, and turn on "Automatically delete head branches".
+
 ---
 
 ## 📄 License
