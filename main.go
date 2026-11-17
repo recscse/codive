@@ -14,7 +14,7 @@ import (
 
 // Build metadata injected via -ldflags during build
 var (
-	Version   = "v1.3.3"
+	Version   = "v1.3.4"
 	GitCommit = "none"
 	BuildDate = "2026-10-23"
 )

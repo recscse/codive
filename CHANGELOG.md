@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.3.4] - 2026-11-17
+
 ### Fixed
 - **Functions whose parameter list spans several lines are indexed.** A declaration such as `def run(` followed by its parameters on the next lines was dropped, so `find_symbol` and `read_symbol` answered "not found" for code that exists and the file outline gave its lines to the function above. This affected Python, TypeScript/JavaScript, Java, C# and Rust. Existing indexes are rebuilt once in the background.
 - **Java and C# statements are no longer indexed as methods.** `return compute(x)` and `throw new MyError(msg)` were recorded as methods named `compute` and `MyError`.
@@ -23,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Token savings are only reported where they are measured.** The footer on `find_symbol`, `find_references`, `find_callers` and `find_files` claimed a saving computed from a fixed number of tokens per result (for example 1,200 per reference). Those footers now state the size of the response only. `get_file_skeleton` compares against the real size of the file. `codive stats` reports queries served and the token counts for partial file reads (outlines and single definitions); the latency, cost and speed-multiplier lines, which came from assumed constants, are gone. `codive stats --json` fields changed to match.
 - `find_references` marks the line that declares the symbol with `← definition`, and labels ordinary source files `Source` instead of `Caller / Reference`.
 - Docs: removed the unmeasured "10–80× fewer tokens" figure and the description of search operators `search_code` never supported; corrected the tool count (18).
+
+### Added
+- **The web explorer has a plain-language repository overview**: the languages and main areas of the repository for someone who doesn't know it yet, served at `/api/explorer/overview`.
+- **`codive init` shows when the code graph build starts**, and logs how long indexing and graph building each took.
+- **`scripts/agentbench`** runs the same tasks with and without codive on identical checkouts and records success, turns, tokens, cost and time. No results are published yet.
+
+### Upgrading
+Running `codive serve` processes keep the old code until they are restarted, so restart your AI clients after installing. The first server to start after the upgrade rebuilds the index once, in the background.
 
 ## [v1.3.3] - 2026-11-12
 
