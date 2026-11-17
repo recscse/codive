@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/recscse/codive/internal/daemon"
 	"github.com/recscse/codive/internal/db"
@@ -57,15 +60,57 @@ func doctorIndexChecks(absDir, version string) {
 		}
 	}
 
+	serving := countServeProcesses()
 	if ep, err := daemon.ReadEndpoint(); err == nil && daemon.Alive() {
 		if ep.Version != version {
 			ui.CheckWarn(fmt.Sprintf("The shared daemon runs codive %s but this is %s; it is replaced the next time an AI client connects, or run 'codive daemon stop'", ep.Version, version))
 		} else {
 			ui.CheckPass(fmt.Sprintf("Shared daemon running  (pid %d, codive %s)", ep.PID, ep.Version))
 		}
+	} else if serving > 0 {
+		// Without a daemon, every serve process runs the whole server itself:
+		// an older codive, or CODIVE_STANDALONE=1. Each syncs and writes the
+		// index, which is what produced "database is locked".
+		ui.CheckWarn(fmt.Sprintf("%d 'codive serve' process(es) are running without the shared daemon, so each one syncs and writes the index itself; restart your AI clients after installing this version", serving))
 	} else {
 		ui.CheckPass("Shared daemon not running  (it starts by itself when an AI client connects)")
 	}
+}
+
+// countServeProcesses returns how many `codive serve` processes are running,
+// or 0 if the process list can't be read.
+func countServeProcesses() int {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	var out []byte
+	var err error
+	if runtime.GOOS == "windows" {
+		out, err = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
+			`Get-CimInstance Win32_Process -Filter "Name='codive.exe'" | ForEach-Object { $_.CommandLine }`).Output()
+	} else {
+		out, err = exec.CommandContext(ctx, "ps", "-eo", "args=").Output()
+	}
+	if err != nil {
+		return 0
+	}
+	return countServeLines(string(out))
+}
+
+// countServeLines counts the lines of a process listing that are a codive
+// binary run with the serve command.
+func countServeLines(listing string) int {
+	n := 0
+	for _, line := range strings.Split(listing, "\n") {
+		fields := strings.Fields(strings.ReplaceAll(line, `"`, ""))
+		for i, f := range fields {
+			base := strings.ToLower(filepath.Base(strings.ReplaceAll(f, `\`, "/")))
+			if (base == "codive" || base == "codive.exe") && i+1 < len(fields) && fields[i+1] == "serve" {
+				n++
+				break
+			}
+		}
+	}
+	return n
 }
 
 // recentSyncFailures counts the sync failures among the last logTailLines

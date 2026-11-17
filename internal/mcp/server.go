@@ -79,6 +79,10 @@ type Server struct {
 	// pool holds the database connections opened for workspaces. It is the
 	// server's own unless SetDatabasePool shared one in.
 	pool *DBPool
+	// gate, when set, runs before every tool call and may refuse it. A daemon
+	// uses it to hold tool calls until the repository's index exists, while
+	// initialize and tools/list are answered at once.
+	gate func(ctx context.Context) error
 	// pinned stops the server from guessing its workspace from the process's
 	// working directory. A daemon's working directory says nothing about the
 	// client it is serving.
@@ -234,6 +238,10 @@ func (s *Server) SetDatabasePool(pool *DBPool) {
 	pool.shared = true
 	s.pool = pool
 }
+
+// SetReadyGate makes the server call fn before every tool call; a non-nil
+// error is returned to the client as the tool's error.
+func (s *Server) SetReadyGate(fn func(ctx context.Context) error) { s.gate = fn }
 
 // PinWorkspace stops the server from choosing its workspace by the process's
 // working directory; it uses the directory it was created with (or the one the
@@ -961,6 +969,11 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 }
 
 func (s *Server) executeTool(ctx context.Context, name string, args map[string]any) (*ToolCallResult, error) {
+	if s.gate != nil {
+		if err := s.gate(ctx); err != nil {
+			return nil, err
+		}
+	}
 	wsPath, _ := args["workspace_path"].(string)
 	targetDB, targetDir, err := s.getDBForPath(wsPath)
 	if err != nil {
