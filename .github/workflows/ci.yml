@@ -11,9 +11,11 @@ permissions:
 
 # A branch with an open pull request triggers this workflow twice, once for the
 # push and once for the pull request, and every new push makes the previous run
-# stale. One group per branch: the newest run wins and the rest are cancelled.
+# stale. Cancel stale runs of the same kind only. Sharing one group between the
+# two kinds let whichever started second cancel the other, and when that was
+# the pull request's run the PR was left with cancelled checks.
 concurrency:
-  group: ci-${{ github.head_ref || github.ref_name }}
+  group: ci-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
