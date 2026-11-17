@@ -1,0 +1,54 @@
+name: Release check
+
+# Stops a pull request that changes shipped code from merging without a way to
+# reach users. The release workflow only publishes when Version in main.go has
+# no release yet, and when it has one it skips quietly, so a change merged
+# without a version bump is on main but never released.
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize, reopened, labeled, unlabeled ]
+
+permissions:
+  contents: read
+
+jobs:
+  version-bump:
+    name: Version bump for shipped changes
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NO_RELEASE: ${{ contains(github.event.pull_request.labels.*.name, 'no-release') }}
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check
+        run: |
+          SHIPPED=$(git diff --name-only "origin/${BASE_REF}...HEAD" -- '*.go' go.mod go.sum ':!*_test.go')
+          if [ -z "$SHIPPED" ]; then
+            echo "No shipped source changed (tests, docs and workflows only); no release needed."
+            exit 0
+          fi
+          echo "Shipped files changed:"; printf '%s\n' "$SHIPPED" | head -20 | sed 's/^/  /'
+
+          TAG=$(sed -n 's/^[[:space:]]*Version[[:space:]]*=[[:space:]]*"\(v[0-9][^"]*\)".*/\1/p' main.go | head -1)
+          if [ -z "$TAG" ]; then echo "::error::could not read Version from main.go"; exit 1; fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            MSG="This PR changes shipped code, but Version $TAG is already released, so merging will not release it. Bump Version in main.go and add a '## [vX.Y.Z]' section to CHANGELOG.md, or add the 'no-release' label to merge without releasing."
+            if [ "$NO_RELEASE" = "true" ]; then
+              echo "::warning title=No release::$MSG (allowed by the no-release label)"
+              exit 0
+            fi
+            echo "::error title=Version not bumped::$MSG"
+            exit 1
+          fi
+
+          if ! grep -qE "^## \[v?${TAG#v}\]" CHANGELOG.md; then
+            echo "::error title=Changelog missing::Version $TAG has no release yet, but CHANGELOG.md has no '## [$TAG]' section. The release would stop at the changelog check."
+            exit 1
+          fi
+          echo "Version $TAG is unreleased and has a changelog section: merging will release it."

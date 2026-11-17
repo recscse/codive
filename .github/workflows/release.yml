@@ -41,6 +41,26 @@ jobs:
           if [[ "$GITHUB_REF" != refs/tags/* ]] && gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; nothing to publish."
             echo "release=false" >> "$GITHUB_OUTPUT"
+            # A skipped release must not look like a published one. If shipped
+            # code changed since that release, say so where people look: a
+            # warning on the run and the run summary.
+            CHANGED=$(git diff --name-only "$TAG"..HEAD -- '*.go' go.mod go.sum ':!*_test.go' 2>/dev/null || true)
+            COUNT=$(printf '%s' "$CHANGED" | grep -c . || true)
+            if [ "$COUNT" -gt 0 ]; then
+              echo "::warning title=Not released::$TAG already exists and $COUNT shipped file(s) changed since it. Users will not get these changes until Version is bumped."
+              {
+                echo "### ⚠️ Nothing was released"
+                echo
+                echo "\`$TAG\` is already published, so this merge was **not** released, but **$COUNT shipped source file(s)** changed since it:"
+                echo
+                printf '%s\n' "$CHANGED" | head -15 | sed 's/^/- /'
+                echo
+                echo "To release them: bump \`Version\` in \`main.go\`, add a \`## [vX.Y.Z]\` section to \`CHANGELOG.md\` (move the \`Unreleased\` notes into it), and merge."
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "### No release needed" >> "$GITHUB_STEP_SUMMARY"
+              echo "\`$TAG\` is already published and no shipped source changed since it." >> "$GITHUB_STEP_SUMMARY"
+            fi
             exit 0
           fi
           # Never publish a release that has no written changelog entry.
