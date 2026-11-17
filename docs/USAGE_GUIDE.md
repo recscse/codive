@@ -52,7 +52,7 @@ If you prefer adding the configuration manually to your editor's MCP config:
 
 ---
 
-## 2. The 14 MCP Tools Reference & Usage
+## 2. The 18 MCP Tools Reference & Usage
 
 ### 1. `pack_feature_context` (One-Shot Feature Discovery with Attention U-Curve)
 - **Description**: Bundles related routes, data models, schemas, skeletons, and test suites for a feature keyword into a single compressed context summary. Features **Subword Intent Decomposition** (maps conceptual terms like `login` or `rate limit` to actual codebase symbols like `VerifyCredentials` or `ThrottleRequests`) and formats context using **Karpathy's Attention U-Curve** (interfaces and decisions at the top priming anchor, target functions and test assertions at the bottom recency anchor).
@@ -122,7 +122,7 @@ If you prefer adding the configuration manually to your editor's MCP config:
 | `codive setup` | Auto-configures MCP in installed AI clients | `codive setup` |
 | `codive init` | Scans and indexes the repository | `codive init` |
 | `codive update` | Fast incremental synchronization (<5ms) | `codive update` |
-| `codive stats` | Displays the token and cloud money savings box | `codive stats` |
+| `codive stats` | Shows queries served and the measured token counts for partial file reads | `codive stats` |
 | `codive blast <sym>` | Evaluates refactoring blast radius | `codive blast GenerateToken` |
 | `codive map --web` | Launches the interactive browser network graph | `codive map --web` |
 | `codive doctor` | Verifies SQLite integrity and MCP setup | `codive doctor` |

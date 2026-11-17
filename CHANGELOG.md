@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Functions whose parameter list spans several lines are indexed.** A declaration such as `def run(` followed by its parameters on the next lines was dropped, so `find_symbol` and `read_symbol` answered "not found" for code that exists and the file outline gave its lines to the function above. This affected Python, TypeScript/JavaScript, Java, C# and Rust. Existing indexes are rebuilt once in the background.
+- **Java and C# statements are no longer indexed as methods.** `return compute(x)` and `throw new MyError(msg)` were recorded as methods named `compute` and `MyError`.
+- **A slow or blocked sync no longer turns tool calls into timeouts.** The index sync ran inside each tool call, on the call's 60-second budget. On a large repository, or when another codive process held the database, the sync used the whole budget, the call failed, and the next call started the same sync again. The sync now runs on its own clock: a call waits up to 5 seconds for it and is otherwise answered from the index as it is. After a failed sync the next attempt waits (2 seconds, doubling to a minute) instead of every query retrying it.
+- **Updating one file no longer scans the full-text tables.** Deleting a file's old rows filtered on a column the full-text index can't look up, so every sync read both tables in full while holding the write lock. The rows are now found through an index and deleted by rowid.
+- **Only one process rebuilds a shared index.** When several AI clients each run `codive serve` on the same repository, they all used to start the rebuild after an upgrade, each holding every file in memory. A lock file in `.codive` now lets one do it.
+- **`.codive` ignores itself in git.** The directory gets its own `.gitignore`, so the index no longer appears as untracked files and can't be committed by accident. Your repository's `.gitignore` is not edited.
+- The file outline reported one line too many for files ending in a newline.
+
+### Changed
+- **`search_code` lists every matching line with its line number.** It used to show one excerpt per file with no line number, and its count was of files, so three matches in one file read as one. A query in double quotes is now an exact phrase. The heading says when more files match than are shown. New optional argument: `max_lines_per_file`.
+- **Token savings are only reported where they are measured.** The footer on `find_symbol`, `find_references`, `find_callers` and `find_files` claimed a saving computed from a fixed number of tokens per result (for example 1,200 per reference). Those footers now state the size of the response only. `get_file_skeleton` compares against the real size of the file. `codive stats` reports queries served and the token counts for partial file reads (outlines and single definitions); the latency, cost and speed-multiplier lines, which came from assumed constants, are gone. `codive stats --json` fields changed to match.
+- `find_references` marks the line that declares the symbol with `← definition`, and labels ordinary source files `Source` instead of `Caller / Reference`.
+- Docs: removed the unmeasured "10–80× fewer tokens" figure and the description of search operators `search_code` never supported; corrected the tool count (18).
+
 ## [v1.3.3] - 2026-11-12
 
 ### Fixed

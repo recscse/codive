@@ -64,6 +64,7 @@ func Open(dbPath string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create db directory: %w", err)
 	}
+	ignoreIndexDir(filepath.Dir(dbPath))
 
 	// Modernc sqlite supports DSN query parameters for busy_timeout, journal_mode, and sync
 	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-64000)&_pragma=mmap_size(268435456)&_pragma=temp_store(MEMORY)", filepath.ToSlash(dbPath))
@@ -95,6 +96,21 @@ func Open(dbPath string) (*sql.DB, error) {
 	}
 
 	return database, nil
+}
+
+// ignoreIndexDir makes a .codive directory ignore itself in git by giving it
+// its own .gitignore, so the index (gigabytes on a large repository) and its
+// log never show up as untracked files or get committed, without codive
+// editing the repository's own .gitignore. An existing file is left alone.
+func ignoreIndexDir(dir string) {
+	if filepath.Base(dir) != ".codive" {
+		return
+	}
+	path := filepath.Join(dir, ".gitignore")
+	if _, err := os.Stat(path); err == nil {
+		return
+	}
+	_ = os.WriteFile(path, []byte("# Created by codive: this directory is a local index, not source.\n*\n"), 0644)
 }
 
 // OpenRaw opens a SQLite database connection without executing schema migrations (useful for testing).
@@ -557,6 +573,33 @@ func GetFile(ctx context.Context, database *sql.DB, path string) (FileRecord, bo
 
 // IndexChanges is one batch of index updates, applied atomically by
 // ApplyIndexChanges.
+// The full-text tables keep each row's path in an UNINDEXED column, which
+// FTS5 can only filter by reading every row. A sync that touched two files
+// therefore scanned both tables in full, inside the write transaction. FTS5
+// stores its column values in an ordinary table (<name>_content, columns c0,
+// c1, ... in declaration order, keyed by the FTS rowid), so a plain index on
+// that table's path column lets a file's rows be found directly and deleted
+// by rowid.
+const (
+	fileFTSRowsByPath   = "SELECT id FROM file_fts_content WHERE c0"
+	symbolFTSRowsByPath = "SELECT id FROM symbol_fts_content WHERE c0"
+)
+
+// execer is the part of *sql.DB and *sql.Tx that ensureFTSPathIndexes needs.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// ensureFTSPathIndexes creates the path indexes described above. Every index
+// writer calls it first: once the indexes exist it does nothing, and on an
+// index built by an older version the first write builds them, off the
+// startup path where a large database would delay the MCP handshake. Errors
+// are ignored: the lookups work without the indexes, only slower.
+func ensureFTSPathIndexes(ctx context.Context, e execer) {
+	_, _ = e.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_file_fts_path ON file_fts_content(c0);")
+	_, _ = e.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_symbol_fts_path ON symbol_fts_content(c0);")
+}
+
 type IndexChanges struct {
 	// ReplaceAll clears every file, symbol, and FTS row first, making the
 	// batch a full rebuild. Decisions and telemetry are always kept: they
@@ -592,6 +635,7 @@ func ApplyIndexChanges(ctx context.Context, database *sql.DB, c IndexChanges) er
 		_, err := tx.ExecContext(ctx, query, args...)
 		return err
 	}
+	ensureFTSPathIndexes(ctx, tx)
 
 	if c.ReplaceAll {
 		for _, table := range []string{"files", "symbols", "file_fts", "symbol_fts"} {
@@ -621,10 +665,10 @@ func ApplyIndexChanges(ctx context.Context, database *sql.DB, c IndexChanges) er
 			if err := exec("DELETE FROM symbols WHERE file_path IN ("+placeholders+");", args...); err != nil {
 				return fmt.Errorf("failed to batch delete symbols: %w", err)
 			}
-			if err := exec("DELETE FROM file_fts WHERE path IN ("+placeholders+");", args...); err != nil {
+			if err := exec("DELETE FROM file_fts WHERE rowid IN ("+fileFTSRowsByPath+" IN ("+placeholders+"));", args...); err != nil {
 				return fmt.Errorf("failed to batch delete fts: %w", err)
 			}
-			if err := exec("DELETE FROM symbol_fts WHERE file_path IN ("+placeholders+");", args...); err != nil {
+			if err := exec("DELETE FROM symbol_fts WHERE rowid IN ("+symbolFTSRowsByPath+" IN ("+placeholders+"));", args...); err != nil {
 				return fmt.Errorf("failed to batch delete symbol search terms: %w", err)
 			}
 		}
@@ -989,7 +1033,8 @@ func SaveFTS(ctx context.Context, database *sql.DB, files map[string]string) err
 	}
 	defer tx.Rollback()
 
-	delStmt, err := tx.PrepareContext(ctx, "DELETE FROM file_fts WHERE path = ?;")
+	ensureFTSPathIndexes(ctx, tx)
+	delStmt, err := tx.PrepareContext(ctx, "DELETE FROM file_fts WHERE rowid IN ("+fileFTSRowsByPath+" = ?);")
 	if err != nil {
 		return fmt.Errorf("failed to prepare fts delete statement: %w", err)
 	}
@@ -1025,7 +1070,8 @@ func DeleteFTSForFiles(ctx context.Context, database *sql.DB, paths []string) er
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.PrepareContext(ctx, "DELETE FROM file_fts WHERE path = ?;")
+	ensureFTSPathIndexes(ctx, tx)
+	stmt, err := tx.PrepareContext(ctx, "DELETE FROM file_fts WHERE rowid IN ("+fileFTSRowsByPath+" = ?);")
 	if err != nil {
 		return fmt.Errorf("failed to prepare fts delete statement: %w", err)
 	}
@@ -1094,6 +1140,17 @@ func SearchFTS(ctx context.Context, database *sql.DB, query string, limit int) (
 	return results, nil
 }
 
+// CountFTSMatches returns how many indexed files match query, so a caller
+// showing the first few can say how many there are in all.
+func CountFTSMatches(ctx context.Context, database *sql.DB, query string) (int, error) {
+	var n int
+	err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM file_fts WHERE file_fts MATCH ?;", formatFTSQuery(query)).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("fts count failed: %w", err)
+	}
+	return n, nil
+}
+
 // SymbolMatch is a definition found by SearchSymbols. Score is FTS5's bm25:
 // lower (more negative) is a better match.
 type SymbolMatch struct {
@@ -1149,11 +1206,29 @@ func SearchSymbols(ctx context.Context, database *sql.DB, terms []string, limit 
 	return out, rows.Err()
 }
 
-// formatFTSQuery prepares a safe FTS5 MATCH query string.
+// SplitSearchQuery splits a search query into its words. A query wrapped in
+// double quotes is a phrase: its words must appear next to each other, in
+// order. Otherwise each word may appear anywhere in the file.
+func SplitSearchQuery(raw string) (words []string, phrase bool) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) >= 2 && strings.HasPrefix(raw, `"`) && strings.HasSuffix(raw, `"`) {
+		if inner := strings.TrimSpace(raw[1 : len(raw)-1]); inner != "" && !strings.Contains(inner, `"`) {
+			return strings.Fields(inner), true
+		}
+	}
+	return strings.Fields(raw), false
+}
+
+// formatFTSQuery prepares a safe FTS5 MATCH query string: every word quoted
+// so FTS5 operators and punctuation in it are taken literally, or the whole
+// query as one quoted phrase.
 func formatFTSQuery(raw string) string {
-	terms := strings.Fields(raw)
+	terms, phrase := SplitSearchQuery(raw)
 	if len(terms) == 0 {
 		return `""`
+	}
+	if phrase {
+		return `"` + strings.Join(terms, " ") + `"`
 	}
 	var escapedTerms []string
 	for _, term := range terms {
@@ -1167,7 +1242,7 @@ func formatFTSQuery(raw string) string {
 // GetFileContent retrieves the indexed text content of a file from FTS.
 func GetFileContent(ctx context.Context, database *sql.DB, path string) (string, error) {
 	var content string
-	row := database.QueryRowContext(ctx, "SELECT content FROM file_fts WHERE path = ? LIMIT 1;", path)
+	row := database.QueryRowContext(ctx, "SELECT content FROM file_fts WHERE rowid = ("+fileFTSRowsByPath+" = ? LIMIT 1);", path)
 	if err := row.Scan(&content); err != nil {
 		return "", err
 	}
@@ -1657,75 +1732,69 @@ func GetDecisions(ctx context.Context, database *sql.DB, topic string) ([]Decisi
 	return decisions, rows.Err()
 }
 
-// SavingsReport contains aggregate metrics on time and token efficiency.
+// SavingsReport summarizes recorded tool usage. It only reports quantities
+// that were measured.
 type SavingsReport struct {
-	TotalQueriesServed    int64   `json:"total_queries_served"`
-	TotalTokensSaved      int64   `json:"total_tokens_saved"`
-	TotalLatencySavedMs   int64   `json:"total_latency_saved_ms"`
-	EstimatedCostSavedUSD float64 `json:"estimated_cost_saved_usd"`
-	SpeedMultiplier       float64 `json:"speed_multiplier"`
+	// TotalQueriesServed counts every recorded tool call.
+	TotalQueriesServed int64 `json:"total_queries_served"`
+	// PartialReads counts the calls that returned part of a file (an outline
+	// or a single definition) and so have a known alternative: reading the
+	// file in full.
+	PartialReads int64 `json:"partial_reads"`
+	// TokensReturned is the size of those responses, and WholeFileTokens the
+	// size of the files they came from; TotalTokensSaved is the difference.
+	// All three are estimates at four characters per token.
+	TokensReturned   int64 `json:"tokens_returned"`
+	WholeFileTokens  int64 `json:"whole_file_tokens"`
+	TotalTokensSaved int64 `json:"total_tokens_saved"`
 }
 
-// RecordTelemetry records token and latency savings for an MCP query.
-// rawEstimate is the estimated token cost of the raw (non-codive) alternative
-// for this call — e.g. reading the whole file — and usedTokens is the actual
-// size of the response codive returned. Storing both (rather than just their
-// difference) lets GetSavingsReport derive a real speed multiplier from
-// aggregate usage instead of guessing a constant.
-func RecordTelemetry(ctx context.Context, database *sql.DB, toolName string, usedTokens int, rawEstimate int, latencySavedMs int) {
+// partialReadTools are the tools that return part of a file in place of the
+// whole file. Only their calls have a baseline that is measured rather than
+// assumed: the size of the file itself. A search or a reference lookup
+// replaces a grep of about the same size, or an unknowable number of file
+// reads, so no saving is claimed for those.
+const partialReadTools = "'get_file_skeleton', 'read_symbol'"
+
+// RecordTelemetry records one tool call. usedTokens is the size of the
+// response. wholeFileTokens is the size of the file(s) the response was cut
+// from, for tools that return part of a file; pass 0 for every other tool,
+// whose calls are counted but have no measured alternative.
+func RecordTelemetry(ctx context.Context, database *sql.DB, toolName string, usedTokens int, wholeFileTokens int) {
 	if database == nil {
 		return
 	}
-	tokensSaved := rawEstimate - usedTokens
+	tokensSaved := wholeFileTokens - usedTokens
 	if tokensSaved < 0 {
 		tokensSaved = 0
 	}
 	_, _ = database.ExecContext(ctx, `
 		INSERT INTO telemetry (tool_name, tokens_saved, raw_estimate, latency_saved_ms, created_at)
-		VALUES (?, ?, ?, ?, ?);
-	`, toolName, tokensSaved, rawEstimate, latencySavedMs, time.Now().UTC())
+		VALUES (?, ?, ?, 0, ?);
+	`, toolName, tokensSaved, wholeFileTokens, time.Now().UTC())
 }
 
-// GetSavingsReport computes aggregate efficiency and cloud cost reduction
-// metrics purely from recorded telemetry — it never fabricates data, so a
-// fresh install with no recorded queries yet correctly reports all-zero
-// stats (SpeedMultiplier reports 1.0, meaning "no measured speedup yet").
+// GetSavingsReport summarizes recorded telemetry. Token figures cover only
+// the partial-read tools (see partialReadTools): rows of other tools, which
+// older versions recorded with assumed per-result savings, are counted as
+// queries and nothing else.
 func GetSavingsReport(ctx context.Context, database *sql.DB) (*SavingsReport, error) {
+	const measured = "tool_name IN (" + partialReadTools + ") AND raw_estimate > 0"
 	row := database.QueryRowContext(ctx, `
 		SELECT
 			COUNT(1),
-			COALESCE(SUM(tokens_saved), 0),
-			COALESCE(SUM(latency_saved_ms), 0),
-			COALESCE(SUM(raw_estimate), 0)
+			COALESCE(SUM(CASE WHEN `+measured+` THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN `+measured+` THEN tokens_saved ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN `+measured+` THEN raw_estimate ELSE 0 END), 0)
 		FROM telemetry;
 	`)
 
-	var queries int64
-	var tokens int64
-	var latencyMs int64
-	var rawTotal int64
-	if err := row.Scan(&queries, &tokens, &latencyMs, &rawTotal); err != nil {
+	var r SavingsReport
+	if err := row.Scan(&r.TotalQueriesServed, &r.PartialReads, &r.TotalTokensSaved, &r.WholeFileTokens); err != nil {
 		return nil, fmt.Errorf("failed to compute savings report: %w", err)
 	}
-
-	costUSD := (float64(tokens) / 1000000.0) * 3.00 // $3.00 per 1M input tokens
-
-	// Real ratio of raw (uncompressed) token cost to what was actually used,
-	// derived from recorded usage rather than a guessed constant. Falls back
-	// to 1.0 (no measured speedup) until there's enough data to divide by.
-	speedMultiplier := 1.0
-	usedTotal := rawTotal - tokens
-	if usedTotal > 0 {
-		speedMultiplier = float64(rawTotal) / float64(usedTotal)
-	}
-
-	return &SavingsReport{
-		TotalQueriesServed:    queries,
-		TotalTokensSaved:      tokens,
-		TotalLatencySavedMs:   latencyMs,
-		EstimatedCostSavedUSD: costUSD,
-		SpeedMultiplier:       speedMultiplier,
-	}, nil
+	r.TokensReturned = r.WholeFileTokens - r.TotalTokensSaved
+	return &r, nil
 }
 
 // escapeLike escapes LIKE wildcards so a query is matched literally (used with

@@ -11,7 +11,7 @@ import (
 	"github.com/recscse/codive/internal/ui"
 )
 
-// RunStats prints the real-time token & money savings report.
+// RunStats prints recorded tool usage and the token counts that were measured.
 func RunStats(targetDir string, asJSON bool) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
@@ -39,14 +39,17 @@ func RunStats(targetDir string, asJSON bool) error {
 		return ui.PrintJSON(savings)
 	}
 
-	minutesSaved := float64(savings.TotalLatencySavedMs) / 60000.0
-
-	ui.SectionHeader("Efficiency & Cost Savings")
-	ui.KeyValue("Searches Served", ui.Count(int(savings.TotalQueriesServed), "query", "queries"))
-	ui.KeyValueAccent("Latency Reduced", fmt.Sprintf("%.1f minutes saved", minutesSaved))
-	ui.KeyValueAccent("Tokens Saved", fmt.Sprintf("%s tokens vs raw grep", formatTokens(savings.TotalTokensSaved)))
-	ui.KeyValue("Cloud Savings", fmt.Sprintf("$%.2f USD (Claude/GPT-4o)", savings.EstimatedCostSavedUSD))
-	ui.KeyValue("Speed Multiplier", fmt.Sprintf("%.1fx faster agent turns", savings.SpeedMultiplier))
+	ui.SectionHeader("Usage")
+	ui.KeyValue("Queries Served", ui.Count(int(savings.TotalQueriesServed), "query", "queries"))
+	ui.KeyValue("Partial Reads", ui.Count(int(savings.PartialReads), "call", "calls")+" returned an outline or one definition instead of a whole file")
+	if savings.PartialReads > 0 {
+		ui.KeyValueAccent("Tokens Returned", fmt.Sprintf("%s, from files totalling %s (%s fewer)",
+			formatTokens(savings.TokensReturned), formatTokens(savings.WholeFileTokens), formatTokens(savings.TotalTokensSaved)))
+	}
+	fmt.Println()
+	fmt.Println("  Token counts are estimates at 4 characters per token and cover partial reads only.")
+	fmt.Println("  Searches and reference lookups are counted as queries; they have no measured")
+	fmt.Println("  baseline, so no saving is claimed for them.")
 	fmt.Println()
 
 	return nil

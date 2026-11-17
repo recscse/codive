@@ -200,6 +200,26 @@ func TestMCPServer(t *testing.T) {
 	if !strings.Contains(out.String(), "main.go") {
 		t.Errorf("expected code search to match main.go, got %s", out.String())
 	}
+	// Every occurrence is listed with its line number, and the count is of
+	// lines, not files.
+	for _, want := range []string{"Found 2 matching line(s) in 1 file(s)", "L3: func StartServer() error {", "L8: StartServer()"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("search_code output lacks %q, got %s", want, out.String())
+		}
+	}
+
+	// A quoted query is an exact phrase: these two words are both in the
+	// file, but never side by side in this order.
+	for query, wantHit := range map[string]bool{`\"func Run\"`: true, `\"Run func\"`: false, `Run func`: true} {
+		out.Reset()
+		req := `{"jsonrpc":"2.0","id":61,"method":"tools/call","params":{"name":"search_code","arguments":{"query":"` + query + `"}}}` + "\n"
+		if err := server.Serve(strings.NewReader(req), &out); err != nil {
+			t.Fatalf("serve failed: %v", err)
+		}
+		if got := strings.Contains(out.String(), "main.go"); got != wantHit {
+			t.Errorf("search_code %s: matched=%v, want %v; got %s", query, got, wantHit, out.String())
+		}
+	}
 
 	// 7. Test tools/call read_file_context
 	out.Reset()

@@ -450,7 +450,7 @@ codive serve /path/to/repo</pre>
       </div>
 
       <h3 id="mcp-skeleton"><code>get_file_skeleton</code></h3>
-      <p>Read a file's structure — class declarations, method signatures, field definitions — with all function bodies collapsed to line-range markers. Reduces token cost by ~95% compared to reading the full file. Features <strong>Session Working-Set Deduplication</strong>: repeated calls in the same conversation automatically emit compact reference anchors, saving thousands of redundant tokens.</p>
+      <p>Read a file's structure — class declarations, method signatures, field definitions — with all function bodies collapsed to line-range markers. Cut output size by about 86–88% on a 1,806-line file in our own benchmark (one repository, tokens estimated; results vary by file). Features <strong>Session Working-Set Deduplication</strong>: repeated calls in the same conversation automatically emit compact reference anchors, saving thousands of redundant tokens.</p>
       <div class="param-list">
         <div class="param">
           <div class="param-name">path <span class="param-required">required</span></div>
@@ -466,7 +466,7 @@ codive serve /path/to/repo</pre>
       </div>
 
       <h3 id="mcp-read-symbol"><code>read_symbol</code></h3>
-      <p>Returns just one declaration — its doc comment, signature, and complete implementation body — rather than reading the entire file. Typically consumes 10–80× fewer tokens than full file reads.</p>
+      <p>Returns just one declaration — its doc comment, signature, and complete implementation body — rather than reading the entire file.</p>
       <div class="param-list">
         <div class="param">
           <div class="param-name">symbol <span class="param-required">required</span></div>
@@ -496,15 +496,15 @@ codive serve /path/to/repo</pre>
       </div>
 
       <h3 id="mcp-search"><code>search_code</code></h3>
-      <p>Full-text search across all indexed file content using SQLite FTS5. Returns matching file paths and highlighted snippets. Much faster than shell <code>grep</code> or IDE global search because it reads from an in-process SQLite index.</p>
+      <p>Full-text search across all indexed file content using SQLite FTS5. Lists every matching line with its line number, grouped by file, best-matching files first. Matching ignores case and works on whole words; use <code>grep</code> for regular expressions or partial-word patterns.</p>
       <div class="param-list">
         <div class="param">
           <div class="param-name">query <span class="param-required">required</span></div>
-          <div>Search query. Supports FTS5 operators: <code>AND</code>, <code>OR</code>, <code>NOT</code>, phrase queries with <code>"quotes"</code>, and prefix matching with <code>term*</code>.</div>
+          <div>Words to find. Several words match files that contain all of them, anywhere. Wrap the query in double quotes for an exact phrase: <code>"retry backoff"</code>.</div>
         </div>
         <div class="param">
           <div class="param-name">limit <span class="param-optional">optional</span></div>
-          <div>Integer. Maximum number of results (default: 20).</div>
+          <div>Integer. Maximum number of files (default: 20). The heading says when more files match. <code>max_lines_per_file</code> (default: 10) caps the lines listed per file; the rest are counted.</div>
         </div>
       </div>
 

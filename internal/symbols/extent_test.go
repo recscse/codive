@@ -158,11 +158,20 @@ func Next() {}
 }
 
 // A parameter list spanning several lines must not be mistaken for a
-// bodyless declaration. (Tested directly: the TypeScript extractor doesn't
-// yet index functions whose parameter list spans lines.)
+// bodyless declaration.
 func TestSymbolExtentMultiLineSignature(t *testing.T) {
 	src := "export function build(\n  a: number,\n  b: number\n): number {\n  return a + b;\n}\n\nexport const x = 1;\n"
 	start, end, _ := SymbolExtent("TypeScript", []byte(src), db.SymbolRecord{Name: "build", Kind: "function", LineNumber: 1}, 8)
+	if start != 1 || end != 6 {
+		t.Errorf("extent = %d-%d, want 1-6", start, end)
+	}
+}
+
+// In Python the line closing a multi-line parameter list sits at the def's
+// own indentation. It must not be read as the end of the function.
+func TestSymbolExtentPythonMultiLineSignature(t *testing.T) {
+	src := "def build(\n    a,\n    b,\n) -> int:\n    total = a + b\n    return total\n\n\ndef other():\n    pass\n"
+	start, end, _ := SymbolExtent("Python", []byte(src), db.SymbolRecord{Name: "build", Kind: "function", LineNumber: 1}, 9)
 	if start != 1 || end != 6 {
 		t.Errorf("extent = %d-%d, want 1-6", start, end)
 	}

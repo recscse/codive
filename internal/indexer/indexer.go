@@ -7,6 +7,8 @@ package indexer
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -162,6 +164,9 @@ type RebuildHooks struct {
 	OnScanComplete func(totalFiles int)
 	OnFileProgress ProgressFunc
 	OnCommitStart  func(totalSymbols, totalFTS int)
+	// OnGraphStart is called by callers (not Rebuild itself) just before the
+	// code graph build, which has no per-file progress and can take a while.
+	OnGraphStart func()
 }
 
 // RebuildWithHooks scans rootDir from scratch and replaces the whole index with the
@@ -216,7 +221,22 @@ func NeedsReextract(ctx context.Context, database *sql.DB) bool {
 // repository, so callers must not run it inside a deadline-bound request:
 // the MCP server runs it from its background loop, and queries keep being
 // answered from the existing index meanwhile.
+//
+// Several codive processes often serve the same index (one per AI client),
+// and a rebuild holds every file's content in memory while it parses. Only
+// the process that takes the rebuild lock rebuilds; the others report false
+// and keep answering from the index it is replacing.
 func RebuildIfOutdated(ctx context.Context, database *sql.DB, rootDir string) (bool, error) {
+	if !NeedsReextract(ctx, database) {
+		return false, nil
+	}
+	release, ok := acquireRebuildLock(rootDir)
+	if !ok {
+		return false, nil
+	}
+	defer release()
+	// Another process may have finished its rebuild just before the lock was
+	// taken.
 	if !NeedsReextract(ctx, database) {
 		return false, nil
 	}
@@ -226,18 +246,101 @@ func RebuildIfOutdated(ctx context.Context, database *sql.DB, rootDir string) (b
 	return true, nil
 }
 
-// Freshener serializes syncs of one workspace and remembers when the last one
-// finished. It lets the MCP server guarantee a maximum index age at the
-// moment each query is answered (syncing on demand if needed), so the
-// background poll can run infrequently on large repositories without making
-// answers stale.
+const (
+	// rebuildLockStale is how long a rebuild lock may go without being
+	// refreshed before it is taken to be left over from a process that died.
+	rebuildLockStale = 10 * time.Minute
+	// rebuildLockRefresh is how often the process holding the lock refreshes it.
+	rebuildLockRefresh = time.Minute
+)
+
+// acquireRebuildLock takes the cross-process lock for rebuilding rootDir's
+// index: a file in .codive that exists while a rebuild runs. ok is false when
+// another live process holds it. If the lock file can't be created at all
+// (a read-only directory), the rebuild goes ahead unlocked instead of never
+// happening.
+func acquireRebuildLock(rootDir string) (release func(), ok bool) {
+	path := filepath.Join(rootDir, ".codive", "rebuild.lock")
+	for attempt := 0; attempt < 2; attempt++ {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err == nil {
+			fmt.Fprintln(f, os.Getpid())
+			f.Close()
+			stop := make(chan struct{})
+			go func() {
+				t := time.NewTicker(rebuildLockRefresh)
+				defer t.Stop()
+				for {
+					select {
+					case <-stop:
+						return
+					case now := <-t.C:
+						_ = os.Chtimes(path, now, now)
+					}
+				}
+			}()
+			return func() {
+				close(stop)
+				_ = os.Remove(path)
+			}, true
+		}
+		if !os.IsExist(err) {
+			return func() {}, true
+		}
+		info, statErr := os.Stat(path)
+		if statErr == nil && time.Since(info.ModTime()) < rebuildLockStale {
+			return nil, false
+		}
+		// Stale, or released since the attempt above: clear it and try once more.
+		_ = os.Remove(path)
+	}
+	return nil, false
+}
+
+// ErrSyncPending is returned by SyncIfOlder when the caller's context ended
+// before the sync it was waiting for finished. The sync keeps running.
+var ErrSyncPending = errors.New("index sync is still running")
+
+const (
+	// maxSyncDuration bounds a single sync pass.
+	maxSyncDuration = 15 * time.Minute
+	// After a failed sync (typically another process holding the database's
+	// write lock) the next attempt waits, doubling up to the maximum, so a
+	// stuck index isn't retried by every single query.
+	minSyncRetryDelay = 2 * time.Second
+	maxSyncRetryDelay = time.Minute
+)
+
+// Freshener runs the syncs of one workspace, one at a time, and remembers
+// when the last one finished. It lets the MCP server bound how stale the
+// index is when a query is answered (syncing on demand if needed), so the
+// background poll can run infrequently on large repositories.
+//
+// A sync runs on its own clock, not its caller's: SyncIfOlder waits for it
+// only as long as the caller's context allows. A query that needs a fresh
+// index therefore waits briefly and is otherwise answered from the index as
+// it is, instead of spending its whole time budget on a sync that is slow or
+// blocked and then failing.
 type Freshener struct {
 	database *sql.DB
 	rootDir  string
 
+	// OnSync, if set, is called with the outcome of every sync pass that
+	// runs. Set it before the first SyncIfOlder call.
+	OnSync func(*scanner.IncrementalResult, error)
+
 	mu       sync.Mutex
 	last     time.Time
 	lastCost time.Duration
+	running  *syncRun // the sync in flight, nil when idle
+	failures int      // consecutive failed syncs
+	retryAt  time.Time
+}
+
+type syncRun struct {
+	done chan struct{} // closed when the sync ends; res and err are set before
+	res  *scanner.IncrementalResult
+	err  error
 }
 
 // NewFreshener returns a Freshener for the index of rootDir.
@@ -245,23 +348,79 @@ func NewFreshener(database *sql.DB, rootDir string) *Freshener {
 	return &Freshener{database: database, rootDir: rootDir}
 }
 
-// SyncIfOlder syncs the index unless a sync finished less than maxAge ago.
-// Callers arriving while a sync is running wait for it and then reuse its
-// result instead of starting another. The returned result is nil when no
-// sync was needed.
+// SyncIfOlder syncs the index unless a sync finished less than maxAge ago,
+// and waits for the result until ctx ends. The returned result is nil when
+// no sync was needed, when the caller joined a sync another caller started,
+// or when the last sync failed too recently to try again yet. If ctx ends
+// first, the error wraps ErrSyncPending and the sync carries on; its outcome
+// still reaches OnSync.
 func (f *Freshener) SyncIfOlder(ctx context.Context, maxAge time.Duration) (*scanner.IncrementalResult, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if !f.last.IsZero() && time.Since(f.last) < maxAge {
+		f.mu.Unlock()
 		return nil, nil
 	}
+	run, started := f.running, false
+	if run == nil {
+		if time.Now().Before(f.retryAt) {
+			f.mu.Unlock()
+			return nil, nil
+		}
+		run, started = &syncRun{done: make(chan struct{})}, true
+		f.running = run
+		go f.run(run)
+	}
+	f.mu.Unlock()
+
+	select {
+	case <-run.done:
+		if started {
+			return run.res, run.err
+		}
+		return nil, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("%w: %v", ErrSyncPending, ctx.Err())
+	}
+}
+
+func (f *Freshener) run(r *syncRun) {
+	ctx, cancel := context.WithTimeout(context.Background(), maxSyncDuration)
+	defer cancel()
 	start := time.Now()
 	res, err := Sync(ctx, f.database, f.rootDir)
+
+	f.mu.Lock()
 	f.lastCost = time.Since(start)
 	if err == nil {
 		f.last = time.Now()
+		f.failures = 0
+		f.retryAt = time.Time{}
+	} else {
+		f.failures++
+		f.retryAt = time.Now().Add(syncRetryDelay(f.failures))
 	}
-	return res, err
+	f.running = nil
+	onSync := f.OnSync
+	f.mu.Unlock()
+
+	r.res, r.err = res, err
+	if onSync != nil {
+		onSync(res, err)
+	}
+	close(r.done)
+}
+
+// syncRetryDelay returns how long to wait before syncing again after the
+// given number of consecutive failures.
+func syncRetryDelay(failures int) time.Duration {
+	d := minSyncRetryDelay
+	for i := 1; i < failures && d < maxSyncRetryDelay; i++ {
+		d *= 2
+	}
+	if d > maxSyncRetryDelay {
+		d = maxSyncRetryDelay
+	}
+	return d
 }
 
 // LastCost reports how long the most recent sync took.

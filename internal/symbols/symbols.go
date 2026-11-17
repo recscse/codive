@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/recscse/codive/internal/db"
 )
@@ -26,7 +27,10 @@ import (
 //	1: initial
 //	2: Go method signatures include their receiver
 //	3: definitions are indexed for search by the words they contain
-const ExtractorVersion = "3"
+//	4: declarations whose parameter list spans several lines are indexed
+//	   (Python, JS/TS, Java, C#, Rust); Java/C# statements such as
+//	   `return foo(x)` are no longer indexed as methods
+const ExtractorVersion = "4"
 
 // ExtractSymbols parses source code based on its language and returns declared symbols.
 func ExtractSymbols(relPath string, language string, content []byte) ([]db.SymbolRecord, error) {
@@ -163,21 +167,152 @@ var (
 	rustEnumRegex   = regexp.MustCompile(`^\s*(?:pub(?:\(.*?\))?\s+)?enum\s+([A-Za-z0-9_]+)`)
 	rustTraitRegex  = regexp.MustCompile(`^\s*(?:pub(?:\(.*?\))?\s+)?trait\s+([A-Za-z0-9_]+)`)
 	rustImplRegex   = regexp.MustCompile(`^\s*impl(?:<.*?>)?\s+(?:([A-Za-z0-9_:]+)\s+for\s+)?([A-Za-z0-9_:]+)`)
+
+	// The *StartRegex patterns match the first line of a declaration whose
+	// parameter list may continue on later lines (`def name(` + newline). They
+	// only decide whether joining the following lines is worth trying; the
+	// joined text must still match the full pattern above.
+	pyDeclStartRegex     = regexp.MustCompile(`^\s*(?:(?:async\s+)?def|class)\s+[A-Za-z0-9_]+\s*\(`)
+	jstsFuncStartRegex   = regexp.MustCompile(`^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\b`)
+	jstsArrowStartRegex  = regexp.MustCompile(`^\s*(?:export\s+)?(?:const|let|var)\s+[A-Za-z0-9_]+\s*(?::\s*[^=]+)?\s*=\s*(?:async\s*)?\(`)
+	jstsMethodStartRegex = regexp.MustCompile(`^\s*(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+|abstract\s+|async\s+|get\s+|set\s+)*[A-Za-z_][A-Za-z0-9_]*\s*(?:<[^>]*>)?\s*\(`)
+	jstsArrowTailRegex   = regexp.MustCompile(`^\s*(?::\s*[^=]+)?\s*=>`)
+	oopMethodStartRegex  = regexp.MustCompile(`^\s*(?:public|protected|private|static|async|virtual|override|abstract|final|\s)+\s+[A-Za-z0-9_<>[\],\s]+\s+[A-Za-z0-9_]+\s*\(`)
+	rustFnStartRegex     = regexp.MustCompile(`^\s*(?:pub(?:\(.*?\))?\s+)?(?:async\s+)?fn\s+[A-Za-z0-9_]+`)
 )
+
+const (
+	// maxSignatureLines bounds how many lines a declaration's header is
+	// followed over while looking for the parenthesis that closes it.
+	maxSignatureLines = 40
+	// maxSignatureChars caps a signature assembled from several lines.
+	maxSignatureChars = 600
+	// maxDeclLineChars is the longest line searched for a declaration. Longer
+	// lines are minified or generated code: their "signature" would be the
+	// whole line.
+	maxDeclLineChars = 4000
+)
+
+// sourceLines splits content into lines, without their line endings.
+func sourceLines(content []byte) []string {
+	lines := strings.Split(string(content), "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimSuffix(l, "\r")
+	}
+	return lines
+}
+
+// lexRules tells code from string literals and line comments in a language,
+// closely enough to count parentheses on a line.
+type lexRules struct {
+	lineComment string
+	quotes      string // bytes that open and close a string literal
+}
+
+var (
+	pyLex    = lexRules{lineComment: "#", quotes: `"'`}
+	cLikeLex = lexRules{lineComment: "//", quotes: "\"'`"} // JS/TS, Java, C#
+	rustLex  = lexRules{lineComment: "//", quotes: `"`}    // ' also starts a lifetime
+)
+
+// scan returns line without its trailing line comment and the net number of
+// parentheses its code opens (negative when it closes more than it opens).
+func (r lexRules) scan(line string) (code string, parens int) {
+	var quote byte
+	for j := 0; j < len(line); j++ {
+		c := line[j]
+		switch {
+		case quote != 0:
+			if c == '\\' {
+				j++
+			} else if c == quote {
+				quote = 0
+			}
+		case strings.IndexByte(r.quotes, c) >= 0:
+			quote = c
+		case strings.HasPrefix(line[j:], r.lineComment):
+			return strings.TrimRight(line[:j], " \t"), parens
+		case c == '(':
+			parens++
+		case c == ')':
+			parens--
+		}
+	}
+	return line, parens
+}
+
+// joinDeclaration returns the declaration starting on lines[i] as one line.
+// When its parameter list is still open at the end of lines[i], the lines
+// after it are appended (without their comments) until the parentheses
+// balance. n is the number of source lines used: 1 means lines[i] is returned
+// unchanged, either because it closes what it opens or because no closing
+// parenthesis was found within maxSignatureLines.
+func (r lexRules) joinDeclaration(lines []string, i int) (joined string, n int) {
+	code, depth := r.scan(lines[i])
+	if depth <= 0 {
+		return lines[i], 1
+	}
+	var sb strings.Builder
+	sb.WriteString(code)
+	for j := i + 1; j < len(lines) && j-i < maxSignatureLines; j++ {
+		if len(lines[j]) > maxDeclLineChars {
+			break
+		}
+		code, d := r.scan(lines[j])
+		if t := strings.TrimSpace(code); t != "" {
+			sb.WriteByte(' ')
+			sb.WriteString(t)
+		}
+		depth += d
+		if depth <= 0 {
+			return sb.String(), j - i + 1
+		}
+	}
+	return lines[i], 1
+}
+
+// tidySignature renders a declaration joined from several lines as one
+// readable line: `def f( a, b, ):` becomes `def f(a, b):`.
+func tidySignature(joined string) string {
+	s := strings.Join(strings.Fields(joined), " ")
+	s = strings.ReplaceAll(s, "( ", "(")
+	s = strings.ReplaceAll(s, " )", ")")
+	s = strings.ReplaceAll(s, ",)", ")")
+	if len(s) > maxSignatureChars {
+		cut := maxSignatureChars
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		s = s[:cut] + "…"
+	}
+	return s
+}
 
 func extractPythonSymbols(relPath string, content []byte) ([]db.SymbolRecord, error) {
 	var symbols []db.SymbolRecord
-	scanner := bufio.NewScanner(bytes.NewReader(content))
-	lineNum := 0
+	lines := sourceLines(content)
 	var currentDecorators []string
 
-	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		lineNum := i + 1
+		if len(line) > maxDeclLineChars {
+			currentDecorators = nil
+			continue
+		}
 		trimmed := strings.TrimSpace(line)
 
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
+		}
+
+		// A def or class header, or a decorator call, may span several lines.
+		// The symbol is still reported on the line its header starts on.
+		if pyDeclStartRegex.MatchString(line) || pyDecorRegex.MatchString(trimmed) {
+			if joined, n := pyLex.joinDeclaration(lines, i); n > 1 {
+				line, trimmed = joined, tidySignature(joined)
+				i += n - 1
+			}
 		}
 
 		if pyDecorRegex.MatchString(trimmed) {
@@ -219,7 +354,7 @@ func extractPythonSymbols(relPath string, content []byte) ([]db.SymbolRecord, er
 
 		currentDecorators = nil
 	}
-	return symbols, scanner.Err()
+	return symbols, nil
 }
 
 // jsControlKeywords excludes control-flow constructs that could otherwise be
@@ -234,8 +369,7 @@ var jsControlKeywords = map[string]bool{
 
 func extractJSTSSymbols(relPath string, content []byte) ([]db.SymbolRecord, error) {
 	var symbols []db.SymbolRecord
-	scanner := bufio.NewScanner(bytes.NewReader(content))
-	lineNum := 0
+	lines := sourceLines(content)
 
 	// braceDepth is a running per-line `{`/`}` count, not a real parse — it's
 	// only precise enough to answer "is this line directly inside the most
@@ -245,53 +379,159 @@ func extractJSTSSymbols(relPath string, content []byte) ([]db.SymbolRecord, erro
 	braceDepth := 0
 	classBodyDepth := -1
 
-	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
+	// match records the declaration on line, if there is one. multiLine marks
+	// a header joined from several source lines, which gets a stricter arrow
+	// function check: `const x = (` followed by lines containing some `=>` is
+	// only a function when the arrow comes right after its parameter list.
+	match := func(line, sig string, lineNum int, multiLine bool) bool {
+		add := func(name, kind string) bool {
+			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: name, Kind: kind, Signature: sig, LineNumber: lineNum})
+			return true
+		}
+		if m := jstsClassRegex.FindStringSubmatch(line); len(m) > 1 {
+			classBodyDepth = braceDepth + 1
+			return add(m[1], "class")
+		}
+		if m := jstsInterfaceRegex.FindStringSubmatch(line); len(m) > 1 {
+			return add(m[1], "interface")
+		}
+		if m := jstsTypeRegex.FindStringSubmatch(line); len(m) > 1 {
+			return add(m[1], "type")
+		}
+		if m := jstsEnumRegex.FindStringSubmatch(line); len(m) > 1 {
+			return add(m[1], "enum")
+		}
+		if m := jstsFuncRegex.FindStringSubmatch(line); len(m) > 1 {
+			return add(m[1], "function")
+		}
+		if m := jstsArrowFuncRegex.FindStringSubmatch(line); len(m) > 1 && (!multiLine || arrowFollowsParams(line)) {
+			return add(m[1], "function")
+		}
+		if classBodyDepth >= 0 && braceDepth == classBodyDepth {
+			if m := jstsMethodRegex.FindStringSubmatch(line); len(m) > 1 && !jsControlKeywords[m[1]] {
+				return add(m[1], "method")
+			}
+		}
+		return false
+	}
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		trimmed := strings.TrimSpace(line)
-		openBraces := strings.Count(line, "{")
-		closeBraces := strings.Count(line, "}")
+		consumed := 1
 
 		isCommentOrBlank := trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "*")
 
-		if isCommentOrBlank {
-			// no symbol — falls through to brace bookkeeping below
-		} else if m := jstsClassRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "class", Signature: trimmed, LineNumber: lineNum})
-			classBodyDepth = braceDepth + 1
-		} else if m := jstsInterfaceRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "interface", Signature: trimmed, LineNumber: lineNum})
-		} else if m := jstsTypeRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "type", Signature: trimmed, LineNumber: lineNum})
-		} else if m := jstsEnumRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "enum", Signature: trimmed, LineNumber: lineNum})
-		} else if m := jstsFuncRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "function", Signature: trimmed, LineNumber: lineNum})
-		} else if m := jstsArrowFuncRegex.FindStringSubmatch(line); len(m) > 1 {
-			symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "function", Signature: trimmed, LineNumber: lineNum})
-		} else if classBodyDepth >= 0 && braceDepth == classBodyDepth {
-			if m := jstsMethodRegex.FindStringSubmatch(line); len(m) > 1 && !jsControlKeywords[m[1]] {
-				symbols = append(symbols, db.SymbolRecord{FilePath: relPath, Name: m[1], Kind: "method", Signature: trimmed, LineNumber: lineNum})
+		if !isCommentOrBlank && len(line) <= maxDeclLineChars {
+			matched := false
+			inClassBody := classBodyDepth >= 0 && braceDepth == classBodyDepth
+			if jstsFuncStartRegex.MatchString(line) || jstsArrowStartRegex.MatchString(line) ||
+				(inClassBody && jstsMethodStartRegex.MatchString(line)) {
+				// The parameter list may continue on the following lines. If
+				// the joined header isn't a declaration after all, those
+				// lines are scanned on their own as usual.
+				if joined, n := cLikeLex.joinDeclaration(lines, i); n > 1 && match(joined, tidySignature(joined), i+1, true) {
+					matched, consumed = true, n
+				}
+			}
+			if !matched {
+				match(line, trimmed, i+1, false)
 			}
 		}
 
-		braceDepth += openBraces - closeBraces
+		for _, l := range lines[i : i+consumed] {
+			braceDepth += strings.Count(l, "{") - strings.Count(l, "}")
+		}
 		if classBodyDepth >= 0 && braceDepth < classBodyDepth {
 			classBodyDepth = -1
 		}
+		i += consumed - 1
 	}
-	return symbols, scanner.Err()
+	return symbols, nil
+}
+
+// arrowFollowsParams reports whether, in a `const name = (...` declaration
+// joined from several lines, the parenthesis opened after `=` closes right
+// before `=>` (optionally with a return type in between). That separates an
+// arrow function from a parenthesized expression that merely contains one.
+func arrowFollowsParams(joined string) bool {
+	loc := jstsArrowStartRegex.FindStringIndex(joined)
+	if loc == nil {
+		return false
+	}
+	depth := 1
+	var quote byte
+	for j := loc[1]; j < len(joined); j++ {
+		c := joined[j]
+		switch {
+		case quote != 0:
+			if c == '\\' {
+				j++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'' || c == '`':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+			if depth == 0 {
+				return jstsArrowTailRegex.MatchString(joined[j+1:])
+			}
+		}
+	}
+	return false
+}
+
+// oopStatementKeywords can't appear in a method declaration's return type.
+// oopMethodRegex only requires `type name(`, which statements such as
+// `return compute(x)` and `throw new MyError(msg)` also fit.
+var oopStatementKeywords = map[string]bool{
+	"return": true, "throw": true, "else": true, "case": true, "yield": true,
+	"await": true, "assert": true, "goto": true, "do": true, "in": true,
+	"instanceof": true, "typeof": true, "break": true, "continue": true,
+}
+
+// oopNotMethodNames are keywords followed by `(` that aren't method names.
+var oopNotMethodNames = map[string]bool{
+	"if": true, "for": true, "while": true, "switch": true, "catch": true,
+	"return": true, "super": true, "this": true, "using": true, "lock": true,
+	"foreach": true, "fixed": true, "when": true,
+}
+
+// oopMethodName returns the name of the Java/C# method declared on line.
+func oopMethodName(line string) (string, bool) {
+	m := oopMethodRegex.FindStringSubmatch(line)
+	if len(m) <= 2 || oopNotMethodNames[m[2]] {
+		return "", false
+	}
+	typeWords := strings.Fields(m[1])
+	for _, w := range typeWords {
+		if oopStatementKeywords[w] {
+			return "", false
+		}
+	}
+	// `new Thread(r)` is a constructor call. (`new void Hide()`, with C#'s
+	// `new` modifier before the type, still is a declaration.)
+	if n := len(typeWords); n > 0 && typeWords[n-1] == "new" {
+		return "", false
+	}
+	return m[2], true
 }
 
 func extractOOPCLikeSymbols(relPath string, content []byte) ([]db.SymbolRecord, error) {
 	var symbols []db.SymbolRecord
-	scanner := bufio.NewScanner(bytes.NewReader(content))
-	lineNum := 0
+	lines := sourceLines(content)
 	var currentAnnotations []string
 
-	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		lineNum := i + 1
+		if len(line) > maxDeclLineChars {
+			currentAnnotations = nil
+			continue
+		}
 		trimmed := strings.TrimSpace(line)
 
 		if trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") {
@@ -300,6 +540,12 @@ func extractOOPCLikeSymbols(relPath string, content []byte) ([]db.SymbolRecord, 
 
 		// Collect annotations (Spring / Java / C#)
 		if oopAnnotationRegex.MatchString(trimmed) {
+			// An annotation's arguments may span several lines; keep it whole
+			// so it stays attached to the declaration that follows.
+			if joined, n := cLikeLex.joinDeclaration(lines, i); n > 1 {
+				trimmed = tidySignature(joined)
+				i += n - 1
+			}
 			currentAnnotations = append(currentAnnotations, trimmed)
 			// Also register Spring framework annotations directly for instant discovery
 			if m := oopAnnotationRegex.FindStringSubmatch(trimmed); len(m) > 1 {
@@ -373,28 +619,35 @@ func extractOOPCLikeSymbols(relPath string, content []byte) ([]db.SymbolRecord, 
 			currentAnnotations = nil
 			continue
 		}
-		if m := oopMethodRegex.FindStringSubmatch(line); len(m) > 2 {
-			methodName := m[2]
-			if methodName != "if" && methodName != "for" && methodName != "while" && methodName != "switch" {
-				sig := trimmed
-				if len(currentAnnotations) > 0 {
-					sig = strings.Join(currentAnnotations, " ") + " " + trimmed
-					currentAnnotations = nil
+		methodName, isMethod := oopMethodName(line)
+		if !isMethod && oopMethodStartRegex.MatchString(line) {
+			// The parameter list may continue on the following lines.
+			if joined, n := cLikeLex.joinDeclaration(lines, i); n > 1 {
+				if methodName, isMethod = oopMethodName(joined); isMethod {
+					trimmed = tidySignature(joined)
+					i += n - 1
 				}
-				symbols = append(symbols, db.SymbolRecord{
-					FilePath:   relPath,
-					Name:       methodName,
-					Kind:       "method",
-					Signature:  sig,
-					LineNumber: lineNum,
-				})
 			}
+		}
+		if isMethod {
+			sig := trimmed
+			if len(currentAnnotations) > 0 {
+				sig = strings.Join(currentAnnotations, " ") + " " + trimmed
+				currentAnnotations = nil
+			}
+			symbols = append(symbols, db.SymbolRecord{
+				FilePath:   relPath,
+				Name:       methodName,
+				Kind:       "method",
+				Signature:  sig,
+				LineNumber: lineNum,
+			})
 			continue
 		}
 
 		currentAnnotations = nil
 	}
-	return symbols, scanner.Err()
+	return symbols, nil
 }
 
 func isSignificantAnnotation(name string) bool {
@@ -410,16 +663,26 @@ func isSignificantAnnotation(name string) bool {
 
 func extractRustSymbols(relPath string, content []byte) ([]db.SymbolRecord, error) {
 	var symbols []db.SymbolRecord
-	scanner := bufio.NewScanner(bytes.NewReader(content))
-	lineNum := 0
+	lines := sourceLines(content)
 
-	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		lineNum := i + 1
+		if len(line) > maxDeclLineChars {
+			continue
+		}
 		trimmed := strings.TrimSpace(line)
 
 		if trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") {
 			continue
+		}
+
+		// A fn's parameter list may span several lines.
+		if rustFnStartRegex.MatchString(line) {
+			if joined, n := rustLex.joinDeclaration(lines, i); n > 1 {
+				line, trimmed = joined, tidySignature(joined)
+				i += n - 1
+			}
 		}
 
 		if m := rustFnRegex.FindStringSubmatch(line); len(m) > 1 {
@@ -477,7 +740,7 @@ func extractRustSymbols(relPath string, content []byte) ([]db.SymbolRecord, erro
 			continue
 		}
 	}
-	return symbols, scanner.Err()
+	return symbols, nil
 }
 
 // Maven POM.xml XML structs

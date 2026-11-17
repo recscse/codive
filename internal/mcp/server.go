@@ -617,17 +617,21 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPC
 			},
 			{
 				Name:        "search_code",
-				Description: "FASTEST CODE SEARCH TOOL. Performs sub-millisecond SQLite FTS5 full-text code search across indexed files. Use this INSTEAD OF grep/ripgrep for bounded, token-efficient snippet matches.",
+				Description: "FULL-TEXT CODE SEARCH over the indexed files. Lists every matching line with its line number, grouped by file, best-matching files first. Several words match files containing all of them, anywhere; wrap the query in double quotes for an exact phrase. Matching ignores case and works on whole words, so use grep for regular expressions or partial-word patterns.",
 				InputSchema: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"query": map[string]any{
 							"type":        "string",
-							"description": "Search keyword or phrase",
+							"description": "Words to find (all must appear in a file), or a phrase in double quotes, e.g. \"retry backoff\"",
 						},
 						"limit": map[string]any{
 							"type":        "integer",
-							"description": "Maximum number of search results to return (default: 20)",
+							"description": "Maximum number of files to return (default: 20). The heading says when more files match.",
+						},
+						"max_lines_per_file": map[string]any{
+							"type":        "integer",
+							"description": "Maximum matching lines listed per file (default: 10). The rest are counted.",
 						},
 						"workspace_path": map[string]any{
 							"type":        "string",
@@ -1192,7 +1196,6 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			sb.WriteString("\n---\n\n")
 		}
 
-		rawTokenEstimate := 0
 		for i, sym := range syms {
 			// Semantic classification
 			role := classifySymbolRole(sym.FilePath, sym.Kind)
@@ -1211,12 +1214,11 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 				sb.WriteString(fmt.Sprintf("   - **Annotations:** %s\n", strings.Join(anns, ", ")))
 			}
 			sb.WriteString("\n")
-			rawTokenEstimate += 800 // rough: reading the file to find this symbol
 		}
 
 		used := estimateTokens(sb.String())
-		sb.WriteString(tokenFooter(used, rawTokenEstimate))
-		db.RecordTelemetry(ctx, targetDB, "find_symbol", used, rawTokenEstimate, 14)
+		sb.WriteString(tokenFooter(used, 0))
+		db.RecordTelemetry(ctx, targetDB, "find_symbol", used, 0)
 
 		return &ToolCallResult{
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
@@ -1267,19 +1269,30 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 		// Grouped by file (results already arrive file by file), so each path
 		// is written once instead of once per hit.
+		// Lines that declare the symbol are marked, so a reference list isn't
+		// read as "every line here is a caller".
+		declared := make(map[string]bool)
+		if defs, err := db.FindSymbolsByName(ctx, targetDB, symbol); err == nil {
+			for _, d := range defs {
+				declared[fmt.Sprintf("%s:%d", d.FilePath, d.LineNumber)] = true
+			}
+		}
 		currentFile := ""
 		for _, ref := range refs {
 			if ref.FilePath != currentFile {
 				currentFile = ref.FilePath
 				sb.WriteString(fmt.Sprintf("**%s** [%s]\n", ref.FilePath, classifyRefRole(ref.FilePath)))
 			}
-			sb.WriteString(fmt.Sprintf("  L%d: %s\n", ref.LineNumber, strings.TrimSpace(ref.Snippet)))
+			note := ""
+			if declared[fmt.Sprintf("%s:%d", ref.FilePath, ref.LineNumber)] {
+				note = "  ← definition"
+			}
+			sb.WriteString(fmt.Sprintf("  L%d: %s%s\n", ref.LineNumber, strings.TrimSpace(ref.Snippet), note))
 		}
 
 		used := estimateTokens(sb.String())
-		rawEst := len(refs) * 1200
-		sb.WriteString(tokenFooter(used, rawEst))
-		db.RecordTelemetry(ctx, targetDB, telemetryName, used, rawEst, 5)
+		sb.WriteString(tokenFooter(used, 0))
+		db.RecordTelemetry(ctx, targetDB, telemetryName, used, 0)
 
 		return &ToolCallResult{
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
@@ -1377,9 +1390,9 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			contentBytes = []byte(ftsContent)
 		}
 
-		// Count real lines for header
-		rawLineCount := strings.Count(string(contentBytes), "\n") + 1
-		rawTokenEstimate := rawLineCount * 5 // ~5 tokens per line of code
+		// The alternative to an outline is reading the file, so the file's
+		// own size is the baseline.
+		rawTokenEstimate := estimateTokens(string(contentBytes))
 
 		syms, _ := db.FindSymbolsInFile(ctx, targetDB, relPath)
 		lang := scanner.DetectLanguage(relPath)
@@ -1404,7 +1417,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 		used := estimateTokens(sb.String())
 		sb.WriteString(tokenFooter(used, rawTokenEstimate))
-		db.RecordTelemetry(ctx, targetDB, "get_file_skeleton", used, rawTokenEstimate, 2)
+		db.RecordTelemetry(ctx, targetDB, "get_file_skeleton", used, rawTokenEstimate)
 
 		return &ToolCallResult{
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
@@ -1773,40 +1786,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}, nil
 
 	case "search_code":
-		query, _ := args["query"].(string)
-		if strings.TrimSpace(query) == "" {
-			return nil, fmt.Errorf("query argument is required")
-		}
-		limit := 20
-		if limitVal, ok := args["limit"].(float64); ok && limitVal > 0 {
-			limit = int(limitVal)
-		}
-
-		results, err := db.SearchFTS(ctx, targetDB, query, limit)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(results) == 0 {
-			return &ToolCallResult{
-				Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("No matches found for '%s'", query)}},
-			}, nil
-		}
-
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("Found %d match(es) for '%s':\n\n", len(results), query))
-		for i, res := range results {
-			cleanSnippet := strings.ReplaceAll(res.Snippet, ">>>", "[")
-			cleanSnippet = strings.ReplaceAll(cleanSnippet, "<<<", "]")
-			sb.WriteString(fmt.Sprintf("%d. 📄 %s\n", i+1, res.Path))
-			for _, line := range strings.Split(cleanSnippet, "\n") {
-				sb.WriteString(fmt.Sprintf("   │ %s\n", strings.TrimRight(line, "\r")))
-			}
-			sb.WriteString("\n")
-		}
-		return &ToolCallResult{
-			Content: []ContentItem{{Type: "text", Text: sb.String()}},
-		}, nil
+		return s.searchCode(ctx, targetDB, targetDir, args)
 
 	case "read_symbol":
 		return s.readSymbol(ctx, targetDB, targetDir, args)
@@ -1884,9 +1864,8 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			sb.WriteString(fmt.Sprintf("- %s (%s, %d bytes)\n", f.Path, f.Language, f.SizeBytes))
 		}
 		used := estimateTokens(sb.String())
-		rawEst := len(files) * 200
-		sb.WriteString(tokenFooter(used, rawEst))
-		db.RecordTelemetry(ctx, targetDB, "find_files", used, rawEst, 10)
+		sb.WriteString(tokenFooter(used, 0))
+		db.RecordTelemetry(ctx, targetDB, "find_files", used, 0)
 		return &ToolCallResult{
 			Content: []ContentItem{{Type: "text", Text: sb.String()}},
 		}, nil
@@ -2070,7 +2049,7 @@ func classifyRefRole(filePath string) string {
 	case strings.Contains(lower, "config") || strings.Contains(lower, "configuration"):
 		return "Configuration"
 	default:
-		return "Caller / Reference"
+		return "Source"
 	}
 }
 
@@ -2096,20 +2075,14 @@ func estimateTokens(text string) int {
 	return (len(text) + 3) / 4
 }
 
-// tokenFooter produces the footer line appended to every MCP tool response.
-// It shows the token cost of this response vs. what raw file reads would cost.
-func tokenFooter(usedTokens, rawTokenEstimate int) string {
-	if rawTokenEstimate <= 0 {
-		rawTokenEstimate = usedTokens * 8
+// tokenFooter produces the footer line appended to a tool response: the
+// size of the response and, for tools that return part of a file, the size
+// of the whole file it stands in for. wholeFileTokens is 0 for tools with no
+// such baseline (searches, reference lookups); no saving is claimed for them.
+func tokenFooter(usedTokens, wholeFileTokens int) string {
+	if wholeFileTokens <= usedTokens {
+		return fmt.Sprintf("\n\n---\n*Context: ~%d tokens*\n", usedTokens)
 	}
-	saved := rawTokenEstimate - usedTokens
-	if saved < 0 {
-		saved = 0
-	}
-	pct := 0
-	if rawTokenEstimate > 0 {
-		pct = (saved * 100) / rawTokenEstimate
-	}
-	return fmt.Sprintf("\n\n---\n*Context: ~%d tokens | Saved vs. raw read: ~%d tokens (%d%%)*\n",
-		usedTokens, saved, pct)
+	return fmt.Sprintf("\n\n---\n*Context: ~%d tokens | Whole file: ~%d tokens (%d%% smaller)*\n",
+		usedTokens, wholeFileTokens, (wholeFileTokens-usedTokens)*100/wholeFileTokens)
 }
