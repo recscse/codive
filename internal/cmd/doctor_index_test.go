@@ -30,3 +30,19 @@ func TestRecentSyncFailuresCountsOnlyTheTail(t *testing.T) {
 		t.Errorf("a missing log reported %d failures", n)
 	}
 }
+
+func TestCountServeLines(t *testing.T) {
+	listing := strings.Join([]string{
+		`codive serve`,
+		`codive serve C:\work\LSMV`,
+		`"C:\Users\x\AppData\Local\codive\bin\codive.exe" serve C:\work\LSMV\CODING\JAVA\Main`,
+		`/usr/local/bin/codive serve /home/me/repo`,
+		`codive daemon run`,
+		`codive doctor .`,
+		`vim codive.go serve`,
+		`/usr/bin/other serve`,
+	}, "\n")
+	if got := countServeLines(listing); got != 4 {
+		t.Errorf("countServeLines = %d, want 4 (the serve commands, not daemon, doctor or other programs)", got)
+	}
+}

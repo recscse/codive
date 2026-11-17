@@ -23,6 +23,10 @@ import (
 	"github.com/recscse/codive/internal/ui"
 )
 
+// readyWait is how long a tool call waits for a repository that is still
+// being indexed before it answers that indexing is in progress.
+var readyWait = 40 * time.Second
+
 const (
 	// repoIdleGrace is how long a repository stays open (and keeps being
 	// watched) after its last client disconnects, so a client that reconnects
@@ -83,8 +87,11 @@ func syncLogger(root string) func(*scanner.IncrementalResult, error) {
 	return func(res *scanner.IncrementalResult, err error) { logSyncTo(l, res, err) }
 }
 
-// acquire opens root if it isn't open yet and counts a session on it.
-func (h *host) acquire(root string) (*repoEntry, error) {
+// acquire counts a session on root, starting to open it if it isn't open yet.
+// It returns at once: opening a repository for the first time builds its
+// index, which takes minutes on a large one, and the client must not wait for
+// that before its first reply. Tool calls wait on the entry (see ready).
+func (h *host) acquire(root string) *repoEntry {
 	h.mu.Lock()
 	e := h.repos[root]
 	creator := e == nil
@@ -100,15 +107,30 @@ func (h *host) acquire(root string) (*repoEntry, error) {
 	h.mu.Unlock()
 
 	if creator {
-		h.open(e)
-	} else {
-		<-e.ready
+		go h.open(e)
 	}
-	if e.err != nil {
-		h.release(e)
-		return nil, e.err
+	return e
+}
+
+// ready holds a tool call until the repository is open. A repository that is
+// still being indexed after readyWait gets an answer that says so, so the
+// client can try again, instead of a call that hangs until it times out.
+func (h *host) ready(ctx context.Context, e *repoEntry) error {
+	select {
+	case <-e.ready:
+		return e.err
+	default:
 	}
-	return e, nil
+	t := time.NewTimer(readyWait)
+	defer t.Stop()
+	select {
+	case <-e.ready:
+		return e.err
+	case <-t.C:
+		return fmt.Errorf("The index for %s is still being built (this is its first use). Try again in a minute; the first index of a large repository can take several minutes.", e.root)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (h *host) open(e *repoEntry) {
@@ -118,13 +140,13 @@ func (h *host) open(e *repoEntry) {
 		// The first session on a repository builds its index. Stdout is not a
 		// protocol stream here, but nothing reads it either.
 		if err := h.initIndex(e.root); err != nil {
-			e.err = fmt.Errorf("indexing %s failed: %w", e.root, err)
+			h.fail(e, fmt.Errorf("indexing %s failed: %w", e.root, err))
 			return
 		}
 	}
 	database, err := db.Open(dbPath)
 	if err != nil {
-		e.err = fmt.Errorf("failed to open the index of %s: %w", e.root, err)
+		h.fail(e, fmt.Errorf("failed to open the index of %s: %w", e.root, err))
 		return
 	}
 	e.db = database
@@ -157,15 +179,23 @@ func (h *host) open(e *repoEntry) {
 	}()
 }
 
+// fail records why e couldn't be opened and forgets it, so the next client to
+// ask for the repository tries again. Sessions already waiting on e see err.
+func (h *host) fail(e *repoEntry, err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	e.err = err
+	if h.repos[e.root] == e {
+		delete(h.repos, e.root)
+	}
+	slog.Error("Could not open repository", "repo", e.root, "error", err)
+}
+
 func (h *host) release(e *repoEntry) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	e.refs--
-	if e.refs > 0 {
-		return
-	}
-	if e.err != nil {
-		delete(h.repos, e.root)
+	if e.refs > 0 || e.err != nil {
 		return
 	}
 	e.idle = time.AfterFunc(repoIdleGrace, func() { h.closeIfIdle(e) })
@@ -235,16 +265,16 @@ func (h *host) session(root string) (func(net.Conn), error) {
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("workspace %s is not an accessible directory", root)
 	}
-	e, err := h.acquire(root)
-	if err != nil {
-		return nil, err
-	}
+	e := h.acquire(root)
 	h.mu.Lock()
 	h.conns++
 	h.mu.Unlock()
 
 	return func(c net.Conn) {
-		srv := mcp.NewServer(e.root, e.db, h.version)
+		// e.db is not set until the repository is open, and the gate holds
+		// every tool call until then, so the server needs no handle yet.
+		srv := mcp.NewServer(e.root, nil, h.version)
+		srv.SetReadyGate(func(ctx context.Context) error { return h.ready(ctx, e) })
 		srv.SetDatabasePool(h.pool)
 		srv.PinWorkspace()
 		srv.SetFreshnessHook(h.freshness)

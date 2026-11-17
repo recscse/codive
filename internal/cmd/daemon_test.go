@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/recscse/codive/internal/daemon"
+	"github.com/recscse/codive/internal/graph"
 )
 
 // startTestDaemon runs a host behind a real listener, with its files in a
@@ -150,5 +152,92 @@ func TestDaemonRefusesAWorkspaceItCannotOpen(t *testing.T) {
 			c.Close()
 			t.Errorf("Dial(%q) succeeded", root)
 		}
+	}
+}
+
+// A client's first reply must not wait for the repository's first index.
+// initialize and tools/list are answered at once, a tool call that arrives
+// while the index is being built says so, and the same call works once the
+// index is done.
+func TestFirstReplyDoesNotWaitForTheFirstIndex(t *testing.T) {
+	h := startTestDaemon(t)
+	oldWait := readyWait
+	readyWait = 300 * time.Millisecond
+	t.Cleanup(func() { readyWait = oldWait })
+	release := make(chan struct{})
+	h.initIndex = func(root string) error {
+		<-release
+		return RunInitSilent(root)
+	}
+	root := writeRepo(t, "slowfirst", "SlowFirstFunc")
+
+	c, err := daemon.Dial(root, "vtest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	r := bufio.NewReader(c)
+
+	start := time.Now()
+	if got := rpc(t, c, r, 1, "initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}}); !strings.Contains(got, `"serverInfo"`) {
+		t.Fatalf("initialize: %s", got)
+	}
+	if got := rpc(t, c, r, 2, "tools/list", nil); !strings.Contains(got, "find_symbol") {
+		t.Fatalf("tools/list: %s", got)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Errorf("initialize and tools/list took %v while the index was still building", time.Since(start))
+	}
+
+	call := func(id int) string {
+		return rpc(t, c, r, id, "tools/call", map[string]any{"name": "find_symbol", "arguments": map[string]any{"query": "SlowFirstFunc"}})
+	}
+	if got := call(3); !strings.Contains(got, "still being built") || !strings.Contains(got, `"isError":true`) {
+		t.Errorf("a call during the first index: %s", got)
+	}
+
+	close(release)
+	readyWait = 2 * time.Minute
+	if got := call(4); !strings.Contains(got, "SlowFirstFunc") || !strings.Contains(got, "p.go") {
+		t.Errorf("a call after the index was built: %s", got)
+	}
+}
+
+// The code graph is built in the background once a repository is open, so the
+// graph tools never have to build it inside a tool call's time limit.
+func TestCodeGraphIsBuiltInTheBackground(t *testing.T) {
+	h := startTestDaemon(t)
+	root := filepath.Join(t.TempDir(), "pyrepo")
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Not Go: building a Go repository's graph loads the standard library's
+	// type data, which is slow and irrelevant to what is tested here.
+	if err := os.WriteFile(filepath.Join(root, "app.py"), []byte("def run(\n    a,\n    b,\n):\n    return a + b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := daemon.Dial(root, "vtest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	r := bufio.NewReader(c)
+	rpc(t, c, r, 1, "initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}})
+	rpc(t, c, r, 2, "tools/call", map[string]any{"name": "find_symbol", "arguments": map[string]any{"query": "run"}}) // waits for the index
+
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		h.mu.Lock()
+		e := h.repos[root]
+		h.mu.Unlock()
+		if e != nil && e.db != nil {
+			if stale, err := graph.IsStale(context.Background(), e.db); err == nil && !stale {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the code graph was not built in the background")
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 }
