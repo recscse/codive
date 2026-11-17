@@ -76,8 +76,13 @@ type Server struct {
 	rootDir  string
 	version  string
 	database *sql.DB
-	dbMutex  sync.RWMutex
-	dbCache  map[string]*sql.DB
+	// pool holds the database connections opened for workspaces. It is the
+	// server's own unless SetDatabasePool shared one in.
+	pool *DBPool
+	// pinned stops the server from guessing its workspace from the process's
+	// working directory. A daemon's working directory says nothing about the
+	// client it is serving.
+	pinned bool
 	// freshen, when set, brings a workspace's index up to date before a
 	// tool reads it (see SetFreshnessHook).
 	freshen func(ctx context.Context, dir string, database *sql.DB)
@@ -177,34 +182,94 @@ func NewServer(rootDir string, database *sql.DB, version string) *Server {
 		rootDir:  rootDir,
 		version:  version,
 		database: database,
-		dbCache:  make(map[string]*sql.DB),
+		pool:     &DBPool{m: make(map[string]*sql.DB)},
 		session:  NewSessionTracker(),
 	}
 }
 
+// DBPool is a set of open database connections keyed by workspace directory.
+// Servers that share a pool share the connections, so several client sessions
+// on one repository write through one handle.
+type DBPool struct {
+	mu sync.RWMutex
+	m  map[string]*sql.DB
+	// shared is set once the pool is handed to SetDatabasePool: the pool's
+	// owner closes its connections, not the servers using it.
+	shared bool
+}
+
+// NewDBPool returns an empty pool for SetDatabasePool.
+func NewDBPool() *DBPool { return &DBPool{m: make(map[string]*sql.DB), shared: true} }
+
+// Put registers an open database for dir. The pool does not close it.
+func (p *DBPool) Put(dir string, database *sql.DB) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.m[filepath.Clean(dir)] = database
+}
+
+// Remove forgets the connection for dir.
+func (p *DBPool) Remove(dir string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.m, filepath.Clean(dir))
+}
+
+func (p *DBPool) get(dir string) (*sql.DB, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	c, ok := p.m[dir]
+	return c, ok && c != nil
+}
+
+func (p *DBPool) put(dir string, database *sql.DB) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.m[dir] = database
+}
+
+// SetDatabasePool makes the server use pool for the connections it resolves.
+// Connections in a shared pool stay open when the server closes.
+func (s *Server) SetDatabasePool(pool *DBPool) {
+	pool.shared = true
+	s.pool = pool
+}
+
+// PinWorkspace stops the server from choosing its workspace by the process's
+// working directory; it uses the directory it was created with (or the one the
+// client reports as its root), and resolves relative workspace_path arguments
+// against it.
+func (s *Server) PinWorkspace() { s.pinned = true }
+
 // Close closes every database connection the server opened on demand for
 // workspaces it resolved. The database passed to NewServer is owned by the
-// caller and is left open.
+// caller and is left open, and so are the connections of a shared pool.
 func (s *Server) Close() {
 	// Record feedback gathered so far before the databases close.
 	s.resolveIntents(context.Background(), true)
-	s.dbMutex.Lock()
-	defer s.dbMutex.Unlock()
-	for dir, conn := range s.dbCache {
+	if s.pool.shared {
+		return
+	}
+	s.pool.mu.Lock()
+	defer s.pool.mu.Unlock()
+	for dir, conn := range s.pool.m {
 		if conn != nil && conn != s.database {
 			_ = conn.Close()
 		}
-		delete(s.dbCache, dir)
+		delete(s.pool.m, dir)
 	}
 }
 
 func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 	searchDir := s.rootDir
 	if strings.TrimSpace(targetPath) != "" {
+		if s.pinned && !filepath.IsAbs(targetPath) {
+			targetPath = filepath.Join(s.rootDir, targetPath)
+		}
 		if abs, err := filepath.Abs(targetPath); err == nil {
 			searchDir = abs
 		}
-	} else if !s.rootFromClient {
+	} else if !s.rootFromClient && !s.pinned {
 		// Without client roots, prefer the current working directory if it
 		// has an index: some clients start servers in the open workspace.
 		if cwd, err := os.Getwd(); err == nil && cwd != "" {
@@ -249,18 +314,13 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 				dbConn.Close()
 				return nil, resolvedDir, fmt.Errorf("failed to auto-index %s: %w", resolvedDir, err)
 			}
-			s.dbMutex.Lock()
-			s.dbCache[resolvedDir] = dbConn
-			s.dbMutex.Unlock()
+			s.pool.put(resolvedDir, dbConn)
 			return dbConn, resolvedDir, nil
 		}
 	}
 
 	absPath := resolvedDir
-	s.dbMutex.RLock()
-	cached, ok := s.dbCache[absPath]
-	s.dbMutex.RUnlock()
-	if ok && cached != nil {
+	if cached, ok := s.pool.get(absPath); ok {
 		return cached, absPath, nil
 	}
 
@@ -270,9 +330,7 @@ func (s *Server) getDBForPath(targetPath string) (*sql.DB, string, error) {
 		return nil, absPath, fmt.Errorf("failed to open database for %s: %w", absPath, err)
 	}
 
-	s.dbMutex.Lock()
-	s.dbCache[absPath] = dbConn
-	s.dbMutex.Unlock()
+	s.pool.put(absPath, dbConn)
 
 	return dbConn, absPath, nil
 }

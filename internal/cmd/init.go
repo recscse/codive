@@ -50,6 +50,16 @@ func indexRepository(absDir string, onFile indexer.ProgressFunc) (*IndexResult, 
 }
 
 func indexRepositoryWithHooks(absDir string, hooks indexer.RebuildHooks) (*IndexResult, error) {
+	return indexRepositoryOpts(absDir, hooks, true)
+}
+
+// indexRepositoryOpts indexes absDir. withGraph says whether to build the code
+// graph straight away. The graph can take far longer than the index itself
+// (about 30 s for a one-file Go repository, which loads the standard
+// library's type data), and the tools that use it build it on first use
+// (graph.EnsureFresh), so the silent auto-index behind `serve` leaves it out:
+// an AI client waits for its first reply, and gives up after a while.
+func indexRepositoryOpts(absDir string, hooks indexer.RebuildHooks, withGraph bool) (*IndexResult, error) {
 	startTime := time.Now()
 
 	dbPath := filepath.Join(absDir, ".codive", "index.db")
@@ -69,16 +79,18 @@ func indexRepositoryWithHooks(absDir string, hooks indexer.RebuildHooks) (*Index
 	}
 	indexDone := time.Now()
 	slog.Info("Index written", "elapsed", indexDone.Sub(startTime).Round(time.Millisecond))
-	if hooks.OnGraphStart != nil {
-		hooks.OnGraphStart()
-	}
-	// Populate unified codebase graph
-	if _, err := graph.BuildGraph(context.Background(), database, absDir); err != nil {
-		ui.Warning(fmt.Sprintf("Code graph build failed: %v", err))
-	}
-	slog.Info("Code graph built", "elapsed", time.Since(indexDone).Round(time.Millisecond))
-	for _, w := range graph.Warnings(context.Background(), database) {
-		ui.Warning(w)
+	if withGraph {
+		if hooks.OnGraphStart != nil {
+			hooks.OnGraphStart()
+		}
+		// Populate unified codebase graph
+		if _, err := graph.BuildGraph(context.Background(), database, absDir); err != nil {
+			ui.Warning(fmt.Sprintf("Code graph build failed: %v", err))
+		}
+		slog.Info("Code graph built", "elapsed", time.Since(indexDone).Round(time.Millisecond))
+		for _, w := range graph.Warnings(context.Background(), database) {
+			ui.Warning(w)
+		}
 	}
 	rememberProject(absDir)
 	scanResult := rebuilt.Scan
@@ -199,7 +211,7 @@ func RunInitSilent(targetDir string) error {
 	}
 
 	slog.Info("Silently auto-indexing repository for MCP server", "path", absDir)
-	_, err = indexRepository(absDir, nil)
+	_, err = indexRepositoryOpts(absDir, indexer.RebuildHooks{}, false)
 	if err != nil {
 		slog.Error("Silent auto-index failed", "error", err)
 	}

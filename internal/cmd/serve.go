@@ -6,22 +6,55 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/recscse/codive/internal/daemon"
 	"github.com/recscse/codive/internal/db"
+	"github.com/recscse/codive/internal/graph"
 	"github.com/recscse/codive/internal/indexer"
+	"github.com/recscse/codive/internal/logger"
 	"github.com/recscse/codive/internal/mcp"
 	"github.com/recscse/codive/internal/scanner"
+	"github.com/recscse/codive/internal/workspace"
 )
 
-// RunServe starts the MCP (Model Context Protocol) JSON-RPC server over standard I/O with background auto-sync.
+// RunServe is what an AI client starts as its MCP server. It forwards the
+// client's stdio to the shared codive daemon (starting it if needed), so any
+// number of clients share one process and one writer per index. If the daemon
+// can't be reached, or CODIVE_STANDALONE=1, it serves on its own instead.
 func RunServe(targetDir string, version string) error {
+	root := workspace.Resolve(targetDir)
+	if os.Getenv("CODIVE_STANDALONE") == "1" {
+		return runServeStandalone(root, version)
+	}
+	first, err := daemon.EnsureAndDial(root, version, spawnDaemon)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "codive: the shared daemon is unavailable (%v); serving on its own\n", err)
+		return runServeStandalone(root, version)
+	}
+	used := false
+	return daemon.Proxy(os.Stdin, os.Stdout, func() (net.Conn, error) {
+		if !used {
+			used = true
+			return first, nil
+		}
+		return daemon.EnsureAndDial(root, version, spawnDaemon)
+	})
+}
+
+// runServeStandalone serves MCP over standard I/O from this process alone,
+// with background auto-sync. It is the fallback when the daemon can't run.
+func runServeStandalone(targetDir string, version string) error {
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
 		return fmt.Errorf("invalid directory path: %w", err)
+	}
+	if logger.InitLogger(absDir, false) == nil {
+		defer logger.Close()
 	}
 
 	dbPath := filepath.Join(absDir, ".codive", "index.db")
@@ -61,6 +94,10 @@ func RunServe(targetDir string, version string) error {
 			}
 		}
 		rebuildIfOutdated()
+		// Build the code graph here, off the request path (see RunDaemon).
+		if err := graph.EnsureFresh(ctx, database, absDir); err != nil && ctx.Err() == nil {
+			slog.Warn("Code graph build failed", "error", err)
+		}
 		startBackgroundWatcher(ctx, fresh, rebuildIfOutdated)
 	}()
 
@@ -80,13 +117,7 @@ func RunServe(targetDir string, version string) error {
 			fresheners[key] = f
 		}
 		freshMu.Unlock()
-		// The sync runs on its own clock. The tool call only waits a moment
-		// for it, then answers from the index as it is: a sync that is slow
-		// or blocked by another process must not use up the call's time
-		// budget and turn into a timeout. Its outcome is logged by OnSync.
-		waitCtx, cancel := context.WithTimeout(ctx, queryFreshnessWait)
-		defer cancel()
-		_, _ = f.SyncIfOlder(waitCtx, queryIndexAge(f.LastCost()))
+		waitForFreshness(ctx, f)
 	})
 	return server.Serve(os.Stdin, os.Stdout)
 }
@@ -116,6 +147,17 @@ const (
 	// the index still needs rebuilding for a newer symbol extractor.
 	rebuildRecheckInterval = 5 * time.Minute
 )
+
+// waitForFreshness brings f's index up to date for a tool call. The sync runs
+// on its own clock: the call waits a moment for it, then answers from the index
+// as it is. A sync that is slow or blocked by another process must not use up
+// the call's time budget and turn into a timeout. Its outcome is logged by the
+// Freshener's OnSync.
+func waitForFreshness(ctx context.Context, f *indexer.Freshener) {
+	waitCtx, cancel := context.WithTimeout(ctx, queryFreshnessWait)
+	defer cancel()
+	_, _ = f.SyncIfOlder(waitCtx, queryIndexAge(f.LastCost()))
+}
 
 // queryIndexAge returns how stale the index may be when a query is answered,
 // given how long the last sync pass took.
@@ -163,13 +205,15 @@ func startBackgroundWatcher(ctx context.Context, fresh *indexer.Freshener, rebui
 	}
 }
 
-func logSync(incrResult *scanner.IncrementalResult, err error) {
+func logSync(incrResult *scanner.IncrementalResult, err error) { logSyncTo(slog.Default(), incrResult, err) }
+
+func logSyncTo(l *slog.Logger, incrResult *scanner.IncrementalResult, err error) {
 	if err != nil {
-		slog.Warn("Index auto-sync failed", "error", err)
+		l.Warn("Index auto-sync failed", "error", err)
 		return
 	}
 	if incrResult != nil && (len(incrResult.Added) > 0 || len(incrResult.Modified) > 0 || len(incrResult.Deleted) > 0) {
-		slog.Info("Index auto-sync applied changes",
+		l.Info("Index auto-sync applied changes",
 			"added", len(incrResult.Added),
 			"modified", len(incrResult.Modified),
 			"deleted", len(incrResult.Deleted))
